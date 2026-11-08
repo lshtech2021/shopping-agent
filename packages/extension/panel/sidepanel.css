@@ -1,0 +1,104 @@
+:root {
+  color-scheme: light;
+  --bg: #f6f3ee;
+  --ink: #1c1917;
+  --accent: #0f766e;
+  --card: #fffdf9;
+  --line: #e7e0d5;
+  font-family: "Segoe UI", "PingFang SC", sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 16px;
+  background:
+    radial-gradient(circle at top left, #d9f3ef 0, transparent 40%),
+    var(--bg);
+  color: var(--ink);
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+h1 {
+  font-size: 1.25rem;
+  margin: 0 0 4px;
+}
+
+.muted {
+  color: #78716c;
+  font-size: 0.85rem;
+}
+
+textarea,
+input[type='text'] {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--card);
+  font: inherit;
+}
+
+.sites {
+  display: flex;
+  gap: 12px;
+  margin: 10px 0 14px;
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 16px;
+  background: var(--accent);
+  color: white;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.linkish {
+  background: transparent;
+  color: var(--accent);
+  padding: 8px 0;
+}
+
+#messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+  max-height: 55vh;
+  overflow: auto;
+}
+
+.bubble {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  white-space: pre-wrap;
+}
+
+.bubble.user {
+  align-self: flex-end;
+  background: #ecfdf5;
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+}
+
+.composer input {
+  flex: 1;
+}
+
+.recs {
+  margin-top: 8px;
+  padding-left: 18px;
+}

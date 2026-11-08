@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shopping Agent</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Shopping Agent</h1>
+      <p id="wsStatus" class="muted">WS: …</p>
+    </header>
+
+    <section id="newSession">
+      <label>购物需求</label>
+      <textarea id="requirement" rows="3" placeholder="例如：帮我挑一台 5000 元内的开发笔记本"></textarea>
+      <div class="sites">
+        <label><input type="checkbox" name="site" value="jd" checked /> 京东</label>
+        <label><input type="checkbox" name="site" value="ebay" /> eBay</label>
+      </div>
+      <button id="startBtn" type="button">开始选品</button>
+    </section>
+
+    <section id="chat" hidden>
+      <div id="messages"></div>
+      <div class="composer">
+        <input id="followup" type="text" placeholder="继续追问…" />
+        <button id="sendBtn" type="button">发送</button>
+        <button id="resumeBtn" type="button" hidden>继续</button>
+      </div>
+      <button id="resetBtn" type="button" class="linkish">新会话</button>
+    </section>
+
+    <p class="muted"><a href="../options/options.html" target="_blank">设置后端地址</a></p>
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

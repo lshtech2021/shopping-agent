@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shopping Agent 设置</title>
+    <style>
+      body {
+        font-family: "Segoe UI", sans-serif;
+        max-width: 480px;
+        margin: 40px auto;
+        padding: 0 16px;
+      }
+      input {
+        width: 100%;
+        padding: 8px 10px;
+        box-sizing: border-box;
+      }
+      button {
+        margin-top: 12px;
+        padding: 8px 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>设置</h1>
+    <label>后端地址</label>
+    <input id="backendUrl" type="url" placeholder="http://127.0.0.1:8100" />
+    <button id="save" type="button">保存</button>
+    <p id="status"></p>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
