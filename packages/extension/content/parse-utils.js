@@ -22,5 +22,15 @@
     return Number.isFinite(parsed) ? parsed : null
   }
 
-  return { parsePrice, parseSales }
+  function parseCurrency(text, fallback = 'USD') {
+    const value = String(text || '').toUpperCase()
+    if (/RMB|CNY|人民币/.test(value)) return 'CNY'
+    if (/USD|US\s*\$/.test(value)) return 'USD'
+    if (/EUR|€/.test(value)) return 'EUR'
+    if (/GBP|£/.test(value)) return 'GBP'
+    if (/\$/.test(value)) return 'USD'
+    return fallback
+  }
+
+  return { parsePrice, parseSales, parseCurrency }
 })

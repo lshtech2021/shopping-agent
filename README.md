@@ -28,7 +28,7 @@ uvicorn app.main:app --reload --port 8100
 | 0 骨架（echo + WS） | 完成 |
 | 1 mock 闭环 | 完成 |
 | 2 京东真浏览 | 完成 |
-| 3 eBay / 多轮 | 待办 |
+| 3 eBay / 多轮 | 完成 |
 | 4 控制台 / 评测 | 待办 |
 
 ## 测试

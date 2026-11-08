@@ -1,8 +1,8 @@
 ;(function () {
-  const jd = globalThis.__saJd
-  if (!jd) {
-    console.warn('[shopping-agent] jd parser missing')
-    return
+  function adapterForHost(hostname) {
+    if (hostname.includes('jd.com')) return globalThis.__saJd || null
+    if (hostname.includes('ebay.com')) return globalThis.__saEbay || null
+    return null
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -10,35 +10,47 @@
 
     ;(async () => {
       try {
+        const adapter = adapterForHost(location.hostname)
+        if (!adapter) {
+          sendResponse({ ok: false, error: `no adapter for ${location.hostname}` })
+          return
+        }
+
         if (message.type === 'detect_block') {
           sendResponse({
             ok: true,
-            block: jd.detectBlock(document, location.href),
+            block: adapter.detectBlock(document, location.href),
           })
           return
         }
         if (message.type === 'parse_listing') {
-          sendResponse({ ok: true, result: jd.parseListing(document, location.href) })
+          sendResponse({
+            ok: true,
+            result: adapter.parseListing(document, location.href),
+          })
           return
         }
         if (message.type === 'parse_detail') {
-          sendResponse({ ok: true, result: jd.parseDetail(document, location.href) })
+          sendResponse({
+            ok: true,
+            result: adapter.parseDetail(document, location.href),
+          })
           return
         }
         if (message.type === 'has_next_page') {
           sendResponse({
             ok: true,
-            hasNext: jd.hasNextPage(document),
-            nextUrl: jd.nextPageUrl(document, location.href),
+            hasNext: adapter.hasNextPage(document, location.href),
+            nextUrl: adapter.nextPageUrl(document, location.href),
           })
           return
         }
         if (message.type === 'click_next_page') {
-          const moved = await jd.clickNextPage(document)
+          const moved = await adapter.clickNextPage(document)
           sendResponse({
             ok: true,
             moved,
-            result: jd.parseListing(document, location.href),
+            result: adapter.parseListing(document, location.href),
           })
           return
         }

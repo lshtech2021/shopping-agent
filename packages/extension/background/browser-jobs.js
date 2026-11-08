@@ -16,6 +16,14 @@ function searchUrl(site, query) {
   throw new Error(`unsupported site ${site}`)
 }
 
+function detailUrl(site, sourceProductId, explicitUrl) {
+  if (explicitUrl) return explicitUrl
+  if (!sourceProductId) return null
+  if (site === 'jd') return `https://item.jd.com/${sourceProductId}.html`
+  if (site === 'ebay') return `https://www.ebay.com/itm/${sourceProductId}`
+  return null
+}
+
 async function ensureTab(site, url) {
   const existingId = SITE_TABS.get(site)
   if (existingId) {
@@ -81,12 +89,11 @@ function mapBlock(status) {
 
 export async function runBrowserJob(tool, args = {}) {
   const site = String(args.site || 'jd').toLowerCase()
-  if (site !== 'jd') {
+  if (site !== 'jd' && site !== 'ebay') {
     return {
       status: 'blocked',
       error: 'site_not_implemented',
       site,
-      note: 'Phase 2 only implements JD live browse',
     }
   }
 
@@ -147,11 +154,7 @@ export async function runBrowserJob(tool, args = {}) {
     }
 
     if (tool === 'fetch_detail') {
-      const url =
-        args.url ||
-        (args.source_product_id
-          ? `https://item.jd.com/${args.source_product_id}.html`
-          : null)
+      const url = detailUrl(site, args.source_product_id, args.url)
       if (!url) {
         return { status: 'parse_error', error: 'missing_detail_url' }
       }
@@ -177,7 +180,6 @@ export async function runBrowserJob(tool, args = {}) {
       mode: 'live',
     }
   } finally {
-    // Keep tabs for reuse; config hook reserved.
     await loadConfig()
   }
 }

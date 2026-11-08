@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Shopping Agent",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Side panel client and browser tool host for Shopping Agent",
   "permissions": ["sidePanel", "storage", "tabs", "scripting"],
   "host_permissions": [
@@ -11,7 +11,8 @@
     "https://list.jd.com/*",
     "https://item.jd.com/*",
     "https://*.jd.com/*",
-    "https://www.ebay.com/*"
+    "https://www.ebay.com/*",
+    "https://*.ebay.com/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js",
@@ -28,6 +29,15 @@
       "js": [
         "content/parse-utils.js",
         "content/jd.js",
+        "content/bridge.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.ebay.com/*", "https://*.ebay.com/*"],
+      "js": [
+        "content/parse-utils.js",
+        "content/ebay.js",
         "content/bridge.js"
       ],
       "run_at": "document_idle"

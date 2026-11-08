@@ -82,6 +82,12 @@
 
 ---
 
-### Task 5: Phase 3+ (later)
+### Task 5: Phase 3 — eBay + multi-turn
 
-- eBay, multi-turn, web console, evals
+- [x] eBay parsers + live browse jobs
+- [x] Multi-turn reanalyze / research (site add/remove, tighter constraints)
+- [x] Commit: `feat: phase3 ebay browse and multi-turn reanalyze`
+
+### Task 6: Phase 4+ (later)
+
+- web console, checkpointer, evals

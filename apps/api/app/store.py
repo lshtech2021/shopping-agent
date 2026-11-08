@@ -22,6 +22,7 @@ class Session:
     products: dict[str, dict[str, Any]] = field(default_factory=dict)
     recommendations: list[dict[str, Any]] = field(default_factory=list)
     quotas: dict[str, dict[str, int]] = field(default_factory=dict)
+    searched_sites: list[str] = field(default_factory=list)
     interrupt_reason: Optional[str] = None
     created_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)
