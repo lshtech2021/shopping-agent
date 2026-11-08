@@ -29,7 +29,7 @@ uvicorn app.main:app --reload --port 8100
 | 1 mock 闭环 | 完成 |
 | 2 京东真浏览 | 完成 |
 | 3 eBay / 多轮 | 完成 |
-| 4 控制台 / 评测 | 待办 |
+| 4 控制台 / 评测 | 完成 |
 
 ## 测试
 
@@ -39,16 +39,25 @@ cd apps/api
 $env:PYTHONPATH = (Get-Location).Path
 python -m pytest -q
 
+# Smoke evals (mock browser)
+python evals/run_smoke.py
+
 # Extension parsers
 cd ..\..\packages\extension
 npm install
 npm test
 ```
 
-## 京东真浏览（Phase 2）
+## 控制台
+
+启动 API 后打开：http://127.0.0.1:8100/console/
+
+只读查看会话列表、推荐、对话与商品缓存。
+
+## 京东/eBay 真浏览
 
 1. 启动 API：`uvicorn app.main:app --reload --port 8100`
 2. 设置 `SA_MOCK_BROWSER=false`（或在 `.env` 中配置）
 3. Chrome 加载 `packages/extension`，确认 Side Panel 显示 `WS: connected`
-4. 在 Side Panel 发起选品；extension 会打开京东标签页执行 search/scrape/detail
+4. 在 Side Panel 发起选品；extension 会打开站点标签页执行 search/scrape/detail
 5. 若出现验证码/空白页，会话会 interrupt，处理后点「继续」

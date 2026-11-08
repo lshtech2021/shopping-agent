@@ -1,0 +1,34 @@
+[
+  {
+    "id": "laptop-budget-32g",
+    "requirement": "帮我挑一台 5000 元内用于开发的笔记本，内存至少 32G",
+    "sites": ["jd"],
+    "message": "帮我挑一台 5000 元内用于开发的笔记本，内存至少 32G",
+    "expect": {
+      "interrupted": false,
+      "min_recommendations": 1,
+      "title_must_include_any": ["32G", "32GB", "32 GB"]
+    }
+  },
+  {
+    "id": "dual-site",
+    "requirement": "开发笔记本 预算5000 内存32G",
+    "sites": ["jd", "ebay"],
+    "message": "开发笔记本 预算5000 内存至少32G",
+    "expect": {
+      "interrupted": false,
+      "min_recommendations": 1,
+      "sources_include": ["jd", "ebay"]
+    }
+  },
+  {
+    "id": "rate-limit-interrupt",
+    "requirement": "笔记本",
+    "sites": ["jd"],
+    "message": "rate_limit_me",
+    "expect": {
+      "interrupted": true,
+      "interrupt_reason": "rate_limited"
+    }
+  }
+]

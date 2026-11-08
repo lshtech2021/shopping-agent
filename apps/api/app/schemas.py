@@ -39,6 +39,17 @@ class MessageResponse(BaseModel):
     interrupt_reason: Optional[str] = None
 
 
+class SessionSummary(BaseModel):
+    session_id: str
+    requirement: str
+    sites: list[str]
+    status: str
+    product_count: int = 0
+    recommendation_count: int = 0
+    updated_at: str
+    created_at: str
+
+
 class SessionDetail(BaseModel):
     session_id: str
     status: str
@@ -48,6 +59,10 @@ class SessionDetail(BaseModel):
     messages: list[dict[str, Any]] = Field(default_factory=list)
     products: list[dict[str, Any]] = Field(default_factory=list)
     recommendations: list[RecommendationOut] = Field(default_factory=list)
+    searched_sites: list[str] = Field(default_factory=list)
+    interrupt_reason: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class ResumeRequest(BaseModel):

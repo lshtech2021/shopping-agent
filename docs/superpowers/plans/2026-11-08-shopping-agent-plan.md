@@ -88,6 +88,9 @@
 - [x] Multi-turn reanalyze / research (site add/remove, tighter constraints)
 - [x] Commit: `feat: phase3 ebay browse and multi-turn reanalyze`
 
-### Task 6: Phase 4+ (later)
+### Task 6: Phase 4 — console + persistence + evals
 
-- web console, checkpointer, evals
+- [x] SQLite session persistence
+- [x] Read-only web console at `/console`
+- [x] Smoke eval runner
+- [x] Commit: `feat: phase4 console persistence and smoke evals`

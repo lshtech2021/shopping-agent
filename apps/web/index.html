@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shopping Agent Console</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <p class="eyebrow">Shopping Agent</p>
+        <h1>只读控制台</h1>
+      </div>
+      <div class="meta">
+        <span id="health">…</span>
+        <button id="refresh" type="button">刷新</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <h2>会话</h2>
+        <div id="sessionList" class="list"></div>
+      </section>
+      <section class="panel detail">
+        <h2>详情</h2>
+        <div id="sessionDetail" class="empty">选择左侧会话查看推荐与商品缓存。</div>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
