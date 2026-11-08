@@ -25,8 +25,16 @@ uvicorn app.main:app --reload --port 8100
 
 | Phase | 状态 |
 |-------|------|
-| 0 骨架（echo + WS） | 进行中 |
-| 1 mock 闭环 | 待办 |
+| 0 骨架（echo + WS） | 完成 |
+| 1 mock 闭环 | 完成 |
 | 2 京东真浏览 | 待办 |
 | 3 eBay / 多轮 | 待办 |
 | 4 控制台 / 评测 | 待办 |
+
+## 测试
+
+```powershell
+cd apps/api
+$env:PYTHONPATH = (Get-Location).Path
+python -m pytest -q
+```

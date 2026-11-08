@@ -23,12 +23,12 @@ def test_create_session_and_echo_message():
 
     msg = client.post(
         f"/api/v1/sessions/{body['session_id']}/messages",
-        json={"content": "预算五千"},
+        json={"content": "预算五千，开发笔记本"},
     )
     assert msg.status_code == 200
     data = msg.json()
-    assert "phase0-echo" in data["reply"]
     assert data["interrupted"] is False
+    assert data["recommendations"] or "选品" in data["reply"]
 
 
 def test_extension_ws_ping_pong():
