@@ -75,10 +75,10 @@
 
 ---
 
-### Task 4: Phase 2 — JD real browse (later)
+### Task 4: Phase 2 — JD real browse
 
-- Real content parsers, quotas, captcha/rate_limited interrupt
-- Commit: `feat: phase2 jd browse adapters and rate-limit interrupts`
+- [x] Real content parsers, quotas, captcha/rate_limited interrupt
+- [x] Commit: `feat: phase2 jd browse adapters and rate-limit interrupts`
 
 ---
 
