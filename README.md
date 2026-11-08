@@ -27,14 +27,28 @@ uvicorn app.main:app --reload --port 8100
 |-------|------|
 | 0 骨架（echo + WS） | 完成 |
 | 1 mock 闭环 | 完成 |
-| 2 京东真浏览 | 待办 |
+| 2 京东真浏览 | 完成 |
 | 3 eBay / 多轮 | 待办 |
 | 4 控制台 / 评测 | 待办 |
 
 ## 测试
 
 ```powershell
+# API
 cd apps/api
 $env:PYTHONPATH = (Get-Location).Path
 python -m pytest -q
+
+# Extension parsers
+cd ..\..\packages\extension
+npm install
+npm test
 ```
+
+## 京东真浏览（Phase 2）
+
+1. 启动 API：`uvicorn app.main:app --reload --port 8100`
+2. 设置 `SA_MOCK_BROWSER=false`（或在 `.env` 中配置）
+3. Chrome 加载 `packages/extension`，确认 Side Panel 显示 `WS: connected`
+4. 在 Side Panel 发起选品；extension 会打开京东标签页执行 search/scrape/detail
+5. 若出现验证码/空白页，会话会 interrupt，处理后点「继续」

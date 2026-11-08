@@ -1,4 +1,5 @@
 import { loadConfig } from '../shared/config.js'
+import { runBrowserJob } from './browser-jobs.js'
 
 let socket = null
 let reconnectTimer = null
@@ -74,36 +75,8 @@ async function connectWs() {
 }
 
 async function handleJob(tool, args) {
-  // Phase 0/1: mock execution in extension; Phase 2 wires real parsers.
   console.log('[shopping-agent] job', tool, args)
-  if (tool === 'search') {
-    return {
-      status: 'ok',
-      site: args.site,
-      query: args.query,
-      url: args.site === 'jd'
-        ? `https://search.jd.com/Search?keyword=${encodeURIComponent(args.query || '')}`
-        : `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(args.query || '')}`,
-      mode: 'extension-mock',
-    }
-  }
-  if (tool === 'scrape_listing' || tool === 'next_page') {
-    return {
-      status: 'ok',
-      items: [],
-      mode: 'extension-mock',
-      note: 'real scrape lands in phase2; use API mock_browser for closed loop',
-    }
-  }
-  if (tool === 'fetch_detail') {
-    return {
-      status: 'ok',
-      product_id: args.product_id,
-      attributes: {},
-      mode: 'extension-mock',
-    }
-  }
-  return { status: 'parse_error', error: `unknown tool ${tool}` }
+  return runBrowserJob(tool, args)
 }
 
 connectWs()
