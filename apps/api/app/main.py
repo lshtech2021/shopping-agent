@@ -1,6 +1,7 @@
 """Shopping Agent API."""
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,7 +23,14 @@ from app.schemas import (
 from app.store import store
 from app.ws_hub import hub
 
-app = FastAPI(title=settings.app_name, version="0.4.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    store.reset(settings.database_url)
+    yield
+
+
+app = FastAPI(title=settings.app_name, version="0.4.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],

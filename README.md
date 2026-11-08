@@ -12,12 +12,20 @@ Agent（LangGraph）在服务端规划；Chrome Extension 通过 WebSocket 执�
 ## 快速开始（Phase 0+）
 
 ```powershell
+# 1) PostgreSQL（Docker）
+docker compose up -d postgres
+
+# 2) API
 cd apps/api
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
+copy .env.example .env
 uvicorn app.main:app --reload --port 8100
 ```
+
+默认数据库：`postgresql://shopping:shopping@localhost:5432/shopping_agent`  
+单测使用内存库；持久化测试需设置 `SA_TEST_DATABASE_URL`。
 
 加载扩展：Chrome → 开发者模式 → 加载 `packages/extension`。
 

@@ -38,7 +38,7 @@
 |----|------|
 | Agent | LangGraph（Python） |
 | API | FastAPI + WebSocket |
-| DB | PostgreSQL（本地开发可用 SQLite） |
+| DB | PostgreSQL（单测可用 memory；Docker Compose 提供本地实例） |
 | Extension | Chrome MV3 + Side Panel |
 | 可选前端 | 轻量静态/React 只读页（后期） |
 | LLM | OpenAI 兼容接口（可配置） |

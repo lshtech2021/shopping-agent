@@ -1,13 +1,14 @@
-"""Session store with optional SQLite JSON persistence."""
+"""Session store with optional PostgreSQL JSON persistence."""
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Optional
+
+import psycopg
+from psycopg.rows import dict_row
 
 from app.config import settings
 
@@ -54,21 +55,25 @@ class Session:
         )
 
 
-def _sqlite_path(database_url: str) -> Optional[Path]:
+def _normalize_database_url(database_url: str) -> Optional[str]:
     url = (database_url or "").strip()
     if not url or url in {"memory", "sqlite:///:memory:"}:
         return None
-    if url.startswith("sqlite:///"):
-        raw = url[len("sqlite:///") :]
-        return Path(raw)
-    return Path(url)
+    if url.startswith("postgres://"):
+        return "postgresql://" + url[len("postgres://") :]
+    if url.startswith("postgresql://") or url.startswith("postgresql+psycopg://"):
+        return url.replace("postgresql+psycopg://", "postgresql://", 1)
+    raise ValueError(
+        f"Unsupported database URL (expected postgresql:// or memory): {database_url!r}"
+    )
 
 
 class SessionStore:
     def __init__(self, database_url: str | None = None) -> None:
         self._sessions: dict[str, Session] = {}
-        self._database_url = database_url if database_url is not None else settings.database_url
-        self._db_path = _sqlite_path(self._database_url)
+        raw = database_url if database_url is not None else settings.database_url
+        self._database_url = raw
+        self._pg_url = _normalize_database_url(raw)
         self._init_db()
         self._load_all()
 
@@ -76,32 +81,30 @@ class SessionStore:
         self._sessions.clear()
         if database_url is not None:
             self._database_url = database_url
-            self._db_path = _sqlite_path(database_url)
+            self._pg_url = _normalize_database_url(database_url)
         self._init_db()
         self._load_all()
 
-    def _connect(self) -> Optional[sqlite3.Connection]:
-        if self._db_path is None:
+    def _connect(self) -> Optional[psycopg.Connection]:
+        if self._pg_url is None:
             return None
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self._db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return psycopg.connect(self._pg_url, row_factory=dict_row)
 
     def _init_db(self) -> None:
         conn = self._connect()
         if conn is None:
             return
         try:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS sessions (
-                    id TEXT PRIMARY KEY,
-                    updated_at TEXT NOT NULL,
-                    payload TEXT NOT NULL
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS sessions (
+                        id TEXT PRIMARY KEY,
+                        updated_at TEXT NOT NULL,
+                        payload JSONB NOT NULL
+                    )
+                    """
                 )
-                """
-            )
             conn.commit()
         finally:
             conn.close()
@@ -111,11 +114,14 @@ class SessionStore:
         if conn is None:
             return
         try:
-            rows = conn.execute(
-                "SELECT payload FROM sessions ORDER BY updated_at DESC"
-            ).fetchall()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT payload FROM sessions ORDER BY updated_at DESC"
+                )
+                rows = cur.fetchall()
             for row in rows:
-                data = json.loads(row["payload"])
+                payload = row["payload"]
+                data = payload if isinstance(payload, dict) else json.loads(payload)
                 session = Session.from_dict(data)
                 self._sessions[session.id] = session
         finally:
@@ -126,16 +132,21 @@ class SessionStore:
         if conn is None:
             return
         try:
-            conn.execute(
-                """
-                INSERT INTO sessions(id, updated_at, payload)
-                VALUES(?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    updated_at=excluded.updated_at,
-                    payload=excluded.payload
-                """,
-                (session.id, session.updated_at, json.dumps(session.to_dict(), ensure_ascii=False)),
-            )
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO sessions(id, updated_at, payload)
+                    VALUES(%s, %s, %s::jsonb)
+                    ON CONFLICT(id) DO UPDATE SET
+                        updated_at=EXCLUDED.updated_at,
+                        payload=EXCLUDED.payload
+                    """,
+                    (
+                        session.id,
+                        session.updated_at,
+                        json.dumps(session.to_dict(), ensure_ascii=False),
+                    ),
+                )
             conn.commit()
         finally:
             conn.close()
@@ -201,4 +212,5 @@ class SessionStore:
         ]
 
 
-store = SessionStore()
+# Import-safe default; FastAPI lifespan binds the configured PostgreSQL URL.
+store = SessionStore("memory")

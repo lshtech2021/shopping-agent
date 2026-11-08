@@ -4,7 +4,7 @@
 
 **Goal:** 从零实现「Side Panel 对话 + LangGraph Agent + Extension Tool Host」选品助手，按阶段可提交、可演示。
 
-**Architecture:** FastAPI 托管会话与 WebSocket；LangGraph 执行工具循环；Chrome Extension 执行 browse jobs 并回传；Postgres/SQLite 持久化。
+**Architecture:** FastAPI 托管会话与 WebSocket；LangGraph 执行工具循环；Chrome Extension 执行 browse jobs 并回传；PostgreSQL 持久化。
 
 **Tech Stack:** Python 3.11+、FastAPI、LangGraph、SQLAlchemy、Pydantic v2、Chrome MV3、Node test（扩展侧可选）
 
@@ -90,7 +90,7 @@
 
 ### Task 6: Phase 4 — console + persistence + evals
 
-- [x] SQLite session persistence
+- [x] Session persistence (PostgreSQL JSONB; `memory` for unit tests)
 - [x] Read-only web console at `/console`
 - [x] Smoke eval runner
 - [x] Commit: `feat: phase4 console persistence and smoke evals`
