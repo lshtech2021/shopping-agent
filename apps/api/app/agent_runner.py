@@ -6,6 +6,7 @@ from typing import Any
 
 from app.store import Session, store
 from app.tools import BLOCKING, ToolBox
+from app.trace import log_event, timed_step
 
 
 async def run_agent(session: Session, content: str) -> dict[str, Any]:
@@ -14,12 +15,40 @@ async def run_agent(session: Session, content: str) -> dict[str, Any]:
     store.touch(session)
 
     text = (content or session.requirement or "").strip()
-    tools.update_requirements(text)
-    _apply_site_directives(session, text)
+    log_event(
+        session,
+        "Agent 回合开始",
+        stage="agent.run",
+        source="agent",
+        data={
+            "content": text[:200],
+            "sites": session.sites,
+            "searched_sites": session.searched_sites,
+            "product_count": len(session.products),
+            "mock_browser": tools.mock_mode,
+        },
+    )
+
+    with timed_step(session, "解析需求", stage="agent.requirements", data={"text": text[:120]}):
+        tools.update_requirements(text)
+        _apply_site_directives(session, text)
+
+    log_event(
+        session,
+        "需求快照",
+        stage="agent.requirements",
+        source="agent",
+        level="debug",
+        data={"requirements": session.requirements, "sites": session.sites},
+        persist=False,
+    )
 
     if _wants_rate_limit_probe(text):
         site = session.sites[0]
-        result = await tools.search(site, "rate_limit_me")
+        with timed_step(session, f"限流探针 search:{site}", stage="agent.rate_probe") as meta:
+            result = await tools.search(site, "rate_limit_me")
+            meta["summary"] = f"探针结果 {result.get('status')}"
+            meta["status"] = result.get("status")
         if result.get("status") in BLOCKING:
             ask = tools.ask_user(
                 f"{site} 访问过频或需验证，请稍后再点「继续」。",
@@ -29,18 +58,44 @@ async def run_agent(session: Session, content: str) -> dict[str, Any]:
 
     inventory = tools.query_inventory()
     sites_needing_search = _sites_to_search(session, text, inventory["count"])
+    log_event(
+        session,
+        "搜索计划",
+        stage="agent.plan",
+        source="agent",
+        data={
+            "inventory_count": inventory["count"],
+            "total_cached": inventory.get("total_cached"),
+            "sites_to_search": sites_needing_search,
+            "mode": "search" if sites_needing_search else "reanalyze",
+        },
+    )
 
     if sites_needing_search:
         for site in sites_needing_search:
             query = _build_query(session, site)
-            searched = await tools.search(site, query)
+            with timed_step(
+                session,
+                f"搜索 {site}",
+                stage="agent.search",
+                data={"query": query},
+            ) as meta:
+                searched = await tools.search(site, query)
+                meta["status"] = searched.get("status")
+                meta["summary"] = f"search={searched.get('status')}"
             if searched.get("status") in BLOCKING:
                 ask = tools.ask_user(
                     f"{site} 暂时无法搜索（{searched.get('status')}），处理完成后点继续。",
                     reason=str(searched.get("status")),
                 )
                 return _interrupt_response(session, ask["question"], ask["reason"])
-            scraped = await tools.scrape_listing(site=site, page=1)
+            with timed_step(session, f"抓列表 {site}", stage="agent.scrape") as meta:
+                scraped = await tools.scrape_listing(site=site, page=1)
+                meta["status"] = scraped.get("status")
+                meta["accepted"] = scraped.get("accepted")
+                meta["summary"] = (
+                    f"scrape={scraped.get('status')} accepted={scraped.get('accepted')}"
+                )
             if scraped.get("status") in BLOCKING:
                 ask = tools.ask_user(
                     f"{site} 列表抓取受阻（{scraped.get('status')}）。",
@@ -51,8 +106,14 @@ async def run_agent(session: Session, content: str) -> dict[str, Any]:
                 session.searched_sites.append(site)
         inventory = tools.query_inventory()
     else:
-        # Reanalyze path: reuse cached products under updated constraints.
         inventory = tools.query_inventory()
+        log_event(
+            session,
+            "跳过搜索，复用缓存重排",
+            stage="agent.reanalyze",
+            source="agent",
+            data={"inventory_count": inventory["count"]},
+        )
 
     if inventory["count"] == 0:
         ask = tools.ask_user("当前条件下没有商品，请调整预算或需求后再试。", "empty")
@@ -66,8 +127,23 @@ async def run_agent(session: Session, content: str) -> dict[str, Any]:
         and "贴纸" not in (item.get("title") or "")
         and not re.search(r"shop on ebay", item.get("title") or "", re.I)
     ][:3]
+    log_event(
+        session,
+        f"准备抓取详情 {len(detail_targets)} 条",
+        stage="agent.detail.plan",
+        source="agent",
+        data={"targets": [t.get("product_id") for t in detail_targets]},
+    )
     for item in detail_targets:
-        detail = await tools.fetch_detail(item["product_id"])
+        with timed_step(
+            session,
+            f"详情 {item['product_id']}",
+            stage="agent.detail",
+            data={"title": (item.get("title") or "")[:80]},
+        ) as meta:
+            detail = await tools.fetch_detail(item["product_id"])
+            meta["status"] = detail.get("status")
+            meta["summary"] = f"detail={detail.get('status')}"
         if detail.get("status") in BLOCKING:
             ask = tools.ask_user(
                 f"详情抓取受阻（{detail.get('status')}），处理后可继续。",
@@ -75,7 +151,10 @@ async def run_agent(session: Session, content: str) -> dict[str, Any]:
             )
             return _interrupt_response(session, ask["question"], ask["reason"])
 
-    picks = _pick_recommendations(session)
+    with timed_step(session, "生成推荐", stage="agent.recommend") as meta:
+        picks = _pick_recommendations(session)
+        meta["pick_count"] = len(picks)
+        meta["summary"] = f"选出 {len(picks)} 条"
     if not picks:
         ask = tools.ask_user("硬约束过滤后没有合适商品，是否放宽预算或必须项？", "empty")
         return _interrupt_response(session, ask["question"], ask["reason"])
@@ -85,6 +164,18 @@ async def run_agent(session: Session, content: str) -> dict[str, Any]:
     result = tools.recommend(picks, answer)
     session.messages.append({"role": "assistant", "content": answer})
     store.touch(session)
+    log_event(
+        session,
+        "Agent 回合完成",
+        stage="agent.done",
+        source="agent",
+        data={
+            "mode": mode,
+            "recommendation_count": len(result["recommendations"]),
+            "product_count": len(session.products),
+            "quotas": session.quotas,
+        },
+    )
     return {
         "session_id": session.id,
         "status": session.status,
@@ -92,10 +183,18 @@ async def run_agent(session: Session, content: str) -> dict[str, Any]:
         "recommendations": result["recommendations"],
         "interrupted": False,
         "interrupt_reason": None,
+        "execution_logs": session.execution_logs[-80:],
     }
 
 
 async def resume_agent(session: Session, note: str) -> dict[str, Any]:
+    log_event(
+        session,
+        "恢复中断回合",
+        stage="agent.resume",
+        source="agent",
+        data={"note": note},
+    )
     session.interrupt_reason = None
     session.status = "running"
     store.touch(session)
@@ -108,6 +207,14 @@ async def resume_agent(session: Session, note: str) -> dict[str, Any]:
 
 
 def _interrupt_response(session: Session, question: str, reason: str) -> dict[str, Any]:
+    log_event(
+        session,
+        f"中断：{reason}",
+        stage="agent.interrupt",
+        source="agent",
+        level="warning",
+        data={"question": question, "reason": reason},
+    )
     session.messages.append({"role": "assistant", "content": question})
     store.touch(session)
     return {
@@ -117,6 +224,7 @@ def _interrupt_response(session: Session, question: str, reason: str) -> dict[st
         "recommendations": session.recommendations,
         "interrupted": True,
         "interrupt_reason": reason,
+        "execution_logs": session.execution_logs[-80:],
     }
 
 

@@ -95,9 +95,22 @@ async function loadDetail(sessionId) {
     )
     .join('')
 
+  const logs = (data.execution_logs || [])
+    .map((item) => {
+      const time = escapeHtml((item.ts || '').slice(11, 19))
+      const dur = item.duration_ms != null ? ` ${escapeHtml(item.duration_ms)}ms` : ''
+      const dataText = item.data ? ` ${escapeHtml(JSON.stringify(item.data))}` : ''
+      return `<div class="log-line level-${escapeHtml(item.level || 'info')}"><span class="t">${time}</span> <span class="s">${escapeHtml(item.source)}/${escapeHtml(item.stage)}</span> ${escapeHtml(item.message)}${dur}${dataText}</div>`
+    })
+    .join('')
+
   els.sessionDetail.innerHTML = `
     <h3>${escapeHtml(data.requirement)}</h3>
     <p class="muted">${escapeHtml(data.status)} · sites ${escapeHtml((data.sites || []).join(','))} · searched ${escapeHtml((data.searched_sites || []).join(',') || '-')}</p>
+    <div class="block">
+      <h3>执行日志（${(data.execution_logs || []).length}）</h3>
+      <div class="log-stream">${logs || '<p class="empty">暂无执行日志</p>'}</div>
+    </div>
     <div class="block">
       <h3>推荐</h3>
       <div class="cards">${recs || '<p class="empty">无推荐</p>'}</div>

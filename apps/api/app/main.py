@@ -11,6 +11,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
+from app.logging_setup import setup_logging
 from app.schemas import (
     CreateSessionRequest,
     CreateSessionResponse,
@@ -21,16 +22,18 @@ from app.schemas import (
     SessionSummary,
 )
 from app.store import store
+from app.trace import log_event
 from app.ws_hub import hub
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    setup_logging()
     store.reset(settings.database_url)
     yield
 
 
-app = FastAPI(title=settings.app_name, version="0.4.0", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, version="0.4.1", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
@@ -69,6 +72,13 @@ def create_session(payload: CreateSessionRequest) -> CreateSessionResponse:
     if not payload.sites:
         raise HTTPException(status_code=422, detail="至少选择一个站点")
     session = store.create(payload.requirement, list(payload.sites))
+    log_event(
+        session,
+        "创建会话",
+        stage="api.create_session",
+        source="api",
+        data={"requirement": payload.requirement, "sites": list(payload.sites)},
+    )
     return CreateSessionResponse(
         session_id=session.id,
         status=session.status,
@@ -93,6 +103,7 @@ def get_session(session_id: str) -> SessionDetail:
         recommendations=session.recommendations,
         searched_sites=session.searched_sites,
         interrupt_reason=session.interrupt_reason,
+        execution_logs=session.execution_logs,
         created_at=session.created_at,
         updated_at=session.updated_at,
     )
@@ -105,6 +116,14 @@ async def post_message(session_id: str, payload: MessageRequest) -> MessageRespo
         raise HTTPException(status_code=404, detail="session not found")
 
     content = payload.content.strip()
+    log_event(
+        session,
+        "收到用户消息",
+        stage="api.message",
+        source="api",
+        data={"content": content[:200]},
+        persist=False,
+    )
     session.messages.append(
         {
             "role": "user",
@@ -126,6 +145,14 @@ async def resume_session(session_id: str, payload: ResumeRequest) -> MessageResp
     session = store.get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
+    log_event(
+        session,
+        "API resume",
+        stage="api.resume",
+        source="api",
+        data={"note": payload.note},
+        persist=False,
+    )
     from app.agent_runner import resume_agent
 
     result = await resume_agent(session, payload.note or "continue")

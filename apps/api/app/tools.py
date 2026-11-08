@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import re
+import time
 import uuid
 from typing import Any, Optional
 
 from app.config import settings
 from app import mock_browser
 from app.store import Session, store
+from app.trace import log_event
 from app.ws_hub import hub
 
 QUOTA_LIMITS = {"search": 2, "next_page": 2, "fetch_detail": 5}
@@ -22,6 +24,10 @@ class ToolBox:
         self.page = 0
         self.last_ask: Optional[str] = None
 
+    @property
+    def mock_mode(self) -> bool:
+        return bool(settings.mock_browser)
+
     def _quota(self, site: str, tool: str) -> dict[str, int]:
         site_q = self.session.quotas.setdefault(site, {})
         return site_q
@@ -30,7 +36,7 @@ class ToolBox:
         used = self._quota(site, tool).get(tool, 0)
         limit = QUOTA_LIMITS.get(tool, 99)
         if used >= limit:
-            return {
+            blocked = {
                 "status": "blocked",
                 "error": "quota_exceeded",
                 "tool": tool,
@@ -38,6 +44,15 @@ class ToolBox:
                 "used": used,
                 "limit": limit,
             }
+            log_event(
+                self.session,
+                f"配额耗尽 {site}.{tool}",
+                stage="tool.quota",
+                source="tool",
+                level="warning",
+                data=blocked,
+            )
+            return blocked
         return None
 
     def _bump_quota(self, site: str, tool: str) -> None:
@@ -45,22 +60,79 @@ class ToolBox:
         q[tool] = q.get(tool, 0) + 1
 
     async def _browse(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
-        if settings.mock_browser:
-            if tool == "search":
-                return mock_browser.mock_search(args.get("site", ""), args.get("query", ""))
-            if tool == "scrape_listing":
-                return mock_browser.mock_scrape_listing(
-                    args.get("site", ""), int(args.get("page") or 1)
-                )
-            if tool == "next_page":
-                page = int(args.get("page") or 2)
-                return mock_browser.mock_scrape_listing(args.get("site", ""), page)
-            if tool == "fetch_detail":
-                return mock_browser.mock_fetch_detail(
-                    args.get("site", ""), args.get("source_product_id", "")
-                )
-            return {"status": "parse_error", "error": f"unknown browse tool {tool}"}
-        return await hub.dispatch_job(tool, args)
+        mode = "mock" if settings.mock_browser else "live"
+        started = time.perf_counter()
+        log_event(
+            self.session,
+            f"调用 browse:{tool} ({mode})",
+            stage=f"tool.{tool}",
+            source="tool",
+            level="debug",
+            data={"args": args, "mode": mode},
+            persist=False,
+        )
+        try:
+            if settings.mock_browser:
+                if tool == "search":
+                    result = mock_browser.mock_search(args.get("site", ""), args.get("query", ""))
+                elif tool == "scrape_listing":
+                    result = mock_browser.mock_scrape_listing(
+                        args.get("site", ""), int(args.get("page") or 1)
+                    )
+                elif tool == "next_page":
+                    page = int(args.get("page") or 2)
+                    result = mock_browser.mock_scrape_listing(args.get("site", ""), page)
+                elif tool == "fetch_detail":
+                    result = mock_browser.mock_fetch_detail(
+                        args.get("site", ""), args.get("source_product_id", "")
+                    )
+                else:
+                    result = {"status": "parse_error", "error": f"unknown browse tool {tool}"}
+            else:
+                result = await hub.dispatch_job(tool, args, session=self.session)
+        except Exception as exc:  # noqa: BLE001
+            log_event(
+                self.session,
+                f"browse:{tool} 异常",
+                stage=f"tool.{tool}",
+                source="tool",
+                level="error",
+                duration_ms=(time.perf_counter() - started) * 1000,
+                data={"error": str(exc), "args": args},
+            )
+            raise
+
+        summary: dict[str, Any] = {
+            "status": result.get("status"),
+            "mode": mode,
+            "error": result.get("error"),
+        }
+        if "items" in result:
+            summary["item_count"] = len(result.get("items") or [])
+        if result.get("extension_logs"):
+            for entry in result.get("extension_logs") or []:
+                if isinstance(entry, dict):
+                    log_event(
+                        self.session,
+                        str(entry.get("message") or "extension"),
+                        stage=str(entry.get("stage") or f"extension.{tool}"),
+                        source="extension",
+                        level=str(entry.get("level") or "info"),
+                        duration_ms=entry.get("duration_ms"),
+                        data=entry.get("data"),
+                        persist=False,
+                    )
+            summary["extension_log_count"] = len(result.get("extension_logs") or [])
+        log_event(
+            self.session,
+            f"browse:{tool} → {result.get('status')}",
+            stage=f"tool.{tool}",
+            source="tool",
+            level="warning" if result.get("status") in BLOCKING else "info",
+            duration_ms=(time.perf_counter() - started) * 1000,
+            data=summary,
+        )
+        return result
 
     # --- memory ---
 

@@ -1,5 +1,6 @@
 import { loadConfig } from '../shared/config.js'
 import { runBrowserJob } from './browser-jobs.js'
+import { createJobLogger } from '../shared/logger.js'
 
 let socket = null
 let reconnectTimer = null
@@ -26,6 +27,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 })
 
 async function connectWs() {
+  const log = createJobLogger('ws')
   const { backendUrl } = await loadConfig()
   const wsUrl = backendUrl.replace(/^http/, 'ws') + '/ws/extension'
   if (socket) {
@@ -37,7 +39,7 @@ async function connectWs() {
   }
   socket = new WebSocket(wsUrl)
   socket.addEventListener('open', () => {
-    console.log('[shopping-agent] ws open', wsUrl)
+    log.info('extension.ws', 'WebSocket 已连接', { wsUrl })
     socket.send(JSON.stringify({ type: 'ping', ts: Date.now() }))
   })
   socket.addEventListener('message', async (event) => {
@@ -45,13 +47,18 @@ async function connectWs() {
     try {
       data = JSON.parse(event.data)
     } catch (_) {
+      log.warn('extension.ws', '收到非 JSON 消息')
       return
     }
     if (data.type === 'pong') {
-      console.log('[shopping-agent] ws pong')
+      log.debug('extension.ws', 'pong')
       return
     }
     if (data.type === 'job') {
+      log.info('extension.ws', `收到任务 ${data.tool}`, {
+        job_id: data.job_id,
+        args: data.args,
+      })
       const result = await handleJob(data.tool, data.args || {})
       if (socket?.readyState === WebSocket.OPEN) {
         socket.send(
@@ -61,21 +68,24 @@ async function connectWs() {
             result,
           }),
         )
+        log.info('extension.ws', `回传任务结果 ${data.tool}=${result?.status}`, {
+          job_id: data.job_id,
+          log_count: (result?.extension_logs || []).length,
+        })
       }
     }
   })
   socket.addEventListener('close', () => {
-    console.log('[shopping-agent] ws closed; retry in 3s')
+    log.warn('extension.ws', 'WebSocket 断开，3s 后重连')
     clearTimeout(reconnectTimer)
     reconnectTimer = setTimeout(connectWs, 3000)
   })
   socket.addEventListener('error', (err) => {
-    console.warn('[shopping-agent] ws error', err)
+    log.error('extension.ws', 'WebSocket 错误', { error: String(err) })
   })
 }
 
 async function handleJob(tool, args) {
-  console.log('[shopping-agent] job', tool, args)
   return runBrowserJob(tool, args)
 }
 

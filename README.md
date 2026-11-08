@@ -60,7 +60,9 @@ npm test
 
 启动 API 后打开：http://127.0.0.1:8100/console/
 
-只读查看会话列表、推荐、对话与商品缓存。
+只读查看会话列表、执行日志、推荐、对话与商品缓存。
+
+日志：API 进程 stdout（`SA_LOG_LEVEL`）+ 会话 `execution_logs`（控制台 / Side Panel 可见）。Extension 浏览步骤会通过 `extension_logs` 回传并合并进会话时间线。
 
 ## 京东/eBay 真浏览
 

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
     cors_origins: str = "*"
     mock_browser: bool = True
+    log_level: str = "INFO"
 
 
 settings = Settings()

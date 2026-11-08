@@ -146,6 +146,43 @@ button {
   background: #ecfdf5;
 }
 
+.log-stream {
+  max-height: 360px;
+  overflow: auto;
+  background: #1c1917;
+  color: #e7e5e4;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.log-line {
+  margin-bottom: 6px;
+  word-break: break-word;
+}
+
+.log-line .t {
+  color: #a8a29e;
+}
+
+.log-line .s {
+  color: #5eead4;
+}
+
+.log-line.level-warning {
+  color: #fbbf24;
+}
+
+.log-line.level-error {
+  color: #fb7185;
+}
+
+.log-line.level-debug {
+  color: #a8a29e;
+}
+
 @media (max-width: 900px) {
   .layout {
     grid-template-columns: 1fr;

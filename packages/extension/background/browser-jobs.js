@@ -1,4 +1,5 @@
 import { loadConfig } from '../shared/config.js'
+import { createJobLogger } from '../shared/logger.js'
 
 const SITE_TABS = new Map()
 
@@ -24,20 +25,23 @@ function detailUrl(site, sourceProductId, explicitUrl) {
   return null
 }
 
-async function ensureTab(site, url) {
+async function ensureTab(site, url, log) {
   const existingId = SITE_TABS.get(site)
   if (existingId) {
     try {
       const tab = await chrome.tabs.get(existingId)
+      log.debug('extension.tab', `复用标签 ${site}`, { tabId: tab.id, url })
       await chrome.tabs.update(tab.id, { url, active: false })
       await waitComplete(tab.id)
       return tab.id
     } catch (_) {
       SITE_TABS.delete(site)
+      log.warn('extension.tab', `旧标签失效，重建 ${site}`)
     }
   }
   const tab = await chrome.tabs.create({ url, active: false })
   SITE_TABS.set(site, tab.id)
+  log.info('extension.tab', `新建标签 ${site}`, { tabId: tab.id, url })
   await waitComplete(tab.id)
   return tab.id
 }
@@ -87,98 +91,157 @@ function mapBlock(status) {
   return status
 }
 
+function withLogs(result, log) {
+  return {
+    ...result,
+    extension_logs: log.entries(),
+  }
+}
+
 export async function runBrowserJob(tool, args = {}) {
+  const log = createJobLogger(tool)
   const site = String(args.site || 'jd').toLowerCase()
+  log.info('extension.job', `开始任务 ${tool}`, { site, args })
+
   if (site !== 'jd' && site !== 'ebay') {
-    return {
-      status: 'blocked',
-      error: 'site_not_implemented',
-      site,
-    }
+    log.error('extension.job', `不支持站点 ${site}`)
+    return withLogs(
+      {
+        status: 'blocked',
+        error: 'site_not_implemented',
+        site,
+      },
+      log,
+    )
   }
 
   try {
     if (tool === 'search') {
       const url = searchUrl(site, args.query || '')
-      const tabId = await ensureTab(site, url)
+      const tabId = await ensureTab(site, url, log)
       await delay(800)
       const probe = await sendToTab(tabId, { type: 'detect_block' })
       const block = mapBlock(probe?.block)
-      if (block) return { status: block, site, query: args.query, url, mode: 'live' }
-      return { status: 'ok', site, query: args.query, url, tab_id: tabId, mode: 'live' }
+      if (block) {
+        log.warn('extension.search', `页面阻断 ${block}`, { url, probe })
+        return withLogs({ status: block, site, query: args.query, url, mode: 'live' }, log)
+      }
+      log.info('extension.search', '搜索页就绪', { url, tabId })
+      return withLogs(
+        { status: 'ok', site, query: args.query, url, tab_id: tabId, mode: 'live' },
+        log,
+      )
     }
 
     if (tool === 'scrape_listing') {
       const tabId = SITE_TABS.get(site)
       if (!tabId) {
-        return { status: 'blocked', error: 'no_active_search_tab', site }
+        log.warn('extension.scrape', '没有活跃搜索标签')
+        return withLogs({ status: 'blocked', error: 'no_active_search_tab', site }, log)
       }
       await delay(500)
       const response = await sendToTab(tabId, { type: 'parse_listing' })
       if (!response?.ok) {
-        return { status: 'parse_error', error: response?.error || 'parse_failed' }
+        log.error('extension.scrape', '列表解析失败', response)
+        return withLogs(
+          { status: 'parse_error', error: response?.error || 'parse_failed' },
+          log,
+        )
       }
-      return { ...response.result, mode: 'live' }
+      const itemCount = (response.result?.items || []).length
+      log.info('extension.scrape', `列表解析完成 items=${itemCount}`, {
+        status: response.result?.status,
+        itemCount,
+      })
+      return withLogs({ ...response.result, mode: 'live' }, log)
     }
 
     if (tool === 'next_page') {
       const tabId = SITE_TABS.get(site)
       if (!tabId) {
-        return { status: 'blocked', error: 'no_active_search_tab', site }
+        return withLogs({ status: 'blocked', error: 'no_active_search_tab', site }, log)
       }
       const meta = await sendToTab(tabId, { type: 'has_next_page' })
       if (!meta?.ok) {
-        return { status: 'parse_error', error: meta?.error || 'next_meta_failed' }
+        return withLogs(
+          { status: 'parse_error', error: meta?.error || 'next_meta_failed' },
+          log,
+        )
       }
       if (meta.nextUrl) {
+        log.info('extension.next', '跳转下一页', { nextUrl: meta.nextUrl })
         await chrome.tabs.update(tabId, { url: meta.nextUrl })
         await waitComplete(tabId)
         await delay(800)
         const response = await sendToTab(tabId, { type: 'parse_listing' })
         if (!response?.ok) {
-          return { status: 'parse_error', error: response?.error || 'parse_failed' }
+          return withLogs(
+            { status: 'parse_error', error: response?.error || 'parse_failed' },
+            log,
+          )
         }
-        return { ...response.result, mode: 'live' }
+        return withLogs({ ...response.result, mode: 'live' }, log)
       }
       if (meta.hasNext) {
         const clicked = await sendToTab(tabId, { type: 'click_next_page' })
         if (!clicked?.ok) {
-          return { status: 'parse_error', error: clicked?.error || 'click_failed' }
+          return withLogs(
+            { status: 'parse_error', error: clicked?.error || 'click_failed' },
+            log,
+          )
         }
         if (!clicked.moved) {
-          return { status: 'ok', items: [], no_more: true, mode: 'live' }
+          return withLogs({ status: 'ok', items: [], no_more: true, mode: 'live' }, log)
         }
-        return { ...clicked.result, mode: 'live' }
+        return withLogs({ ...clicked.result, mode: 'live' }, log)
       }
-      return { status: 'ok', items: [], no_more: true, mode: 'live' }
+      log.info('extension.next', '没有更多页')
+      return withLogs({ status: 'ok', items: [], no_more: true, mode: 'live' }, log)
     }
 
     if (tool === 'fetch_detail') {
       const url = detailUrl(site, args.source_product_id, args.url)
       if (!url) {
-        return { status: 'parse_error', error: 'missing_detail_url' }
+        return withLogs({ status: 'parse_error', error: 'missing_detail_url' }, log)
       }
-      const tabId = await ensureTab(`${site}-detail`, url)
+      const tabId = await ensureTab(`${site}-detail`, url, log)
       await delay(800)
       const response = await sendToTab(tabId, { type: 'parse_detail' })
       if (!response?.ok) {
-        return { status: 'parse_error', error: response?.error || 'detail_failed' }
+        log.error('extension.detail', '详情解析失败', response)
+        return withLogs(
+          { status: 'parse_error', error: response?.error || 'detail_failed' },
+          log,
+        )
       }
-      return {
-        ...response.result,
-        source_product_id: args.source_product_id,
-        url,
-        mode: 'live',
-      }
+      log.info('extension.detail', '详情解析完成', {
+        title: response.result?.title,
+        price: response.result?.price,
+      })
+      return withLogs(
+        {
+          ...response.result,
+          source_product_id: args.source_product_id,
+          url,
+          mode: 'live',
+        },
+        log,
+      )
     }
 
-    return { status: 'parse_error', error: `unknown tool ${tool}` }
+    return withLogs({ status: 'parse_error', error: `unknown tool ${tool}` }, log)
   } catch (error) {
-    return {
-      status: 'blocked',
+    log.error('extension.job', `任务异常 ${tool}`, {
       error: String(error?.message || error),
-      mode: 'live',
-    }
+    })
+    return withLogs(
+      {
+        status: 'blocked',
+        error: String(error?.message || error),
+        mode: 'live',
+      },
+      log,
+    )
   } finally {
     await loadConfig()
   }

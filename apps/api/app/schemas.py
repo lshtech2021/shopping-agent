@@ -37,6 +37,7 @@ class MessageResponse(BaseModel):
     recommendations: list[RecommendationOut] = Field(default_factory=list)
     interrupted: bool = False
     interrupt_reason: Optional[str] = None
+    execution_logs: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SessionSummary(BaseModel):
@@ -61,6 +62,7 @@ class SessionDetail(BaseModel):
     recommendations: list[RecommendationOut] = Field(default_factory=list)
     searched_sites: list[str] = Field(default_factory=list)
     interrupt_reason: Optional[str] = None
+    execution_logs: list[dict[str, Any]] = Field(default_factory=list)
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

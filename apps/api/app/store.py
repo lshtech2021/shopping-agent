@@ -30,6 +30,7 @@ class Session:
     quotas: dict[str, dict[str, int]] = field(default_factory=dict)
     searched_sites: list[str] = field(default_factory=list)
     interrupt_reason: Optional[str] = None
+    execution_logs: list[dict[str, Any]] = field(default_factory=list)
     created_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)
 
@@ -50,6 +51,7 @@ class Session:
             quotas=dict(data.get("quotas") or {}),
             searched_sites=list(data.get("searched_sites") or []),
             interrupt_reason=data.get("interrupt_reason"),
+            execution_logs=list(data.get("execution_logs") or []),
             created_at=str(data.get("created_at") or _now()),
             updated_at=str(data.get("updated_at") or _now()),
         )
