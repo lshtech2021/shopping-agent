@@ -6,7 +6,8 @@ import random
 import re
 import time
 import uuid
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any, Literal, Optional
 
 from app.config import settings
 from app import mock_browser
@@ -221,12 +222,22 @@ class ToolBox:
     def update_requirements(self, text: str, patch: dict[str, Any] | None = None) -> dict[str, Any]:
         req = dict(self.session.requirements or {})
         req["raw"] = text or req.get("raw") or self.session.requirement
-        budget = _extract_budget(text)
-        if budget is not None and (
-            req.get("budget_cny") is None or _BUDGET_UPDATE.search(text)
+        parsed_budget = parse_budget(text)
+        needs_clarify = False
+        if _UNLIMITED_TEXT.search(text):
+            req["budget_cny"] = None
+            req["budget_min_cny"] = None
+            req["budget_unlimited"] = True
+        elif parsed_budget.confidence == "high" and (
+            parsed_budget.max_cny is not None
+            or parsed_budget.min_cny is not None
         ):
-            req["budget_cny"] = budget
-            req["budget_unlimited"] = False
+            if req.get("budget_cny") is None or _BUDGET_UPDATE.search(text):
+                req["budget_cny"] = parsed_budget.max_cny
+                req["budget_min_cny"] = parsed_budget.min_cny
+                req["budget_unlimited"] = False
+        elif parsed_budget.confidence == "low" and re.search(r"\d", text):
+            needs_clarify = True
         # Only record what the user said; never infer category/use case on our own.
         category = _extract_category(text)
         if category and (
@@ -258,7 +269,11 @@ class ToolBox:
                     req[key] = value
         self.session.requirements = req
         store.touch(self.session)
-        return {"ok": True, "requirements": req}
+        return {
+            "ok": True,
+            "requirements": req,
+            "needs_clarify": needs_clarify,
+        }
 
     def query_inventory(
         self,
@@ -537,9 +552,13 @@ class ToolBox:
                     req["budget_cny"] = None
                     req["budget_unlimited"] = True
                 else:
-                    parsed = _parse_budget_answer(value)
-                    if parsed is not None:
-                        req["budget_cny"] = parsed
+                    parsed = parse_budget(value)
+                    if parsed.confidence == "high" and (
+                        parsed.max_cny is not None
+                        or parsed.min_cny is not None
+                    ):
+                        req["budget_cny"] = parsed.max_cny
+                        req["budget_min_cny"] = parsed.min_cny
                         req["budget_unlimited"] = False
             elif field == "category":
                 req["category"] = value
@@ -657,26 +676,106 @@ def min_ram_gb(req: dict[str, Any]) -> int | None:
     )
 
 
-def _parse_budget_answer(value: str) -> float | None:
-    """Parse a clarify answer like '3000以内' / '5000-8000' / '1.5万' / '六千' → upper bound."""
-    m = re.search(
-        r"(\d+(?:\.\d+)?)\s*(万|千|k)?(?:\s*[-~到至]\s*(\d+(?:\.\d+)?)\s*(万|千|k)?)?",
+@dataclass(frozen=True)
+class BudgetParse:
+    max_cny: float | None
+    min_cny: float | None
+    confidence: Literal["high", "low"]
+
+
+_NON_BUDGET_TAIL = re.compile(
+    r"^\s*(?:万)?(?:像素|mAh|mah|个|件|台|年|款|代)"
+)
+_UNLIMITED_TEXT = re.compile(r"不限|无所谓|都可以|越贵越好|取消预算|不用管预算")
+_OPEN_ENDED_TEXT = re.compile(r"以上|起|至少|不低于|≥")
+_NUM = r"(\d+(?:\.\d+)?)"
+
+
+def _has_non_budget_tail(value: str, end: int) -> bool:
+    return bool(_NON_BUDGET_TAIL.match(value[end:]))
+
+
+def parse_budget(text: str) -> BudgetParse:
+    """Parse a CNY budget without treating specs, counters, or model numbers as money."""
+    value = str(text or "").strip()
+    if not value:
+        return BudgetParse(None, None, "low")
+    if _UNLIMITED_TEXT.search(value):
+        return BudgetParse(None, None, "high")
+
+    def amount(number: str, unit: str | None) -> float:
+        return float(number) * _UNIT.get((unit or "").lower(), 1.0)
+
+    cue = re.search(r"预算|价格|价位|不超过|最多|控制在", value)
+    currency = re.search(r"元|块|¥|￥|万|千|k", value, re.I)
+
+    # Range first: "预算3000-5000" must use the upper bound.
+    range_match = re.search(
+        rf"{_NUM}\s*(万|千|k)?\s*[-~到至]\s*{_NUM}\s*(万|千|k)?",
         value,
         re.I,
     )
-    if m and m.group(1):
-        def val(num: str, unit: str | None) -> float:
-            return float(num) * {"万": 10000.0, "千": 1000.0, "k": 1000.0}.get(
-                (unit or "").lower(), 1.0
-            )
+    if range_match:
+        lower = amount(range_match.group(1), range_match.group(2))
+        upper = amount(range_match.group(3), range_match.group(4))
+        year_like = (
+            1900 <= lower <= 2100 and 1900 <= upper <= 2100
+        )
+        if (
+            (cue or currency)
+            or (lower >= 500 and upper >= lower and not year_like)
+        ) and not _has_non_budget_tail(value, range_match.end()):
+            return BudgetParse(upper, None, "high")
 
-        if m.group(3):
-            return val(m.group(3), m.group(4))
-        return val(m.group(1), m.group(2))
+    open_end = re.search(
+        rf"{_NUM}\s*(万|千|k)?\s*(?:以上|起|至少|不低于|≥)",
+        value,
+        re.I,
+    )
+    if open_end and not _has_non_budget_tail(value, open_end.end()):
+        return BudgetParse(
+            None,
+            amount(open_end.group(1), open_end.group(2)),
+            "high",
+        )
+
+    cue_match = re.search(
+        rf"(?:预算|价格|价位|不超过|最多|控制在)\s*[:：]?\s*{_NUM}\s*(万|千|k)?",
+        value,
+        re.I,
+    )
+    if cue_match and not _has_non_budget_tail(value, cue_match.end()):
+        return BudgetParse(
+            amount(cue_match.group(1), cue_match.group(2)),
+            None,
+            "high",
+        )
+
     cn = re.search(r"([一二两三四五六七八九])\s*(千|万)", value)
-    if cn:
-        return _CN_DIGITS[cn.group(1)] * _UNIT[cn.group(2)]
-    return None
+    if cn and not _has_non_budget_tail(value, cn.end()):
+        return BudgetParse(
+            _CN_DIGITS[cn.group(1)] * _UNIT[cn.group(2)],
+            None,
+            "high",
+        )
+
+    symbol = re.search(rf"(?:¥|￥)\s*{_NUM}", value)
+    if symbol and not _has_non_budget_tail(value, symbol.end()):
+        return BudgetParse(float(symbol.group(1)), None, "high")
+
+    unit = re.search(rf"{_NUM}\s*(元|块|万|千|k)", value, re.I)
+    if unit and not _has_non_budget_tail(value, unit.end()):
+        return BudgetParse(amount(unit.group(1), unit.group(2)), None, "high")
+
+    return BudgetParse(None, None, "low")
+
+
+def _parse_budget_answer(value: str) -> float | None:
+    return parse_budget(value).max_cny
+
+
+def _extract_budget(text: str) -> float | None:
+    return parse_budget(text).max_cny
 
 
 # canonical category -> (regex over user text, English search term for global sites)
@@ -712,40 +811,6 @@ def _extract_min_ram_gb(text: str) -> int | None:
     return None
 
 
-def _extract_budget(text: str) -> float | None:
-    """Budget in CNY. Requires a budget cue (预算/价位/元/块/¥/万/千) so spec
-    numbers like '512G SSD' or 'i5-13500H' are never read as a price."""
-    text = text or ""
-    num = r"(\d+(?:\.\d+)?)"
-
-    # 1) explicit cue: 预算 5000 / 预算 1.2万 / 预算五千
-    cue = re.search(rf"(?:预算|价位|价格|不超过|最多|控制在)\s*[:：]?\s*{num}\s*(万|千|k|K)?", text)
-    if cue:
-        return float(cue.group(1)) * _UNIT[cue.group(2) or ""]
-    cn = re.search(r"(?:预算|价位|价格|不超过|最多|控制在)?\s*([一二两三四五六七八九])\s*(千|万)", text)
-    if cn:
-        return _CN_DIGITS[cn.group(1)] * _UNIT[cn.group(2)]
-
-    # 2) range with a currency unit: 4000-6000元 -> upper bound
-    rng = re.search(rf"{num}\s*[-~到至]\s*{num}\s*(万|千|元|块)", text)
-    if rng:
-        return float(rng.group(2)) * _UNIT.get(rng.group(3), 1.0)
-
-    # 3) number + currency unit: 5000元 / 5000块 / ¥5000 / 1.2万 / 5千
-    unit = re.search(rf"(?:¥|￥)\s*{num}|{num}\s*(万|千|元|块)", text)
-    if unit:
-        if unit.group(1):
-            return float(unit.group(1))
-        return float(unit.group(2)) * _UNIT.get(unit.group(3), 1.0)
-
-    # 4) last resort: a standalone 4-6 digit number ('笔记本 5000'); never part of a
-    #    model/spec token (i5-13500H, 512G, 2024款 all have a word char or '-' attached).
-    bare = re.search(r"(?<![\w.\-])(\d{4,6})(?![\w.\-])", text)
-    if bare and 500 <= int(bare.group(1)) <= 200000:
-        return float(bare.group(1))
-    return None
-
-
 def _to_cny(price: Any, currency: str | None) -> float | None:
     if price is None:
         return None
@@ -754,9 +819,12 @@ def _to_cny(price: Any, currency: str | None) -> float | None:
     except (TypeError, ValueError):
         return None
     code = (currency or "CNY").upper()
-    rates = {"CNY": 1.0, "USD": 7.2, "EUR": 7.8, "GBP": 9.1}
+    rates = {
+        str(key).upper(): float(rate)
+        for key, rate in (settings.fx_rates or {}).items()
+    }
     rate = rates.get(code)
-    if rate is None:
+    if rate is None or rate <= 0:
         return None
     return round(value * rate, 2)
 

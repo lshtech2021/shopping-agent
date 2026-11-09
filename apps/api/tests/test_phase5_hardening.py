@@ -41,7 +41,7 @@ def _new_session(requirement: str = REQ, sites=("jd",)) -> str:
         ("预算五千", 5000.0),
         ("八千左右", 8000.0),
         ("4000-6000元", 6000.0),
-        ("笔记本 5000", 5000.0),
+        ("笔记本 5000", None),
     ],
 )
 def test_extract_budget(text, budget):

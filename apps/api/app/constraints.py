@@ -39,11 +39,17 @@ def check_product(
         violations.append("site")
 
     if not requirements.get("budget_unlimited"):
+        price = product.get("price_cny")
         budget = requirements.get("budget_cny")
-        if budget is not None:
-            price = product.get("price_cny")
-            if price is None or float(price) > float(budget):
-                violations.append("budget")
+        if budget is not None and (
+            price is None or float(price) > float(budget)
+        ):
+            violations.append("budget")
+        budget_min = requirements.get("budget_min_cny")
+        if budget_min is not None and (
+            price is None or float(price) < float(budget_min)
+        ):
+            violations.append("budget_min")
 
     text = _product_text(product)
     for item in requirements.get("must_have") or []:
