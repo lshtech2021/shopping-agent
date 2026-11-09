@@ -12,16 +12,16 @@
 
 **Files:** `.github/workflows/ci.yml`
 
-- [ ] Job `api`: Python 3.12, `pip install -r apps/api/requirements.txt`, `pytest` with `PYTHONPATH=.`
-- [ ] Do not require `SA_TEST_DATABASE_URL` (memory-mode suite is enough for default CI)
-- [ ] Commit
+- [x] Job `api`: Python 3.12, `pip install -r apps/api/requirements.txt`, `pytest` with `PYTHONPATH=.`
+- [x] Do not require `SA_TEST_DATABASE_URL` (memory-mode suite is enough for default CI)
+- [x] Commit
 
 ### Task 2: Extension tests job
 
 **Files:** `.github/workflows/ci.yml`
 
-- [ ] Job `extension`: Node 20, `npm ci` in `packages/extension`, `npm test`
-- [ ] Commit
+- [x] Job `extension`: Node 20, `npm ci` in `packages/extension`, `npm test`
+- [x] Commit
 
 ### Deferred
 
