@@ -3,7 +3,7 @@
   "name": "Shopping Agent",
   "version": "0.3.1",
   "description": "Side panel client and browser tool host for Shopping Agent",
-  "permissions": ["sidePanel", "storage", "tabs", "scripting"],
+  "permissions": ["sidePanel", "storage", "tabs"],
   "host_permissions": [
     "http://localhost:8100/*",
     "http://127.0.0.1:8100/*",

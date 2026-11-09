@@ -13,7 +13,7 @@
 | Auth fail-open / unauth GETs | Still open | `SA_AUTH_REQUIRED` + protect GETs |
 | Memory summarize every step | Still open | Cache by fingerprint |
 | Full-blob touch amplification | Still open | Dirty/flush batching (slice) |
-| Async PG / pool | Still open | Defer to later P0/P1 (larger) |
+| Async PG / pool | Done (sync `ConnectionPool` + `to_thread`) | See P1/P2 follow-ups |
 | Model-driven clarify | Done | Skip |
 | P1 parallel tools / ToolBox split / planner | Open | After P0 |
 | P2 alembic-only / file splits | Open | After P0 |
