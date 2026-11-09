@@ -1,6 +1,7 @@
 """Shopping-domain adapter over the generic Memory protocol."""
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -13,6 +14,8 @@ class ShoppingMemory:
         self.session = session
         self.toolbox = toolbox
         self._extra: dict[str, Any] = {}
+        self._summary_cache: str | None = None
+        self._cached_fingerprint: tuple[Any, ...] | None = None
 
     def get_requirements(self) -> dict:
         return self.session.requirements
@@ -73,7 +76,28 @@ class ShoppingMemory:
                 break
         return matches
 
+    def _build_fingerprint(self) -> tuple[Any, ...]:
+        session = self.session
+        return (
+            json.dumps(session.requirements or {}, sort_keys=True, default=str),
+            len(session.products),
+            tuple(session.searched_sites),
+            json.dumps(session.quotas or {}, sort_keys=True, default=str),
+            session.status,
+            tuple(sorted(session.blocked_sites.items())),
+            len(session.recommendations),
+        )
+
     async def summarize(self, run_id: str) -> str:
         from app.domains.shopping.prompt import context_block
 
-        return context_block(self.toolbox)
+        fingerprint = self._build_fingerprint()
+        if (
+            self._summary_cache is not None
+            and self._cached_fingerprint == fingerprint
+        ):
+            return self._summary_cache
+        summary = context_block(self.toolbox)
+        self._summary_cache = summary
+        self._cached_fingerprint = fingerprint
+        return summary

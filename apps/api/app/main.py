@@ -24,7 +24,6 @@ from app import llm
 from app.api.actions import router as actions_router
 from app.auth import (
     extension_auth_enabled,
-    require_extension_token,
     require_extension_token_header,
     tokens_match,
 )
