@@ -5,10 +5,12 @@ Policy is always the LangGraph LLM tool loop (``llm_agent``). Hard guarantees
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
 from app import llm
+from app.config import settings
 from app.store import Session, store
 from app.tools import ToolBox
 from app.trace import log_event, turn_logs
@@ -73,9 +75,26 @@ async def run_agent(
     try:
         from app.llm_agent import run_llm_policy
 
-        result = await run_llm_policy(
-            session, text, tools, skip_parse=skip_parse or clarified
+        result = await asyncio.wait_for(
+            run_llm_policy(
+                session, text, tools, skip_parse=skip_parse or clarified
+            ),
+            timeout=settings.agent_turn_timeout_s,
         )
+    except asyncio.TimeoutError:
+        log_event(
+            session,
+            "Agent 回合超时",
+            stage="agent.timeout",
+            source="agent",
+            level="error",
+            data={"timeout_s": settings.agent_turn_timeout_s},
+        )
+        ask = tools.ask_user(
+            "这一轮执行时间过长，已中止。请缩小需求或点「继续」重试。",
+            "turn_timeout",
+        )
+        result = interrupt_response(session, ask["question"], ask["reason"])
     except Exception as exc:  # noqa: BLE001
         logger.exception("agent turn failed sid=%s", session.id[:8])
         log_event(

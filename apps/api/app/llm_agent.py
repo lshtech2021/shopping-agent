@@ -422,7 +422,32 @@ def _finish(session: Session, box: ToolBox, state: dict[str, Any], final: dict[s
         return response
 
     # Model answered in plain text, or the step cap was hit.
-    last_text = _text_of(final["messages"][-1]) if final.get("messages") else ""
+    last_message = final["messages"][-1] if final.get("messages") else None
+    last_text = _text_of(last_message) if last_message else ""
+    if (
+        final.get("steps", 0) >= settings.agent_max_steps
+        and isinstance(last_message, AIMessage)
+        and last_text
+        and not getattr(last_message, "tool_calls", None)
+    ):
+        session.messages.append({"role": "assistant", "content": last_text})
+        session.status = "done"
+        session.interrupt_reason = None
+        log_event(
+            session,
+            "Agent 在步数上限处返回最终文本",
+            stage="agent.done",
+            source="agent",
+            data={"policy": "llm", "steps": final.get("steps")},
+        )
+        return {
+            "session_id": session.id,
+            "status": session.status,
+            "reply": last_text,
+            "recommendations": [],
+            "interrupted": False,
+            "interrupt_reason": None,
+        }
     if final.get("steps", 0) >= settings.agent_max_steps or not last_text:
         ask = box.ask_user("这一轮步骤已达上限仍未得出结论，请缩小需求或点「继续」让我接着做。", "step_limit")
     else:

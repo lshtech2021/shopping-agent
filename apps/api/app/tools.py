@@ -48,8 +48,27 @@ class ToolBox:
         self.session = session
         self.active_site: Optional[str] = None
         self.active_query: Optional[str] = None
-        self.page = 0
+        self.page_by_site: dict[str, int] = {}
+        self.query_by_site: dict[str, str] = {}
         self.last_ask: Optional[str] = None
+
+    def _require_site(self, site: str) -> Optional[dict[str, Any]]:
+        if site and site in self.session.sites:
+            return None
+        refused = {
+            "status": "blocked",
+            "error": "site_not_selected",
+            "site": site,
+        }
+        log_event(
+            self.session,
+            f"拒绝 browse：站点 {site or '(空)'} 不在当前会话选择中",
+            stage="tool.guard",
+            source="tool",
+            level="warning",
+            data=refused,
+        )
+        return refused
 
     @property
     def mock_mode(self) -> bool:
@@ -329,6 +348,9 @@ class ToolBox:
         self, site: str, query: str, **filters: Any
     ) -> dict[str, Any]:
         site = site.lower()
+        refused = self._require_site(site)
+        if refused:
+            return refused
         blocked = self._check_quota(site, "search")
         if blocked:
             return blocked
@@ -338,15 +360,16 @@ class ToolBox:
         if result.get("status") == "ok":
             self.active_site = site
             self.active_query = query
-            self.page = 1
+            self.page_by_site[site] = int(result.get("page") or 1)
+            self.query_by_site[site] = query
         return result
 
     async def scrape_listing(self, site: str | None = None, page: int | None = None) -> dict[str, Any]:
         site = (site or self.active_site or (self.session.sites[0] if self.session.sites else "")).lower()
-        page = int(page or self.page or 1)
-        refused = self._guard(site, "scrape_listing")
+        refused = self._require_site(site) or self._guard(site, "scrape_listing")
         if refused:
             return refused
+        page = int(page or self.page_by_site.get(site) or 1)
         result = await self._browse("scrape_listing", {"site": site, "page": page})
         if result.get("status") != "ok":
             return result
@@ -354,6 +377,9 @@ class ToolBox:
         for item in result.get("items") or []:
             if self._upsert_listing(site, item):
                 accepted += 1
+        self.page_by_site[site] = int(result.get("page") or page)
+        if self.active_query:
+            self.query_by_site[site] = self.active_query
         if site and site not in self.session.searched_sites:
             self.session.searched_sites.append(site)
         store.touch(self.session)
@@ -365,20 +391,27 @@ class ToolBox:
 
     async def next_page(self, site: str | None = None) -> dict[str, Any]:
         site = (site or self.active_site or "").lower()
+        refused = self._require_site(site)
+        if refused:
+            return refused
         blocked = self._check_quota(site, "next_page")
         if blocked:
             return blocked
-        self.page = int(self.page or 1) + 1
-        result = await self._browse("next_page", {"site": site, "page": self.page})
+        current_page = int(self.page_by_site.get(site) or 1)
+        next_page = current_page + 1
+        result = await self._browse(
+            "next_page", {"site": site, "page": next_page}
+        )
         self._bump_quota(site, "next_page")
         if result.get("status") != "ok":
             return result
+        self.page_by_site[site] = int(result.get("page") or next_page)
         accepted = 0
         for item in result.get("items") or []:
             if self._upsert_listing(site, item):
                 accepted += 1
         store.touch(self.session)
-        return {**result, "accepted": accepted, "page": self.page}
+        return {**result, "accepted": accepted}
 
     async def fetch_detail(self, product_id: str) -> dict[str, Any]:
         product = self.session.products.get(product_id)

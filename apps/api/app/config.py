@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4o-mini"
     agent_max_steps: int = 14
+    agent_turn_timeout_s: float = 600.0
 
     cors_origins: str = "http://localhost:8100,http://127.0.0.1:8100"
     mock_browser: bool = True
