@@ -1,6 +1,7 @@
 """Durable run-state checkpoints for interrupt/resume."""
 from __future__ import annotations
 
+import asyncio
 import copy
 from datetime import datetime, timezone
 from typing import Any, Protocol, runtime_checkable
@@ -71,11 +72,15 @@ class PgCheckpointStore:
         self.repo = RunRepository(database_url)
 
     async def save(self, run_id: str, state: dict[str, Any]) -> None:
-        self.repo.save_checkpoint(run_id, serialize_state(state), _now())
+        payload = serialize_state(state)
+        stamped = _now()
+        await asyncio.to_thread(
+            self.repo.save_checkpoint, run_id, payload, stamped
+        )
 
     async def load(self, run_id: str) -> dict[str, Any] | None:
-        state = self.repo.load_checkpoint(run_id)
+        state = await asyncio.to_thread(self.repo.load_checkpoint, run_id)
         return deserialize_state(state) if state else None
 
     async def delete(self, run_id: str) -> None:
-        self.repo.delete_checkpoint(run_id)
+        await asyncio.to_thread(self.repo.delete_checkpoint, run_id)
