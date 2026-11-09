@@ -70,6 +70,7 @@ class RunRepository:
     _memory_runs: dict[str, dict[str, Any]] = {}
     _memory_actions: dict[str, dict[str, Any]] = {}
     _memory_observations: dict[str, dict[str, Any]] = {}
+    _memory_checkpoints: dict[str, dict[str, Any]] = {}
 
     def __new__(cls, database_url: str | None = "memory"):
         if _pg_url(database_url) is None:
@@ -95,12 +96,13 @@ class RunRepository:
             self._memory_runs.clear()
             self._memory_actions.clear()
             self._memory_observations.clear()
+            self._memory_checkpoints.clear()
             return
         with self._conn_lock():
             conn = self._connection()
             conn.execute(
                 "TRUNCATE runs, actions, observations, run_events, "
-                "products, candidates, messages"
+                "products, candidates, messages, checkpoints"
             )
 
     def _conn_lock(self) -> threading.Lock:
@@ -186,6 +188,15 @@ class RunRepository:
                     product_id TEXT NOT NULL,
                     payload JSONB NOT NULL,
                     PRIMARY KEY (run_id, product_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS checkpoints (
+                    run_id TEXT PRIMARY KEY,
+                    state JSONB NOT NULL,
+                    updated_at TEXT NOT NULL
                 )
                 """
             )
@@ -321,6 +332,50 @@ class RunRepository:
         with self._lock:
             self._connection().execute(
                 "DELETE FROM runs WHERE id = %s", (run_id,)
+            )
+
+    # --- checkpoints ---------------------------------------------------------
+
+    def save_checkpoint(
+        self, run_id: str, state: dict[str, Any], updated_at: str
+    ) -> None:
+        if self._url is None:
+            self._memory_checkpoints[run_id] = copy.deepcopy(state)
+            return
+        with self._lock:
+            self._connection().execute(
+                """
+                INSERT INTO checkpoints(run_id, state, updated_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (run_id) DO UPDATE SET
+                    state = EXCLUDED.state,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (run_id, Jsonb(state), updated_at),
+            )
+
+    def load_checkpoint(self, run_id: str) -> dict[str, Any] | None:
+        if self._url is None:
+            record = self._memory_checkpoints.get(run_id)
+            return copy.deepcopy(record) if record else None
+        with self._lock:
+            row = self._connection().execute(
+                "SELECT state FROM checkpoints WHERE run_id = %s", (run_id,)
+            ).fetchone()
+        if not row:
+            return None
+        state = row["state"]
+        if isinstance(state, str):
+            state = json.loads(state)
+        return state
+
+    def delete_checkpoint(self, run_id: str) -> None:
+        if self._url is None:
+            self._memory_checkpoints.pop(run_id, None)
+            return
+        with self._lock:
+            self._connection().execute(
+                "DELETE FROM checkpoints WHERE run_id = %s", (run_id,)
             )
 
     # --- actions / observations ---------------------------------------------

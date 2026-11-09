@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from app import llm
+from app.agent.checkpoint import PgCheckpointStore
 from app.agent.context import ContextBuilder
 from app.agent.policies.plan_execute import (
     PlanExecutePolicy,
@@ -47,6 +48,7 @@ async def run_llm_policy(
     box: ToolBox,
     *,
     skip_parse: bool = False,
+    checkpoint_resume: bool = False,
 ) -> dict[str, Any]:
     if not skip_parse:
         parsed = box.update_requirements(text)
@@ -109,7 +111,15 @@ async def run_llm_policy(
             data={"plan": session.plan},
         )
 
+    checkpoint_store = PgCheckpointStore(settings.database_url)
     state = initial_state(session, turn_text)
+    saved = (
+        await checkpoint_store.load(session.id)
+        if checkpoint_resume
+        else None
+    )
+    if saved is not None and saved.get("phase") in {"waiting_user", "failed"}:
+        state = saved
     memory = ShoppingMemory(session, box)
     specs = build_shopping_tools(box, state)
     registry = ToolRegistry()
@@ -175,11 +185,19 @@ async def run_llm_policy(
         replanner=ShoppingReplanner(),
         max_replans=2,
         finalize=finalize,
+        checkpoint_store=checkpoint_store,
     )
-    result = await runtime.run_turn(
-        state=state,
-        policy=PlanExecutePolicy(delegate=ReActPolicy(model=model)),
-    )
+    policy = PlanExecutePolicy(delegate=ReActPolicy(model=model))
+    if saved is not None and saved.get("phase") in {"waiting_user", "failed"}:
+        result = await runtime.resume_from_checkpoint(
+            run_id=session.id,
+            policy=policy,
+            user_input=turn_text,
+        )
+        if result is None:
+            result = await runtime.run_turn(state=state, policy=policy)
+    else:
+        result = await runtime.run_turn(state=state, policy=policy)
     session.plan = state.get("plan") or session.plan
 
     response = to_message_response(result)

@@ -24,6 +24,7 @@ async def run_agent(
     answers: dict[str, str] | None = None,
     *,
     skip_parse: bool = False,
+    checkpoint_resume: bool = False,
 ) -> dict[str, Any]:
     session.turn += 1
     session.status = "running"
@@ -99,7 +100,11 @@ async def run_agent(
 
         result = await asyncio.wait_for(
             run_llm_policy(
-                session, text, tools, skip_parse=skip_parse or clarified
+                session,
+                text,
+                tools,
+                skip_parse=skip_parse or clarified,
+                checkpoint_resume=checkpoint_resume,
             ),
             timeout=settings.agent_turn_timeout_s,
         )
@@ -150,7 +155,9 @@ async def resume_agent(session: Session, note: str) -> dict[str, Any]:
         if note and note.strip() not in {"continue", "user continued"}
         else session.requirement
     )
-    return await run_agent(session, content, skip_parse=True)
+    return await run_agent(
+        session, content, skip_parse=True, checkpoint_resume=True
+    )
 
 
 def interrupt_response(session: Session, question: str, reason: str) -> dict[str, Any]:

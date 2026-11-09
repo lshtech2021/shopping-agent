@@ -10,6 +10,7 @@ from typing import Any, Awaitable, Callable, Literal, Protocol
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from pydantic import BaseModel
 
+from app.agent.checkpoint import CheckpointStore
 from app.agent.context import ContextBuilder
 from app.agent.critic import Critic, Critique
 from app.agent.memory import Memory
@@ -108,6 +109,7 @@ class AgentRuntime:
         replanner: Replanner | None = None,
         max_replans: int = 2,
         finalize: Finalizer | None = None,
+        checkpoint_store: CheckpointStore | None = None,
         system_prompt: str = "",
         memory: Memory | None = None,
         tool_context: ToolContext | None = None,
@@ -121,6 +123,7 @@ class AgentRuntime:
         self.replanner = replanner
         self.max_replans = max_replans
         self.finalize = finalize
+        self.checkpoint_store = checkpoint_store
         self.system_prompt = system_prompt
         self.memory = memory or _NullMemory()
         self.tool_context = tool_context or ToolContext(
@@ -248,6 +251,7 @@ class AgentRuntime:
                     failure = result.error or "tool_failed"
                     terminal = "fail"
 
+            await self._save_checkpoint(state)
             current_plan = plan_from_state(state)
             persisted_replans = (
                 int((current_plan.metadata or {}).get("replan_count") or 0)
@@ -281,11 +285,13 @@ class AgentRuntime:
                         plan=new_plan.model_dump(),
                         replan_count=replans,
                     )
+                    await self._save_checkpoint(state)
                     continue
 
             if waiting is not None:
                 state["phase"] = "waiting_user"
                 state["pending_user"] = waiting.model_dump()
+                await self._save_checkpoint(state)
                 return TurnResult(
                     run_id=run_id,
                     status="waiting_user",
@@ -295,6 +301,7 @@ class AgentRuntime:
             if failure is not None:
                 state["phase"] = "failed"
                 state["error"] = failure
+                await self._save_checkpoint(state)
                 return TurnResult(
                     run_id=run_id,
                     status="failed",
@@ -387,6 +394,43 @@ class AgentRuntime:
             status="max_steps",
             steps=int(state["step"]),
         )
+
+    async def _save_checkpoint(self, state: AgentState) -> None:
+        if self.checkpoint_store is None:
+            return
+        run_id = str(state.get("run_id") or "")
+        if not run_id:
+            return
+        try:
+            await self.checkpoint_store.save(run_id, state)  # type: ignore[arg-type]
+        except Exception:  # noqa: BLE001 — checkpointing is best effort
+            return None
+
+    async def resume_from_checkpoint(
+        self,
+        *,
+        run_id: str,
+        policy: Policy | None = None,
+        user_input: str | None = None,
+    ) -> TurnResult | None:
+        if self.checkpoint_store is None:
+            return None
+        state = await self.checkpoint_store.load(run_id)
+        if state is None:
+            return None
+        if user_input is not None:
+            state["messages"].append(HumanMessage(content=user_input))
+            state["pending_user"] = None
+            state["phase"] = "executing"
+        chosen = policy or self._last_policy
+        if chosen is None:
+            return TurnResult(
+                run_id=run_id,
+                status="failed",
+                error="policy_required",
+                steps=int(state.get("step") or 0),
+            )
+        return await self.run_turn(state=state, policy=chosen)  # type: ignore[arg-type]
 
     async def resume(
         self,

@@ -89,6 +89,15 @@ def upgrade() -> None:
     )
     op.execute(
         """
+        CREATE TABLE IF NOT EXISTS checkpoints (
+            run_id TEXT PRIMARY KEY,
+            state JSONB NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    op.execute(
+        """
         CREATE TABLE IF NOT EXISTS candidates (
             run_id TEXT NOT NULL,
             product_id TEXT NOT NULL,
@@ -120,6 +129,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     for table in (
         "messages",
+        "checkpoints",
         "candidates",
         "products",
         "run_events",
