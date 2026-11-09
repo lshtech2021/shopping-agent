@@ -265,6 +265,7 @@ class ToolBox:
         req["raw"] = text or req.get("raw") or self.session.requirement
         parsed_budget = parse_budget(text)
         needs_clarify = False
+        parse_notes: list[str] = []
         budget_is_new = (
             req.get("budget_cny") is None
             and req.get("budget_min_cny") is None
@@ -290,6 +291,9 @@ class ToolBox:
             and not _SPEC_NUMBER.search(text)
         ):
             needs_clarify = True
+            parse_notes.append(
+                "ambiguous_budget: bare/low-confidence number not written; call clarify"
+            )
         # Only record what the user said; never infer category/use case on our own.
         category = _extract_category(text)
         if category and (
@@ -327,6 +331,7 @@ class ToolBox:
             "ok": True,
             "requirements": req,
             "needs_clarify": needs_clarify,
+            "parse_notes": parse_notes,
         }
 
     def query_inventory(

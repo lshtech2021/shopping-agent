@@ -215,6 +215,7 @@ def _requirement_gaps(req: dict) -> list[dict]:
         return [
             {
                 "id": "budget_ram_conflict",
+                "field": "other",
                 "question": (
                     f"预算约¥{budget:.0f} 与 内存≥{ram}G 同时满足的{category}很少，"
                     "优先保证哪一个？"
@@ -227,6 +228,7 @@ def _requirement_gaps(req: dict) -> list[dict]:
         questions.append(
             {
                 "id": "budget",
+                "field": "budget",
                 "question": "这次的预算范围大概是多少？（用于过滤商品价格）",
                 "options": ["3000以内", "3000-5000", "5000-8000", "8000-15000", "1.5万以上", "不限预算"],
             }
@@ -235,6 +237,7 @@ def _requirement_gaps(req: dict) -> list[dict]:
         questions.append(
             {
                 "id": "category",
+                "field": "category",
                 "question": "想买什么品类？",
                 "options": ["笔记本", "手机", "平板", "耳机", "显示器", "台式机", "其他（请直接输入）"],
             }

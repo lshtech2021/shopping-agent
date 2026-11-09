@@ -53,6 +53,24 @@ def test_low_confidence_bare_number_is_not_written(monkeypatch):
     result = ToolBox(session).update_requirements("笔记本 5000")
     assert result["needs_clarify"] is True
     assert session.requirements["budget_cny"] is None
+    assert any("ambiguous_budget" in note for note in result["parse_notes"])
+
+
+def test_mock_shopper_clarify_questions_include_field():
+    from conftest import _requirement_gaps
+
+    gaps = _requirement_gaps(
+        {
+            "budget_cny": None,
+            "budget_unlimited": False,
+            "category": None,
+            "must_have": [],
+        }
+    )
+    assert {q["id"]: q["field"] for q in gaps} == {
+        "budget": "budget",
+        "category": "category",
+    }
 
 
 def test_explicit_unlimited_clears_budget():

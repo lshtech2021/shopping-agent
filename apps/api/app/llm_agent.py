@@ -44,10 +44,10 @@ async def run_llm_policy(
 ) -> dict[str, Any]:
     # Host may parse high-confidence fields into requirements, but policy
     # decisions (including clarify) stay in the model tool loop.
-    ambiguous_budget = False
+    parse_notes: list[str] = []
     if not skip_parse:
         parsed = box.update_requirements(text)
-        ambiguous_budget = bool(parsed.get("needs_clarify"))
+        parse_notes = list(parsed.get("parse_notes") or [])
 
     turn_text = text
     if skip_parse:
@@ -55,11 +55,11 @@ async def run_llm_policy(
             "（用户已回答澄清问题，请直接继续选品，不要再次调用 clarify。）\n"
             + text
         )
-    elif ambiguous_budget:
+    elif parse_notes:
+        notes = "；".join(parse_notes)
         turn_text = (
             text
-            + "\n（解析提示：出现了可能是预算的模糊数字，尚未写入 requirements。"
-            "请用 clarify 向用户确认，不要自行写入预算。）"
+            + f"\n（解析提示：{notes}。请用 clarify 向用户确认，不要自行写入硬约束。）"
         )
 
     base_model = llm.build_chat_model()
