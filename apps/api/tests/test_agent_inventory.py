@@ -67,6 +67,12 @@ def test_query_inventory_returns_observation_fields():
         sales=120,
         rating=4.8,
         attributes={"内存": "32GB"},
+        price_max_cny=4200,
+        price_is_range=True,
+        shipping="免运费",
+        condition="二手",
+        sponsored=False,
+        category="笔记本",
     )
 
     item = ToolBox(session).query_inventory(limit=10)["items"][0]
@@ -75,6 +81,28 @@ def test_query_inventory_returns_observation_fields():
     assert item["rating"] == 4.8
     assert item["attributes"] == {"内存": "32GB"}
     assert item["detail_fetched"] is True
+    assert item["price_max_cny"] == 4200
+    assert item["price_is_range"] is True
+    assert item["shipping"] == "免运费"
+    assert item["condition"] == "二手"
+    assert item["category"] == "笔记本"
+
+
+def test_browse_observation_keeps_pagination_signals():
+    from app.llm_agent import _compact_browse
+
+    result = _compact_browse(
+        {
+            "status": "ok",
+            "items": [{"title": "x"}],
+            "result_count": 40,
+            "has_next": True,
+            "page": 1,
+        }
+    )
+
+    assert result["result_count"] == 40
+    assert result["has_next"] is True
 
 
 def test_query_inventory_reports_diverse_mode():

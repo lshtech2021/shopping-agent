@@ -153,7 +153,21 @@ class _Clarify(BaseModel):
 
 def _compact_browse(result: dict[str, Any]) -> dict[str, Any]:
     """What the model needs to see — not the raw payload."""
-    keep = ("status", "error", "accepted", "product_count", "page", "no_more", "site", "reason", "used", "limit")
+    keep = (
+        "status",
+        "error",
+        "accepted",
+        "product_count",
+        "page",
+        "no_more",
+        "no_results",
+        "result_count",
+        "has_next",
+        "site",
+        "reason",
+        "used",
+        "limit",
+    )
     out = {k: result[k] for k in keep if k in result}
     if "product" in result:
         out["product"] = result["product"]
@@ -292,7 +306,29 @@ async def run_llm_policy(
     # Cheap deterministic parse first, so the model starts from known constraints.
     # Skipped when this turn applied clarify answers (they must not be clobbered).
     if not skip_parse:
-        box.update_requirements(text)
+        parsed = box.update_requirements(text)
+        if parsed.get("needs_clarify"):
+            questions = [
+                {
+                    "id": "budget",
+                    "field": "budget",
+                    "question": "预算大概是多少？请给出一个上限，或选择「不限预算」。",
+                    "options": [
+                        "3000以内",
+                        "3000-5000",
+                        "5000-8000",
+                        "8000-15000",
+                        "1.5万以上",
+                        "不限预算",
+                    ],
+                }
+            ]
+            box.ask_clarify(questions)
+            response = interrupt_response(
+                session, "请先确认以下筛选条件。", "clarify"
+            )
+            response["clarify"] = questions
+            return response
 
     turn_text = text
     if skip_parse:

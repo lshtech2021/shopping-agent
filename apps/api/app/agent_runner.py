@@ -31,11 +31,11 @@ async def run_agent(
     session.quotas = {}  # design §6: quotas are per turn, not per session
     tools = ToolBox(session)
     text = (content or session.requirement or "").strip()
-    clarified = False
-    if answers:
+    clarified = answers is not None
+    clarify_result: dict[str, Any] | None = None
+    if answers is not None:
         if session.pending_questions:
-            tools.apply_clarify(answers)
-            clarified = True  # answers are merged; don't re-parse raw text over them
+            clarify_result = tools.apply_clarify(answers)
         else:
             log_event(
                 session,
@@ -61,6 +61,28 @@ async def run_agent(
         },
         persist=True,
     )
+
+    if clarify_result and clarify_result.get("needs_clarify"):
+        questions = [
+            {
+                "id": "budget",
+                "field": "budget",
+                "question": "预算大概是多少？请给出一个上限，或选择「不限预算」。",
+                "options": [
+                    "3000以内",
+                    "3000-5000",
+                    "5000-8000",
+                    "8000-15000",
+                    "1.5万以上",
+                    "不限预算",
+                ],
+            }
+        ]
+        tools.ask_clarify(questions)
+        result = interrupt_response(session, "请先确认以下筛选条件。", "clarify")
+        result["clarify"] = questions
+        result["execution_logs"] = turn_logs(session)
+        return result
 
     if not llm.llm_enabled():
         ask = tools.ask_user(

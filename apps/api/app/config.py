@@ -29,6 +29,11 @@ class Settings(BaseSettings):
         "USD": 7.2,
         "EUR": 7.8,
         "GBP": 9.1,
+        "CAD": 5.25,
+        "AUD": 4.7,
+        "HKD": 0.92,
+        "SGD": 5.35,
+        "NZD": 4.3,
     }
 
 

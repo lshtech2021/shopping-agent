@@ -15,7 +15,12 @@ async function loadBrowserJobs() {
   return import(`${require('node:url').pathToFileURL(BROWSER_JOBS_JS).href}?t=${Date.now()}`)
 }
 
-function installChrome({ getTab, sendMessage, createTab } = {}) {
+function installChrome({
+  getTab,
+  sendMessage,
+  createTab,
+  sessionData = {},
+} = {}) {
   const calls = { sendMessage: 0, click: 0 }
   globalThis.chrome = {
     tabs: {
@@ -36,7 +41,10 @@ function installChrome({ getTab, sendMessage, createTab } = {}) {
     },
     storage: {
       local: { async get(defaults) { return defaults } },
-      session: { async get() { return {} }, async set() {} },
+      session: {
+        async get() { return sessionData },
+        async set() {},
+      },
     },
   }
   return calls
@@ -85,8 +93,61 @@ test('click_next_page is not retried after a navigation closes the port', async 
 
   const result = await runBrowserJob('next_page', { site: 'jd' })
 
-  assert.equal(result.status, 'parse_error')
+  assert.equal(result.status, 'blocked')
+  assert.equal(result.error, 'click_failed')
   assert.equal(clickCalls, 1)
+})
+
+test('next_page does not accept a stale page when only the page parameter changes', async () => {
+  const pageOne = 'https://search.jd.com/Search?keyword=x&page=1'
+  installChrome({
+    getTab: () => ({ id: 1, url: pageOne, status: 'complete' }),
+    sendMessage: (_tabId, payload) => {
+      if (payload.type === 'detect_block') {
+        return { ok: true, block: null, document_url: pageOne }
+      }
+      if (payload.type === 'has_next_page') {
+        return {
+          ok: true,
+          hasNext: true,
+          nextUrl: 'https://search.jd.com/Search?keyword=x&page=2',
+        }
+      }
+      return {
+        ok: true,
+        document_url: pageOne,
+        result: {
+          status: 'ok',
+          items: [{ source_product_id: '1', title: '商品', price: 10 }],
+          result_count: 1,
+        },
+      }
+    },
+  })
+  const { runBrowserJob } = await loadBrowserJobs()
+  await runBrowserJob('search', { site: 'jd', query: 'x' })
+
+  const result = await runBrowserJob('next_page', {
+    site: 'jd',
+    job_timeout_s: 0.5,
+  })
+
+  assert.equal(result.status, 'blocked')
+  assert.equal(result.error, 'tab_load_timeout')
+})
+
+test('restored tab from the wrong host is discarded', async () => {
+  installChrome({
+    getTab: () => ({ id: 7, url: 'https://evil.example/item/1', status: 'complete' }),
+    sendMessage: () => ({ ok: true }),
+    sessionData: { siteTabs: { jd: 7 } },
+  })
+  const { runBrowserJob } = await loadBrowserJobs()
+
+  const result = await runBrowserJob('scrape_listing', { site: 'jd' })
+
+  assert.equal(result.status, 'blocked')
+  assert.equal(result.error, 'no_active_search_tab')
 })
 
 test('zero-item listing is a parse error, not a successful empty page', async () => {

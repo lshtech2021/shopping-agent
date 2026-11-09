@@ -45,6 +45,17 @@ test('blank page is rate_limited', () => {
   assert.equal(result.status, 'rate_limited')
 })
 
+test('legitimate zero-result search is not a parse error', () => {
+  const dom = new JSDOM(
+    '<html><body><div class="empty">抱歉，没有找到相关商品</div></body></html>',
+    { url: 'https://search.jd.com/Search?keyword=nothing' },
+  )
+  const result = jd.parseListing(dom.window.document, dom.window.location.href)
+  assert.equal(result.status, 'ok')
+  assert.equal(result.items.length, 0)
+  assert.equal(result.no_results, true)
+})
+
 test('parsePrice helper', () => {
   assert.equal(parseUtils.parsePrice('¥4,899.00'), 4899)
 })

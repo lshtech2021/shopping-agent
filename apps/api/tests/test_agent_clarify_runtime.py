@@ -89,6 +89,79 @@ def test_unlimited_budget_is_not_treated_as_missing():
     assert session.requirements["budget_cny"] is None
 
 
+def test_clarify_unlimited_answer_clears_both_budget_bounds():
+    session = seed_session(budget_cny=5000, budget_min_cny=3000)
+    session.pending_questions = [
+        {
+            "id": "budget",
+            "field": "budget",
+            "question": "预算？",
+            "options": ["不限预算", "5000"],
+        }
+    ]
+
+    ToolBox(session).apply_clarify({"budget": "取消预算"})
+
+    assert session.requirements["budget_unlimited"] is True
+    assert session.requirements["budget_cny"] is None
+    assert session.requirements["budget_min_cny"] is None
+
+
+def test_clarify_bare_number_is_accepted_as_budget():
+    session = seed_session()
+    session.pending_questions = [
+        {"id": "budget", "field": "budget", "question": "预算？", "options": []}
+    ]
+
+    ToolBox(session).apply_clarify({"budget": "5000"})
+
+    assert session.requirements["budget_cny"] == 5000
+    assert session.requirements["budget_unlimited"] is False
+
+
+def test_clarify_budget_range_within_is_accepted():
+    session = seed_session()
+    session.pending_questions = [
+        {"id": "budget", "field": "budget", "question": "预算？", "options": []}
+    ]
+
+    ToolBox(session).apply_clarify({"budget": "8000以内"})
+
+    assert session.requirements["budget_cny"] == 8000
+
+
+def test_clarify_unparseable_budget_requests_another_answer():
+    session = seed_session()
+    session.pending_questions = [
+        {"id": "budget", "field": "budget", "question": "预算？", "options": []}
+    ]
+
+    result = ToolBox(session).apply_clarify({"budget": "看情况"})
+
+    assert result["needs_clarify"] is True
+    assert session.requirements["budget_cny"] is None
+
+
+def test_unparseable_clarify_answer_interrupts_before_model(monkeypatch):
+    import asyncio
+
+    from app import llm
+    from app.agent_runner import run_agent
+
+    monkeypatch.setattr(llm, "llm_enabled", lambda: True)
+    session = seed_session()
+    session.pending_questions = [
+        {"id": "budget", "field": "budget", "question": "预算？", "options": []}
+    ]
+
+    result = asyncio.run(run_agent(session, "", {"budget": "看情况"}))
+
+    assert result["interrupted"] is True
+    assert result["interrupt_reason"] == "clarify"
+    assert result["clarify"][0]["field"] == "budget"
+    assert session.requirements["budget_cny"] is None
+
+
 def test_resume_does_not_override_confirmed_budget(mock_shopper):
     session = seed_session()
     session.requirement = "预算5000的笔记本"

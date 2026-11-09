@@ -112,9 +112,23 @@
       })
     }
 
+    const bodyText = root.body?.innerText || root.body?.textContent || ''
+    if (
+      !items.length &&
+      /抱歉，没有找到|没有找到相关|没有相关商品|暂无商品/i.test(bodyText)
+    ) {
+      return {
+        status: 'ok',
+        items: [],
+        page: currentPageNumber(root, baseUrl),
+        result_count: 0,
+        has_next: false,
+        no_results: true,
+      }
+    }
     if (!items.length && !root.querySelector(ITEM_SELECTORS)) {
       // Empty DOM often means soft block / incomplete render.
-      if (!(root.body?.innerText || '').trim()) {
+      if (!bodyText.trim()) {
         return { status: 'rate_limited', items: [] }
       }
     }

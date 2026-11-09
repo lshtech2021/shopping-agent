@@ -22,11 +22,33 @@ QUOTA_LIMITS = {"search": 2, "next_page": 2, "fetch_detail": 5}
 BLOCKING = {"rate_limited", "captcha", "login_required", "blocked"}
 # Site-level risk states: once seen, the site stays closed until the user resumes.
 SITE_RISK = {"rate_limited", "captcha", "login_required"}
-_BUDGET_UPDATE = re.compile(
-    r"预算|价格|价位|改成|改为|调整|不超过|最多|以上|以内|元|块|¥|￥|不限|取消"
+_BUDGET_CHANGE = re.compile(
+    r"(?:预算|价格|价位)[^。；;]{0,10}?"
+    r"(?:改成|改为|调整|改到|降到|提高到|不要超过|不超过|最多|控制在|是|为)?"
+    r"\s*[:：]?\s*\d"
+    r"|(?:改成|改为|调整|改到|降到|提高到)[^。；;]{0,8}?(?:预算|价格|价位)"
+    r"|\d[^。；;]{0,4}(?:以内|以下|封顶)"
+)
+_BUDGET_UNLIMITED = re.compile(
+    r"(?:预算|价格|价位)[^。；;]{0,8}(?:不限|取消|不用管|无所谓|随意|越贵越好)"
+    r"|(?:不限|取消|不用管|越贵越好)[^。；;]{0,6}(?:预算|价格|价位)"
+    r"|^越贵越好$"
+)
+_UNLIMITED_ANSWER = re.compile(
+    r"不限|无所谓|都可以|越贵越好|取消预算|不用管预算|随意"
 )
 _CATEGORY_UPDATE = re.compile(r"改成|改为|换成|只看|只要|品类|类别|换购")
-_RAM_UPDATE = re.compile(r"内存|ram|运存|改成|改为", re.I)
+_RAM_CHANGE = re.compile(
+    r"(?:内存|ram|运存)[^。；;]{0,10}?(?:改成|改为|调整|改到|提到|提高到|升到|降到|至少|不低于)"
+    r"|(?:改成|改为|调整|改到|提到|提高到|升到|降到)[^。；;]{0,10}?(?:内存|ram|运存)",
+    re.I,
+)
+_QUESTION_MENTION = re.compile(r"怎么样|如何|吗|哪款|哪个|这个|这款|够用|值不值")
+_SPEC_NUMBER = re.compile(
+    r"(?:rtx|gtx|i[3579][- ]?|锐龙|ryzen|骁龙|snapdragon)\s*\d"
+    r"|\d[\d.,]*\s*(?:g|gb|t|tb|mah|像素|万像素|个|件|台|年|款|代|核|hz|k|寸|英寸|mm|cm|w|v)\b",
+    re.I,
+)
 
 _last_browse_at: dict[str, float] = {}
 
@@ -50,7 +72,6 @@ class ToolBox:
         self.active_site: Optional[str] = None
         self.active_query: Optional[str] = None
         self.page_by_site: dict[str, int] = {}
-        self.query_by_site: dict[str, str] = {}
         self.last_ask: Optional[str] = None
 
     def _require_site(self, site: str) -> Optional[dict[str, Any]]:
@@ -244,7 +265,12 @@ class ToolBox:
         req["raw"] = text or req.get("raw") or self.session.requirement
         parsed_budget = parse_budget(text)
         needs_clarify = False
-        if _UNLIMITED_TEXT.search(text):
+        budget_is_new = (
+            req.get("budget_cny") is None
+            and req.get("budget_min_cny") is None
+            and not req.get("budget_unlimited")
+        )
+        if _BUDGET_UNLIMITED.search(text):
             req["budget_cny"] = None
             req["budget_min_cny"] = None
             req["budget_unlimited"] = True
@@ -252,11 +278,17 @@ class ToolBox:
             parsed_budget.max_cny is not None
             or parsed_budget.min_cny is not None
         ):
-            if req.get("budget_cny") is None or _BUDGET_UPDATE.search(text):
+            explicit_change = bool(_BUDGET_CHANGE.search(text))
+            asked_about_price = bool(_QUESTION_MENTION.search(text))
+            if explicit_change or (budget_is_new and not asked_about_price):
                 req["budget_cny"] = parsed_budget.max_cny
                 req["budget_min_cny"] = parsed_budget.min_cny
                 req["budget_unlimited"] = False
-        elif parsed_budget.confidence == "low" and re.search(r"\d", text):
+        elif (
+            parsed_budget.confidence == "low"
+            and re.search(r"\d", text)
+            and not _SPEC_NUMBER.search(text)
+        ):
             needs_clarify = True
         # Only record what the user said; never infer category/use case on our own.
         category = _extract_category(text)
@@ -265,9 +297,11 @@ class ToolBox:
         ):
             req["category"] = category
         ram = _extract_min_ram_gb(text)
-        if ram is not None and (
-            not req.get("must_have") or _RAM_UPDATE.search(text)
-        ):
+        has_ram = any(
+            _RAM_MUST.search(str(item))
+            for item in (req.get("must_have") or [])
+        )
+        if ram is not None and (not has_ram or _RAM_CHANGE.search(text)):
             must = [
                 m
                 for m in (req.get("must_have") or [])
@@ -332,9 +366,15 @@ class ToolBox:
                     "price": p.get("price"),
                     "currency": p.get("currency"),
                     "price_cny": p.get("price_cny"),
+                    "price_max_cny": p.get("price_max_cny"),
+                    "price_is_range": p.get("price_is_range", False),
                     "shop_name": p.get("shop_name"),
                     "sales": p.get("sales"),
                     "rating": p.get("rating"),
+                    "shipping": p.get("shipping"),
+                    "condition": p.get("condition"),
+                    "sponsored": p.get("sponsored", False),
+                    "category": p.get("category"),
                     "attributes": p.get("attributes") or {},
                     "detail_fetched": p.get("detail_fetched", False),
                     "url": p.get("url"),
@@ -362,7 +402,6 @@ class ToolBox:
             self.active_site = site
             self.active_query = query
             self.page_by_site[site] = int(result.get("page") or 1)
-            self.query_by_site[site] = query
         return result
 
     async def scrape_listing(self, site: str | None = None, page: int | None = None) -> dict[str, Any]:
@@ -379,8 +418,6 @@ class ToolBox:
             if self._upsert_listing(site, item):
                 accepted += 1
         self.page_by_site[site] = int(result.get("page") or page)
-        if self.active_query:
-            self.query_by_site[site] = self.active_query
         if site and site not in self.session.searched_sites:
             self.session.searched_sites.append(site)
         store.touch(self.session)
@@ -391,7 +428,11 @@ class ToolBox:
         }
 
     async def next_page(self, site: str | None = None) -> dict[str, Any]:
-        site = (site or self.active_site or "").lower()
+        site = (
+            site
+            or self.active_site
+            or (self.session.sites[0] if self.session.sites else "")
+        ).lower()
         refused = self._require_site(site)
         if refused:
             return refused
@@ -442,6 +483,8 @@ class ToolBox:
             product["price"] = result["price"]
             product["currency"] = result.get("currency") or product.get("currency")
             product["price_cny"] = _to_cny(product["price"], product.get("currency"))
+            product["price_max_cny"] = None
+            product["price_is_range"] = False
         if result.get("attributes"):
             product["attributes"] = result["attributes"]
         store.touch(self.session)
@@ -459,8 +502,12 @@ class ToolBox:
         unknown: list[str] = []
         violations: list[str] = []
         details: list[dict[str, Any]] = []
+        seen: set[str] = set()
         for pick in picks:
             pid = str(pick.get("product_id") or "")
+            if pid in seen:
+                continue
+            seen.add(pid)
             product = self.session.products.get(pid)
             if product is None:
                 unknown.append(pid)
@@ -565,6 +612,7 @@ class ToolBox:
             "preferences",
         }
         applied: dict[str, str] = {}
+        needs_clarify = False
         for qid, raw in (answers or {}).items():
             value = str(raw or "").strip()
             if not value:
@@ -573,6 +621,7 @@ class ToolBox:
             if qid == "budget_ram_conflict":
                 if "放宽" in value:
                     req["budget_cny"] = None
+                    req["budget_min_cny"] = None
                     req["budget_unlimited"] = True
                 elif re.search(r"16", value):
                     self._merge_must_have_answer(req, "16G")
@@ -582,8 +631,9 @@ class ToolBox:
             if not field or field == "other":
                 field = qid if qid in known_fields else "other"
             if field == "budget":
-                if re.search(r"不限|无所谓|都可以|越贵越好", value):
+                if _UNLIMITED_ANSWER.search(value):
                     req["budget_cny"] = None
+                    req["budget_min_cny"] = None
                     req["budget_unlimited"] = True
                 else:
                     parsed = parse_budget(value)
@@ -594,17 +644,31 @@ class ToolBox:
                         req["budget_cny"] = parsed.max_cny
                         req["budget_min_cny"] = parsed.min_cny
                         req["budget_unlimited"] = False
+                    else:
+                        bare = re.fullmatch(
+                            r"\s*(\d+(?:\.\d+)?)\s*(?:元|块)?\s*", value
+                        )
+                        if bare:
+                            req["budget_cny"] = float(bare.group(1))
+                            req["budget_min_cny"] = None
+                            req["budget_unlimited"] = False
+                        else:
+                            needs_clarify = True
             elif field == "category":
-                req["category"] = value
+                if not _is_no_preference(value):
+                    req["category"] = value
             elif field == "use_case":
-                req["use_case"] = value
+                if not _is_no_preference(value):
+                    req["use_case"] = value
             elif field == "must_have":
-                self._merge_must_have_answer(req, value)
+                if not _is_no_preference(value):
+                    self._merge_must_have_answer(req, value)
             elif field == "preferences":
-                preferences = list(req.get("preferences") or [])
-                if value not in preferences:
-                    preferences.append(value)
-                req["preferences"] = preferences
+                if not _is_no_preference(value):
+                    preferences = list(req.get("preferences") or [])
+                    if value not in preferences:
+                        preferences.append(value)
+                    req["preferences"] = preferences
             else:
                 clarifications = dict(req.get("clarifications") or {})
                 clarifications[str(qid)] = value
@@ -618,9 +682,18 @@ class ToolBox:
             "应用澄清回答",
             stage="tool.clarify",
             source="tool",
-            data={"applied": applied, "requirements": req},
+            data={
+                "applied": applied,
+                "requirements": req,
+                "needs_clarify": needs_clarify,
+            },
         )
-        return {"ok": True, "applied": applied, "requirements": req}
+        return {
+            "ok": True,
+            "applied": applied,
+            "requirements": req,
+            "needs_clarify": needs_clarify,
+        }
 
     @staticmethod
     def _merge_must_have_answer(req: dict[str, Any], value: str) -> None:
@@ -654,17 +727,33 @@ class ToolBox:
         price = item.get("price")
         currency = item.get("currency") or ("CNY" if site == "jd" else "USD")
         existing = self.session.products.get(key, {})
+        detail_owned = bool(existing.get("detail_fetched"))
+        price_is_range = bool(item.get("price_is_range"))
+        price_max = item.get("price_max") if price_is_range else None
+        listing_fields = {
+            "title": item.get("title") or source_id,
+            "price": price,
+            "currency": currency,
+            "price_cny": _to_cny(price, currency),
+            "price_max_cny": _to_cny(price_max, currency),
+            "price_is_range": price_is_range,
+        }
+        if detail_owned:
+            listing_fields = {
+                "title": existing.get("title") or source_id,
+                "price": existing.get("price"),
+                "currency": existing.get("currency") or currency,
+                "price_cny": existing.get("price_cny"),
+                "price_max_cny": existing.get("price_max_cny"),
+                "price_is_range": existing.get("price_is_range", False),
+            }
         self.session.products[key] = {
             **existing,
             "product_id": key,
             "source": site,
             "source_product_id": source_id,
-            "title": item.get("title") or source_id,
-            "price": price,
-            "currency": currency,
-            "price_cny": _to_cny(price, currency),
-            "url": item.get("url"),
-            "shop_name": item.get("shop_name"),
+            "url": item.get("url") or existing.get("url"),
+            "shop_name": item.get("shop_name") or existing.get("shop_name"),
             "sales": item.get("sales", existing.get("sales")),
             "rating": item.get("rating", existing.get("rating")),
             "sponsored": item.get("sponsored", existing.get("sponsored", False)),
@@ -674,6 +763,7 @@ class ToolBox:
             "category": item.get("category", existing.get("category")),
             "detail_fetched": existing.get("detail_fetched", False),
             "attributes": existing.get("attributes") or {},
+            **listing_fields,
         }
         return True
 
@@ -700,18 +790,6 @@ _CN_DIGITS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六":
 _UNIT = {"万": 10000.0, "千": 1000.0, "k": 1000.0, "K": 1000.0, "": 1.0}
 
 
-def min_ram_gb(req: dict[str, Any]) -> int | None:
-    """Minimum RAM (GB) demanded by must_have entries like '32G内存'."""
-    return max(
-        (
-            int(m.group(1))
-            for item in (req.get("must_have") or [])
-            if (m := _RAM_MUST.search(str(item)))
-        ),
-        default=None,
-    )
-
-
 @dataclass(frozen=True)
 class BudgetParse:
     max_cny: float | None
@@ -720,10 +798,9 @@ class BudgetParse:
 
 
 _NON_BUDGET_TAIL = re.compile(
-    r"^\s*(?:万)?(?:像素|mAh|mah|个|件|台|年|款|代)"
+    r"^\s*(?:万)?(?:像素|mAh|mah|个|件|台|年|款|代|g(?:b)?(?![\d.]))",
+    re.I,
 )
-_UNLIMITED_TEXT = re.compile(r"不限|无所谓|都可以|越贵越好|取消预算|不用管预算")
-_OPEN_ENDED_TEXT = re.compile(r"以上|起|至少|不低于|≥")
 _NUM = r"(\d+(?:\.\d+)?)"
 
 
@@ -736,16 +813,41 @@ def parse_budget(text: str) -> BudgetParse:
     value = str(text or "").strip()
     if not value:
         return BudgetParse(None, None, "low")
-    if _UNLIMITED_TEXT.search(value):
+    if _BUDGET_UNLIMITED.search(value):
         return BudgetParse(None, None, "high")
 
     def amount(number: str, unit: str | None) -> float:
         return float(number) * _UNIT.get((unit or "").lower(), 1.0)
 
     cue = re.search(r"预算|价格|价位|不超过|最多|控制在", value)
-    currency = re.search(r"元|块|¥|￥|万|千|k", value, re.I)
 
-    # Range first: "预算3000-5000" must use the upper bound.
+    # Open-ended minimum first: a currency word may sit before the marker.
+    minimum = re.search(
+        rf"(?:至少|不低于)\s*(?:预算)?\s*[:：]?\s*{_NUM}\s*(万|千|k)?\s*(?:元|块)?",
+        value,
+        re.I,
+    )
+    if minimum and not _has_non_budget_tail(value, minimum.end()):
+        return BudgetParse(
+            None,
+            amount(minimum.group(1), minimum.group(2)),
+            "high",
+        )
+    minimum_suffix = re.search(
+        rf"{_NUM}\s*(万|千|k)?\s*(?:元|块)?\s*(?:以上|起|≥)",
+        value,
+        re.I,
+    )
+    if minimum_suffix and not _has_non_budget_tail(
+        value, minimum_suffix.end()
+    ):
+        return BudgetParse(
+            None,
+            amount(minimum_suffix.group(1), minimum_suffix.group(2)),
+            "high",
+        )
+
+    # Range: "预算3000-5000" and "预算五千到八千" use the upper bound.
     range_match = re.search(
         rf"{_NUM}\s*(万|千|k)?\s*[-~到至]\s*{_NUM}\s*(万|千|k)?",
         value,
@@ -754,35 +856,68 @@ def parse_budget(text: str) -> BudgetParse:
     if range_match:
         lower = amount(range_match.group(1), range_match.group(2))
         upper = amount(range_match.group(3), range_match.group(4))
-        year_like = (
-            1900 <= lower <= 2100 and 1900 <= upper <= 2100
-        )
+        year_like = 1900 <= lower <= 2100 and 1900 <= upper <= 2100
         if (
-            (cue or currency)
+            (cue or re.search(r"元|块|¥|￥|万|千|k", value, re.I))
             or (lower >= 500 and upper >= lower and not year_like)
         ) and not _has_non_budget_tail(value, range_match.end()):
             return BudgetParse(upper, None, "high")
-
-    open_end = re.search(
-        rf"{_NUM}\s*(万|千|k)?\s*(?:以上|起|至少|不低于|≥)",
+    cn_range = re.search(
+        r"([一二两三四五六七八九])\s*(千|万)\s*[-~到至]\s*"
+        r"([一二两三四五六七八九])\s*(千|万)",
         value,
-        re.I,
     )
-    if open_end and not _has_non_budget_tail(value, open_end.end()):
+    if cn_range and not _has_non_budget_tail(value, cn_range.end()):
+        lower = _CN_DIGITS[cn_range.group(1)] * _UNIT[cn_range.group(2)]
+        upper = _CN_DIGITS[cn_range.group(3)] * _UNIT[cn_range.group(4)]
+        return BudgetParse(upper, None, "high")
+
+    # "1万5" means 15000, not 10000.
+    compact_wan = re.search(rf"{_NUM}\s*万\s*(\d)(?!\d)", value)
+    if compact_wan and not _has_non_budget_tail(value, compact_wan.end()):
         return BudgetParse(
+            float(compact_wan.group(1)) * 10000
+            + int(compact_wan.group(2)) * 1000,
             None,
-            amount(open_end.group(1), open_end.group(2)),
             "high",
         )
 
+    # Budget cue before the number, including "价格不要超过8000".
     cue_match = re.search(
-        rf"(?:预算|价格|价位|不超过|最多|控制在)\s*[:：]?\s*{_NUM}\s*(万|千|k)?",
+        rf"(?:预算|价格|价位)[^。；;]{{0,8}}?"
+        rf"(?:不要超过|不超过|最多|控制在|改成|改为|是|为)?"
+        rf"\s*[:：]?\s*{_NUM}\s*(万|千|k)?",
         value,
         re.I,
     )
     if cue_match and not _has_non_budget_tail(value, cue_match.end()):
         return BudgetParse(
             amount(cue_match.group(1), cue_match.group(2)),
+            None,
+            "high",
+        )
+
+    cap_before = re.search(
+        rf"(?:不要超过|不超过|最多|控制在|封顶)\s*[:：]?\s*"
+        rf"{_NUM}\s*(万|千|k)?",
+        value,
+        re.I,
+    )
+    if cap_before and not _has_non_budget_tail(value, cap_before.end()):
+        return BudgetParse(
+            amount(cap_before.group(1), cap_before.group(2)),
+            None,
+            "high",
+        )
+
+    cap_suffix = re.search(
+        rf"{_NUM}\s*(万|千|k)?\s*(?:元|块)?\s*(?:以内|以下|封顶|内(?!存))",
+        value,
+        re.I,
+    )
+    if cap_suffix and not _has_non_budget_tail(value, cap_suffix.end()):
+        return BudgetParse(
+            amount(cap_suffix.group(1), cap_suffix.group(2)),
             None,
             "high",
         )
@@ -799,15 +934,16 @@ def parse_budget(text: str) -> BudgetParse:
     if symbol and not _has_non_budget_tail(value, symbol.end()):
         return BudgetParse(float(symbol.group(1)), None, "high")
 
-    unit = re.search(rf"{_NUM}\s*(元|块|万|千|k)", value, re.I)
+    unit = re.search(rf"{_NUM}\s*(元|块|万|千)", value)
     if unit and not _has_non_budget_tail(value, unit.end()):
         return BudgetParse(amount(unit.group(1), unit.group(2)), None, "high")
 
+    if cue:
+        unit_k = re.search(rf"{_NUM}\s*k", value, re.I)
+        if unit_k and not _has_non_budget_tail(value, unit_k.end()):
+            return BudgetParse(float(unit_k.group(1)) * 1000, None, "high")
+
     return BudgetParse(None, None, "low")
-
-
-def _parse_budget_answer(value: str) -> float | None:
-    return parse_budget(value).max_cny
 
 
 def _extract_budget(text: str) -> float | None:
@@ -834,11 +970,19 @@ def _extract_category(text: str) -> str | None:
     return None
 
 
+def _is_no_preference(value: str) -> bool:
+    return bool(
+        re.search(
+            r"无偏好|不限|无所谓|都可以|随意|no\s*preference", value or "", re.I
+        )
+    )
+
+
 def _extract_min_ram_gb(text: str) -> int | None:
     """Only accept RAM written next to a RAM word (so '512G SSD' is never RAM)."""
     text = text or ""
     for pattern in (
-        r"(?:内存|ram|运存)\s*(?:至少|不低于|不少于|>=|≥)?\s*(\d{1,3})\s*g",
+        r"(?:内存|ram|运存)\s*(?:改成|改为|调整到?|提到|提高到|升到|降到|至少|不低于|不少于|>=|≥)?\s*(\d{1,3})\s*g",
         r"(?<![\d.])(\d{1,3})\s*g(?:b)?\s*(?:及以上|以上)?\s*(?:内存|ram|运存)",
     ):
         match = re.search(pattern, text, re.I)
@@ -881,44 +1025,6 @@ def _to_cny(price: Any, currency: str | None) -> float | None:
     if rate is None or rate <= 0:
         return None
     return round(value * rate, 2)
-
-
-def _norm(value: str) -> str:
-    return "".join(str(value).lower().split())
-
-
-def _product_blob(product: dict[str, Any]) -> str:
-    parts = [product.get("title") or ""]
-    attrs = product.get("attributes") or {}
-    if isinstance(attrs, dict):
-        for k, v in attrs.items():
-            parts.append(str(k))
-            parts.append(str(v))
-    return _norm(" ".join(parts))
-
-
-def _ram_source_text(product: dict[str, Any]) -> str:
-    """Keep spaces so '锐龙7 32G' is not collapsed into '锐龙732g'."""
-    parts = [str(product.get("title") or "")]
-    attrs = product.get("attributes") or {}
-    if isinstance(attrs, dict):
-        for key, value in attrs.items():
-            parts.append(str(key))
-            parts.append(str(value))
-    return " ".join(parts).lower()
-
-
-def _ram_gb(product: dict[str, Any]) -> int | None:
-    text = _ram_source_text(product)
-    labeled = re.search(r"(?:内存|ram|运行内存)\s*(\d{1,3})\s*g", text)
-    if labeled:
-        value = int(labeled.group(1))
-        if 2 <= value <= 128:
-            return value
-    for size in (128, 64, 32, 16, 8, 4):
-        if re.search(rf"(?<![\d.]){size}\s*g(?:b)?(?![\d.])", text):
-            return size
-    return None
 
 
 def _public_product(product: dict[str, Any]) -> dict[str, Any]:

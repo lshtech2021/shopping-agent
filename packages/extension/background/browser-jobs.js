@@ -24,8 +24,12 @@ async function restoreTabState() {
     for (const [site, tabId] of Object.entries(entries)) {
       try {
         const tab = await chrome.tabs.get(tabId)
+        const allowedSite = siteForTabKey(site)
+        if (!tab.url || !isAllowedSiteUrl(allowedSite, tab.url)) {
+          continue
+        }
         SITE_TABS.set(site, tab.id)
-        if (tab.url) SITE_URLS.set(site, tab.url)
+        SITE_URLS.set(site, tab.url)
       } catch (_) {
         /* tab was closed while the worker slept */
       }
@@ -62,7 +66,16 @@ function samePage(actualUrl, expectedUrl) {
     const expected = new URL(expectedUrl)
     if (actual.hostname !== expected.hostname) return false
     if (actual.pathname !== expected.pathname) return false
-    for (const key of ['_nkw', 'keyword', '_pgn']) {
+    for (const key of [
+      '_nkw',
+      'keyword',
+      '_pgn',
+      'page',
+      's',
+      '_sacat',
+      '_udhi',
+      '_sop',
+    ]) {
       const value = expected.searchParams.get(key)
       if (value && actual.searchParams.get(key) !== value) return false
     }
@@ -70,6 +83,12 @@ function samePage(actualUrl, expectedUrl) {
   } catch (_) {
     return false
   }
+}
+
+function siteForTabKey(tabKey) {
+  if (tabKey.startsWith('jd')) return 'jd'
+  if (tabKey.startsWith('ebay')) return 'ebay'
+  return tabKey
 }
 
 function isAllowedSiteUrl(site, url) {
@@ -490,14 +509,14 @@ export async function runBrowserJob(tool, args = {}) {
             error: String(error?.message || error),
           })
           return withLogs(
-            { status: 'parse_error', error: 'click_failed' },
+            { status: 'blocked', error: 'click_failed' },
             log,
             jobId,
           )
         }
         if (!clicked?.ok) {
           return withLogs(
-            { status: 'parse_error', error: clicked?.error || 'click_failed' },
+            { status: 'blocked', error: clicked?.error || 'click_failed' },
             log,
             jobId,
           )

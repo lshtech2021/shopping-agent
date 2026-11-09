@@ -18,6 +18,8 @@ from app.store import store
 def isolated_store(monkeypatch):
     monkeypatch.setattr(settings, "database_url", "memory")
     monkeypatch.setattr(settings, "mock_browser", True)
+    monkeypatch.setattr(settings, "extension_token", "")
+    monkeypatch.setattr(settings, "extension_id", "")
     store.reset("memory")
     yield
     store.reset("memory")
@@ -221,7 +223,7 @@ def _requirement_gaps(req: dict) -> list[dict]:
             }
         ]
 
-    if budget is None:
+    if budget is None and not req.get("budget_unlimited"):
         questions.append(
             {
                 "id": "budget",

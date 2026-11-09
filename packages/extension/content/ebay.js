@@ -128,6 +128,22 @@
         category,
       })
     }
+    const bodyText = root.body?.innerText || root.body?.textContent || ''
+    if (
+      !items.length &&
+      /no exact matches found|0 results|did not match any|no results found/i.test(
+        bodyText,
+      )
+    ) {
+      return {
+        status: 'ok',
+        items: [],
+        page: currentPageNumber(baseUrl),
+        result_count: 0,
+        has_next: false,
+        no_results: true,
+      }
+    }
     return {
       status: 'ok',
       items,

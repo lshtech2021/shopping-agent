@@ -28,6 +28,17 @@ test('parseListing extracts ebay cards and skips shop on ebay', () => {
   assert.ok(ebay.nextPageUrl(dom.window.document, dom.window.location.href))
 })
 
+test('legitimate zero-result search is not a parse error', () => {
+  const dom = new JSDOM(
+    '<html><body><div class="srp-save-null-search">No exact matches found</div></body></html>',
+    { url: 'https://www.ebay.com/sch/i.html?_nkw=nothing' },
+  )
+  const result = ebay.parseListing(dom.window.document, dom.window.location.href)
+  assert.equal(result.status, 'ok')
+  assert.equal(result.items.length, 0)
+  assert.equal(result.no_results, true)
+})
+
 test('parseDetail extracts ebay title and attributes', () => {
   const dom = loadDom('ebay-detail.html', 'https://www.ebay.com/itm/2001')
   const result = ebay.parseDetail(dom.window.document, dom.window.location.href)

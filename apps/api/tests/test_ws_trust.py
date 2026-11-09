@@ -50,6 +50,23 @@ def test_ws_rejects_other_extension_origin(monkeypatch):
             ws.receive_json()
 
 
+def test_rest_requires_extension_token_when_configured(monkeypatch):
+    monkeypatch.setattr(settings, "extension_token", "secret")
+
+    denied = client.post(
+        "/api/v1/sessions",
+        json={"requirement": "笔记本", "sites": ["jd"]},
+    )
+    assert denied.status_code == 403
+
+    allowed = client.post(
+        "/api/v1/sessions",
+        json={"requirement": "笔记本", "sites": ["jd"]},
+        headers={"X-Extension-Token": "secret"},
+    )
+    assert allowed.status_code == 200
+
+
 def test_job_result_from_wrong_connection_is_rejected():
     async def scenario():
         hub = ExtensionHub()
