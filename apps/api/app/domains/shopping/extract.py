@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from pydantic import ValidationError
 
 from app.domains.shopping.requirements import (
+    _BUDGET_UNLIMITED,
+    _SPEC_NUMBER,
     _extract_category,
     _extract_min_ram_gb,
     parse_budget,
@@ -53,7 +56,10 @@ def _fallback_extract(text: str) -> RequirementPatch:
         "must_have": [],
         "preferences": [],
     }
-    if budget.max_cny is not None:
+    if _BUDGET_UNLIMITED.search(text):
+        patch_kw["budget_unlimited"] = True
+        confidence["budget_unlimited"] = "high"
+    elif budget.max_cny is not None:
         patch_kw["budget_cny"] = budget.max_cny
         confidence["budget_cny"] = budget.confidence
     if budget.min_cny is not None:
@@ -67,8 +73,22 @@ def _fallback_extract(text: str) -> RequirementPatch:
     if ram_gb is not None:
         patch_kw["must_have"] = [f"{ram_gb}G内存"]
         confidence["must_have"] = "high"
+    if (
+        budget.confidence == "low"
+        and re.search(r"\d", text)
+        and not _SPEC_NUMBER.search(text)
+    ):
+        patch_kw["ambiguous_fields"] = ["budget_cny"]
     patch_kw["confidence"] = confidence
     return RequirementPatch.model_validate(patch_kw)
+
+
+def extract_requirement_patch_sync(
+    text: str, *, current: dict
+) -> RequirementPatch:
+    """Run the no-LLM fallback for synchronous host adapters."""
+    del current
+    return _fallback_extract(text)
 
 
 async def extract_requirement_patch(

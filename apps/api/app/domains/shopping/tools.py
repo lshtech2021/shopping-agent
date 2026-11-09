@@ -7,7 +7,9 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from app.agent.tools import ToolResult, ToolSpec
+from app.domains.shopping.extract import extract_requirement_patch
 from app.domains.shopping.prompt import blocked_text
+from app.domains.shopping.requirements_patch import RequirementPatch
 from app.tools import BLOCKING, ToolBox
 
 
@@ -16,7 +18,12 @@ class _NoArgs(BaseModel):
 
 
 class _UpdateReq(BaseModel):
+    text: Optional[str] = Field(
+        None, description="用户明确陈述的需求原文；未提供结构化字段时从中提取"
+    )
     budget_cny: Optional[float] = Field(None, description="预算上限，人民币")
+    budget_min_cny: Optional[float] = Field(None, description="预算下限，人民币")
+    budget_unlimited: Optional[bool] = Field(None, description="是否不限预算")
     category: Optional[str] = Field(None, description="品类，如 手机 / 跑鞋 / 笔记本")
     use_case: Optional[str] = Field(None, description="用途，如 通勤 / 送礼")
     must_have: Optional[list[str]] = Field(
@@ -236,12 +243,25 @@ def build_shopping_tools(
     async def update_requirements(
         args: _UpdateReq, _context: Any
     ) -> ToolResult:
-        patch = {k: v for k, v in args.model_dump().items() if v is not None}
+        explicit_fields = {
+            field: getattr(args, field)
+            for field in args.model_fields_set
+            if field != "text"
+        }
+        patch = (
+            await extract_requirement_patch(
+                args.text or "", current=dict(box.session.requirements or {})
+            )
+            if args.text
+            else RequirementPatch()
+        )
         return ToolResult(
             call_id="",
             tool="update_requirements",
             ok=True,
-            data=box.update_requirements("", patch),
+            data=box.update_requirements(
+                args.text or "", patch, **explicit_fields
+            ),
             meta=_plan_meta(_context, "requirements_updated"),
         )
 

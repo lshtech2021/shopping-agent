@@ -9,21 +9,19 @@ from app.browser.gateway import BLOCKING, SITE_RISK, BrowserGateway
 from app.browser.gateway import throttle as _throttle
 from app.constraints import check_product
 from app.domains.shopping.requirements import (
-    CATEGORIES,
-    BudgetParse,
-    _BUDGET_CHANGE,
-    _BUDGET_UNLIMITED,
-    _CATEGORY_UPDATE,
     _QUESTION_MENTION,
     _RAM_CHANGE,
     _RAM_MUST,
-    _SPEC_NUMBER,
     _UNLIMITED_ANSWER,
     _extract_budget,
-    _extract_category,
     _extract_min_ram_gb,
     _is_no_preference,
     parse_budget,
+)
+from app.domains.shopping.extract import extract_requirement_patch_sync
+from app.domains.shopping.requirements_patch import (
+    RequirementPatch,
+    apply_requirement_patch,
 )
 from app.inventory import (
     build_product_index,
@@ -147,77 +145,104 @@ class ToolBox:
             "quotas": self.session.quotas,
         }
 
-    def update_requirements(self, text: str, patch: dict[str, Any] | None = None) -> dict[str, Any]:
+    def update_requirements(
+        self,
+        text: str = "",
+        patch: RequirementPatch | dict[str, Any] | None = None,
+        **explicit_fields: Any,
+    ) -> dict[str, Any]:
         req = dict(self.session.requirements or {})
         req["raw"] = text or req.get("raw") or self.session.requirement
-        parsed_budget = parse_budget(text)
-        needs_clarify = False
-        parse_notes: list[str] = []
-        budget_is_new = (
-            req.get("budget_cny") is None
-            and req.get("budget_min_cny") is None
-            and not req.get("budget_unlimited")
+        requirement_patch = (
+            patch
+            if isinstance(patch, RequirementPatch)
+            else RequirementPatch.model_validate(patch or {})
         )
-        if _BUDGET_UNLIMITED.search(text):
-            req["budget_cny"] = None
-            req["budget_min_cny"] = None
-            req["budget_unlimited"] = True
-        elif parsed_budget.confidence == "high" and (
-            parsed_budget.max_cny is not None
-            or parsed_budget.min_cny is not None
-        ):
-            explicit_change = bool(_BUDGET_CHANGE.search(text))
-            asked_about_price = bool(_QUESTION_MENTION.search(text))
-            if explicit_change or (budget_is_new and not asked_about_price):
-                req["budget_cny"] = parsed_budget.max_cny
-                req["budget_min_cny"] = parsed_budget.min_cny
-                req["budget_unlimited"] = False
-        elif (
-            parsed_budget.confidence == "low"
-            and re.search(r"\d", text)
-            and not _SPEC_NUMBER.search(text)
-        ):
-            needs_clarify = True
-            parse_notes.append(
-                "ambiguous_budget: bare/low-confidence number not written; call clarify"
+        if patch is None and text:
+            requirement_patch = extract_requirement_patch_sync(
+                text, current=req
             )
-        # Only record what the user said; never infer category/use case on our own.
-        category = _extract_category(text)
-        if category and (
-            req.get("category") is None or _CATEGORY_UPDATE.search(text)
+
+        explicit_names = set(explicit_fields)
+        if (
+            text
+            and req.get("budget_cny") is not None
+            and _QUESTION_MENTION.search(text)
+            and not {"budget_cny", "budget_min_cny"} & explicit_names
         ):
-            req["category"] = category
-        ram = _extract_min_ram_gb(text)
-        has_ram = any(
-            _RAM_MUST.search(str(item))
-            for item in (req.get("must_have") or [])
-        )
-        if ram is not None and (not has_ram or _RAM_CHANGE.search(text)):
-            must = [
-                m
-                for m in (req.get("must_have") or [])
-                if not _RAM_MUST.search(str(m))
+            requirement_patch = requirement_patch.model_copy(
+                update={"budget_cny": None, "budget_min_cny": None}
+            )
+        if (
+            text
+            and requirement_patch.must_have
+            and "must_have" not in explicit_names
+        ):
+            if _QUESTION_MENTION.search(text):
+                requirement_patch = requirement_patch.model_copy(
+                    update={
+                        "must_have": [
+                            item
+                            for item in requirement_patch.must_have
+                            if not _RAM_MUST.search(item)
+                        ]
+                    }
+                )
+            elif _RAM_CHANGE.search(text):
+                req["must_have"] = [
+                    item
+                    for item in (req.get("must_have") or [])
+                    if not _RAM_MUST.search(str(item))
+                ]
+
+        if explicit_fields:
+            explicit = RequirementPatch.model_validate(explicit_fields)
+            merged = requirement_patch.model_dump()
+            for field in explicit.model_fields_set:
+                merged[field] = getattr(explicit, field)
+            merged["ambiguous_fields"] = [
+                field
+                for field in requirement_patch.ambiguous_fields
+                if field not in explicit.model_fields_set
             ]
-            must.append(f"{ram}G内存")
-            req["must_have"] = must
-        if patch:
-            for key, value in patch.items():
-                if value is None:
-                    continue
-                if key in {"must_have", "preferences"}:
-                    merged = list(req.get(key) or [])
-                    for item in value if isinstance(value, list) else [value]:
-                        if item and item not in merged:
-                            merged.append(item)
-                    req[key] = merged
-                else:
-                    req[key] = value
+            confidence = dict(requirement_patch.confidence)
+            confidence.update(
+                {
+                    field: "high"
+                    for field in explicit.model_fields_set
+                    if field not in {"ambiguous_fields", "confidence", "source_spans"}
+                }
+            )
+            merged["confidence"] = confidence
+            requirement_patch = RequirementPatch.model_validate(merged)
+
+        low_confidence = {
+            field
+            for field, confidence in requirement_patch.confidence.items()
+            if confidence == "low"
+        }
+        if low_confidence:
+            requirement_patch = requirement_patch.model_copy(
+                update={
+                    "ambiguous_fields": list(
+                        dict.fromkeys(
+                            [*requirement_patch.ambiguous_fields, *low_confidence]
+                        )
+                    )
+                }
+            )
+
+        req = apply_requirement_patch(req, requirement_patch)
+        parse_notes = [
+            f"ambiguous_{field}: not written; call clarify"
+            for field in requirement_patch.ambiguous_fields
+        ]
         self.session.requirements = req
         store.touch(self.session)
         return {
             "ok": True,
             "requirements": req,
-            "needs_clarify": needs_clarify,
+            "needs_clarify": bool(requirement_patch.ambiguous_fields),
             "parse_notes": parse_notes,
         }
 
