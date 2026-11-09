@@ -36,6 +36,8 @@ class Session:
     quotas: dict[str, dict[str, int]] = field(default_factory=dict)
     searched_sites: list[str] = field(default_factory=list)
     interrupt_reason: Optional[str] = None
+    # Structured clarify questions waiting for user answers (cleared once applied).
+    pending_questions: list[dict[str, Any]] = field(default_factory=list)
     # site -> risk status (rate_limited / captcha / login_required); cleared on resume.
     blocked_sites: dict[str, str] = field(default_factory=dict)
     execution_logs: list[dict[str, Any]] = field(default_factory=list)
@@ -60,6 +62,7 @@ class Session:
             quotas=dict(data.get("quotas") or {}),
             searched_sites=list(data.get("searched_sites") or []),
             interrupt_reason=data.get("interrupt_reason"),
+            pending_questions=list(data.get("pending_questions") or []),
             blocked_sites=dict(data.get("blocked_sites") or {}),
             execution_logs=list(data.get("execution_logs") or []),
             turn=int(data.get("turn") or 0),

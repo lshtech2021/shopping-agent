@@ -72,6 +72,106 @@ function appendLocal(stage, message, data) {
   ])
 }
 
+// Structured clarify card: one row per question — option buttons + free input.
+function appendClarify(questions = []) {
+  if (!questions.length) return
+  const card = document.createElement('div')
+  card.className = 'bubble assistant clarify'
+  const getters = []
+
+  for (const q of questions) {
+    const row = document.createElement('div')
+    row.className = 'clarify-q'
+    const label = document.createElement('div')
+    label.className = 'clarify-q-text'
+    label.textContent = q.question
+    row.appendChild(label)
+
+    let picked = null
+    const clearPicked = () => {
+      for (const b of row.querySelectorAll('.clarify-opt')) b.classList.remove('picked')
+      picked = null
+    }
+    for (const opt of q.options || []) {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'clarify-opt'
+      btn.textContent = opt
+      btn.addEventListener('click', () => {
+        clearPicked()
+        btn.classList.add('picked')
+        picked = opt
+        free.value = ''
+      })
+      row.appendChild(btn)
+    }
+    const free = document.createElement('input')
+    free.type = 'text'
+    free.placeholder = '或输入你自己的答案'
+    free.addEventListener('input', () => {
+      if (free.value.trim()) clearPicked()
+    })
+    row.appendChild(free)
+    getters.push([q.id, () => free.value.trim() || picked || ''])
+    card.appendChild(row)
+  }
+
+  const actions = document.createElement('div')
+  actions.className = 'clarify-actions'
+  const submit = document.createElement('button')
+  submit.type = 'button'
+  submit.textContent = '提交回答'
+  submit.addEventListener('click', async () => {
+    const answers = {}
+    for (const [qid, get] of getters) {
+      const value = get()
+      if (value) answers[qid] = value
+    }
+    if (!Object.keys(answers).length) {
+      alert('请至少回答一个问题，或点「跳过」')
+      return
+    }
+    submit.disabled = true
+    appendLocal('ui.clarify', '提交澄清回答', answers)
+    try {
+      handleResult(await sendMessage(state.sessionId, '', answers))
+      card.remove()
+    } catch (error) {
+      appendLocal('ui.error', String(error.message || error))
+    } finally {
+      submit.disabled = false
+    }
+  })
+  const skip = document.createElement('button')
+  skip.type = 'button'
+  skip.className = 'linkish'
+  skip.textContent = '跳过，直接开始'
+  skip.addEventListener('click', async () => {
+    skip.disabled = true
+    try {
+      handleResult(await sendMessage(state.sessionId, '跳过澄清，直接开始'))
+      card.remove()
+    } catch (error) {
+      appendLocal('ui.error', String(error.message || error))
+    } finally {
+      skip.disabled = false
+    }
+  })
+  actions.appendChild(submit)
+  actions.appendChild(skip)
+  card.appendChild(actions)
+  els.messages.appendChild(card)
+  els.messages.scrollTop = els.messages.scrollHeight
+}
+
+function handleResult(result) {
+  appendBubble('assistant', result.reply, result.recommendations)
+  appendLogs(result.execution_logs || [])
+  const hasClarify = Boolean(result.clarify?.length)
+  els.resumeBtn.hidden = !result.interrupted || hasClarify
+  if (hasClarify) appendClarify(result.clarify)
+}
+
 function showChat() {
   els.newSession.hidden = true
   els.chat.hidden = false
@@ -115,9 +215,7 @@ els.startBtn.addEventListener('click', async () => {
     appendBubble('user', requirement)
     appendLocal('ui.message', '发送首轮消息', { session_id: state.sessionId })
     const result = await sendMessage(state.sessionId, requirement)
-    appendBubble('assistant', result.reply, result.recommendations)
-    appendLogs(result.execution_logs || [])
-    els.resumeBtn.hidden = !result.interrupted
+    handleResult(result)
   } catch (error) {
     appendLocal('ui.error', String(error.message || error))
     alert(String(error.message || error))
@@ -133,10 +231,7 @@ els.sendBtn.addEventListener('click', async () => {
   appendBubble('user', content)
   appendLocal('ui.followup', '发送追问', { content })
   try {
-    const result = await sendMessage(state.sessionId, content)
-    appendBubble('assistant', result.reply, result.recommendations)
-    appendLogs(result.execution_logs || [])
-    els.resumeBtn.hidden = !result.interrupted
+    handleResult(await sendMessage(state.sessionId, content))
   } catch (error) {
     appendBubble('assistant', `错误：${error.message || error}`)
     appendLocal('ui.error', String(error.message || error))
@@ -147,10 +242,7 @@ els.resumeBtn.addEventListener('click', async () => {
   if (!state.sessionId) return
   appendLocal('ui.resume', '继续中断会话')
   try {
-    const result = await resumeSession(state.sessionId, 'user continued')
-    appendBubble('assistant', result.reply, result.recommendations)
-    appendLogs(result.execution_logs || [])
-    els.resumeBtn.hidden = !result.interrupted
+    handleResult(await resumeSession(state.sessionId, 'user continued'))
   } catch (error) {
     appendBubble('assistant', `错误：${error.message || error}`)
     appendLocal('ui.error', String(error.message || error))

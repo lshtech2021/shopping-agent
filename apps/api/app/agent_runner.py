@@ -17,19 +17,33 @@ from typing import Any
 from app import llm
 from app.config import settings
 from app.store import Session, store
-from app.tools import BLOCKING, ToolBox
+from app.tools import BLOCKING, ToolBox, min_ram_gb
 from app.trace import log_event, timed_step, turn_logs
 
 logger = logging.getLogger(__name__)
 
 
-async def run_agent(session: Session, content: str) -> dict[str, Any]:
+async def run_agent(session: Session, content: str, answers: dict[str, str] | None = None) -> dict[str, Any]:
     session.turn += 1
     session.status = "running"
     session.interrupt_reason = None
     session.quotas = {}  # design §6: quotas are per turn, not per session
     tools = ToolBox(session)
     text = (content or session.requirement or "").strip()
+    clarified = False
+    if answers:
+        if session.pending_questions:
+            tools.apply_clarify(answers)
+            clarified = True  # answers are merged; don't re-parse raw text over them
+        else:
+            log_event(
+                session,
+                "收到澄清回答但没有待答问题，已忽略",
+                stage="agent.clarify",
+                source="agent",
+                level="warning",
+                data={"answers": answers},
+            )
     policy = "llm" if llm.llm_enabled() else "rule"
     log_event(
         session,
@@ -51,9 +65,9 @@ async def run_agent(session: Session, content: str) -> dict[str, Any]:
         if policy == "llm":
             from app.llm_agent import run_llm_policy
 
-            result = await run_llm_policy(session, text, tools)
+            result = await run_llm_policy(session, text, tools, skip_parse=clarified)
         else:
-            result = await _run_rule_policy(session, text, tools)
+            result = await _run_rule_policy(session, text, tools, skip_parse=clarified)
     except Exception as exc:  # noqa: BLE001
         logger.exception("agent turn failed sid=%s", session.id[:8])
         log_event(
@@ -108,10 +122,21 @@ def blocked_text(site: str, result: dict[str, Any], what: str) -> str:
     return f"{site} {what}受阻（{error or status}），处理后点「继续」。"
 
 
-async def _run_rule_policy(session: Session, text: str, tools: ToolBox) -> dict[str, Any]:
-    with timed_step(session, "解析需求", stage="agent.requirements", data={"text": text[:120]}):
-        tools.update_requirements(text)
-        _apply_site_directives(session, text)
+async def _run_rule_policy(
+    session: Session, text: str, tools: ToolBox, *, skip_parse: bool = False
+) -> dict[str, Any]:
+    if skip_parse:
+        log_event(
+            session,
+            "本轮以澄清回答为准，跳过文本重解析",
+            stage="agent.requirements",
+            source="agent",
+            level="debug",
+        )
+    else:
+        with timed_step(session, "解析需求", stage="agent.requirements", data={"text": text[:120]}):
+            tools.update_requirements(text)
+            _apply_site_directives(session, text)
 
     log_event(
         session,
@@ -149,6 +174,13 @@ async def _run_rule_policy(session: Session, text: str, tools: ToolBox) -> dict[
     )
 
     if sites_needing_search:
+        # Interview gate: key filter conditions missing/conflicting → ask first,
+        # in one structured batch, before spending any browse calls. Skipped when
+        # this turn already applied clarify answers (the user had their say).
+        if not skip_parse and not _skip_clarify(text):
+            gaps = _clarify_gaps(session)
+            if gaps:
+                return _clarify_turn(session, tools, gaps)
         for site in sites_needing_search:
             query = _build_query(session, site)
             with timed_step(
@@ -275,6 +307,75 @@ def interrupt_response(session: Session, question: str, reason: str) -> dict[str
         "recommendations": session.recommendations,
         "interrupted": True,
         "interrupt_reason": reason,
+    }
+
+
+def _clarify_gaps(session: Session) -> list[dict[str, Any]]:
+    """Filter conditions we cannot pin down → ask the user (one batch, with options)."""
+    req = session.requirements or {}
+    questions: list[dict[str, Any]] = []
+    budget = req.get("budget_cny")
+    if budget is None:
+        questions.append(
+            {
+                "id": "budget",
+                "question": "这次的预算范围大概是多少？（用于过滤商品价格）",
+                "options": ["3000以内", "3000-5000", "5000-8000", "8000-15000", "1.5万以上", "不限预算"],
+            }
+        )
+    category = req.get("category")
+    if not category:
+        questions.append(
+            {
+                "id": "category",
+                "question": "想买什么品类？",
+                "options": ["笔记本", "手机", "平板", "耳机", "显示器", "台式机"],
+            }
+        )
+    else:
+        min_ram = min_ram_gb(req)
+        if budget is not None and min_ram and min_ram >= 32 and budget < 4500:
+            questions.append(
+                {
+                    "id": "budget_ram_conflict",
+                    "question": (
+                        f"预算约¥{budget:.0f} 与 内存≥{min_ram}G 同时满足的{category}很少，"
+                        "优先保证哪一个？"
+                    ),
+                    "options": ["放宽预算", "内存降到16G", "维持硬约束"],
+                }
+            )
+    return questions
+
+
+def _skip_clarify(text: str) -> bool:
+    return bool(re.search(r"跳过澄清|不用问|别问了|直接搜|直接开始", text or ""))
+
+
+def _clarify_turn(
+    session: Session, tools: ToolBox, gaps: list[dict[str, Any]]
+) -> dict[str, Any]:
+    ask = tools.ask_clarify(gaps)
+    question_text = "为了精准筛选，请先确认以下条件（可点选候选项，或直接填写）：\n" + "\n".join(
+        f"{i}. {q['question']} 候选：{'/'.join(q['options'])}" for i, q in enumerate(ask["questions"], 1)
+    )
+    session.messages.append({"role": "assistant", "content": question_text})
+    log_event(
+        session,
+        f"发起澄清：{len(gaps)} 个问题",
+        stage="agent.clarify",
+        source="agent",
+        data={"questions": gaps},
+    )
+    store.touch(session)
+    return {
+        "session_id": session.id,
+        "status": session.status,
+        "reply": question_text,
+        "recommendations": session.recommendations,
+        "interrupted": True,
+        "interrupt_reason": "clarify",
+        "clarify": gaps,
     }
 
 

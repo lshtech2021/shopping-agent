@@ -105,5 +105,14 @@
 - [x] Per-session turn lock (409), WS Origin check, CORS tightened
 - [x] Disconnect fails in-flight jobs; MV3 keepalive
 - [x] Turn-scoped execution logs (no duplicates in Side Panel)
+### Task 8: Phase 6 - clarify interview gate
+
+- [x] Structured clarify questions (budget / category / budget-RAM conflict) with options
+- [x] Side Panel question card: click options or free text, submit batch / skip
+- [x] `answers` merged into requirements without text re-parse clobbering
+- [x] `clarify` tool for the LLM policy
+- [x] Tests + smoke eval case
+- [ ] Commit: `feat: clarify interview gate before browsing`
+
 - [ ] Evaluate LLM policy against rule baseline on real model (needs API key)
 - [ ] Split session JSONB into tables; connection pool

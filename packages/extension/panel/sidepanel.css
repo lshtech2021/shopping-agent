@@ -123,6 +123,53 @@ button.linkish {
   color: #5eead4;
 }
 
+.clarify {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.clarify-q {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.clarify-q-text {
+  width: 100%;
+  font-weight: 600;
+}
+
+.clarify-opt {
+  background: var(--accent-soft, #ccfbf1);
+  color: var(--ink);
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.clarify-opt.picked {
+  background: var(--accent);
+  color: white;
+}
+
+.clarify-q input[type='text'] {
+  flex: 1;
+  min-width: 140px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.clarify-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.clarify-actions .linkish {
+  color: var(--accent);
+}
+
 .exec-logs {
   margin: 0;
   max-height: 220px;

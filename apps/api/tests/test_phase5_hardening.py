@@ -1,19 +1,18 @@
 import asyncio
-import json
 import time
-import uuid
 
 import pytest
 from fastapi.testclient import TestClient
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage
 from starlette.websockets import WebSocketDisconnect
 
-from app import llm, main
+from app import main
 from app.config import settings
 from app.main import app
 from app.store import store
 from app.tools import ToolBox, _extract_budget, _extract_min_ram_gb, _throttle
 from app.ws_hub import ExtensionHub
+from conftest import FakeModel, _call, _last_tool_json  # noqa: F401 (shared with phase6)
 
 client = TestClient(app)
 
@@ -62,16 +61,17 @@ def test_extract_min_ram(text, ram):
     assert _extract_min_ram_gb(text) == ram
 
 
-def test_spec_numbers_do_not_filter_out_everything():
+def test_missing_budget_asks_instead_of_false_parsing():
     sid = _new_session("开发笔记本 内存至少 32G 512G SSD")
     body = client.post(
         f"/api/v1/sessions/{sid}/messages",
         json={"content": "开发笔记本 内存至少 32G 512G SSD"},
     ).json()
-    assert body["interrupted"] is False
-    detail = client.get(f"/api/v1/sessions/{sid}").json()
-    assert detail["requirements"]["budget_cny"] is None
-    assert body["recommendations"]
+    # Spec numbers must not be read as a budget; with no real budget the agent
+    # interviews the user instead of guessing.
+    assert body["interrupted"] and body["interrupt_reason"] == "clarify"
+    assert "budget" in [q["id"] for q in body["clarify"]]
+    assert client.get(f"/api/v1/sessions/{sid}").json()["requirements"]["budget_cny"] is None
 
 
 # --- turn-scoped logs --------------------------------------------------------
@@ -92,7 +92,7 @@ def test_response_logs_are_only_for_current_turn():
 
 
 def test_rate_limited_site_stays_closed_until_resume():
-    sid = _new_session("笔记本")
+    sid = _new_session("笔记本 预算5000")
     body = client.post(
         f"/api/v1/sessions/{sid}/messages", json={"content": "笔记本 触发限流 rate_limit_me"}
     ).json()
@@ -112,8 +112,8 @@ def test_rate_limited_site_stays_closed_until_resume():
 def test_no_extension_gives_actionable_message():
     settings.mock_browser = False
     try:
-        sid = _new_session("笔记本")
-        body = client.post(f"/api/v1/sessions/{sid}/messages", json={"content": "笔记本"}).json()
+        sid = _new_session("笔记本 预算5000")
+        body = client.post(f"/api/v1/sessions/{sid}/messages", json={"content": "笔记本 预算5000"}).json()
     finally:
         settings.mock_browser = True
     assert body["interrupted"]
@@ -215,47 +215,6 @@ def test_disconnect_fails_inflight_job_immediately():
 
 
 # --- LangGraph tool-loop policy ----------------------------------------------
-
-
-def _call(name: str, **args) -> AIMessage:
-    return AIMessage(
-        content="",
-        tool_calls=[{"name": name, "args": args, "id": uuid.uuid4().hex, "type": "tool_call"}],
-    )
-
-
-def _last_tool_json(messages) -> dict:
-    tool_msgs = [m for m in messages if isinstance(m, ToolMessage)]
-    return json.loads(tool_msgs[-1].content)
-
-
-class FakeModel:
-    """Scripted stand-in for the chat model (no network)."""
-
-    def __init__(self, script):
-        self.script = list(script)
-        self.calls = 0
-
-    def bind_tools(self, _tools):
-        return self
-
-    async def ainvoke(self, messages):
-        self.calls += 1
-        step = self.script.pop(0)
-        return step(messages) if callable(step) else step
-
-
-@pytest.fixture
-def fake_llm(monkeypatch):
-    holder: dict = {}
-
-    def install(script):
-        holder["model"] = FakeModel(script)
-        monkeypatch.setattr(llm, "llm_enabled", lambda: True)
-        monkeypatch.setattr(llm, "build_chat_model", lambda: holder["model"])
-        return holder["model"]
-
-    return install
 
 
 def _recommend_first_item(messages):

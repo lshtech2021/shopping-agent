@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class CreateSessionRequest(BaseModel):
@@ -17,8 +17,23 @@ class CreateSessionResponse(BaseModel):
     sites: list[str]
 
 
+class ClarifyQuestion(BaseModel):
+    id: str = Field(description="问题标识，如 budget / category / budget_ram_conflict")
+    question: str
+    options: list[str] = Field(default_factory=list, description="候选项；用户始终可自由输入")
+
+
 class MessageRequest(BaseModel):
-    content: str = Field(min_length=1, max_length=4000)
+    content: str = Field(default="", max_length=4000)
+    answers: Optional[dict[str, str]] = Field(
+        None, description="对上一轮 clarify 问题的回答：question.id -> 用户选择/输入"
+    )
+
+    @model_validator(mode="after")
+    def _require_content_or_answers(self) -> "MessageRequest":
+        if not (self.content.strip() or (self.answers or {})):
+            raise ValueError("content 或 answers 至少提供一个")
+        return self
 
 
 class RecommendationOut(BaseModel):
@@ -37,6 +52,7 @@ class MessageResponse(BaseModel):
     recommendations: list[RecommendationOut] = Field(default_factory=list)
     interrupted: bool = False
     interrupt_reason: Optional[str] = None
+    clarify: list[ClarifyQuestion] = Field(default_factory=list)
     execution_logs: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -62,6 +78,7 @@ class SessionDetail(BaseModel):
     recommendations: list[RecommendationOut] = Field(default_factory=list)
     searched_sites: list[str] = Field(default_factory=list)
     interrupt_reason: Optional[str] = None
+    pending_questions: list[dict[str, Any]] = Field(default_factory=list)
     blocked_sites: dict[str, str] = Field(default_factory=dict)
     execution_logs: list[dict[str, Any]] = Field(default_factory=list)
     created_at: Optional[str] = None

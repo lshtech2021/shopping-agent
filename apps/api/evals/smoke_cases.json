@@ -23,12 +23,22 @@
   },
   {
     "id": "spec-numbers-are-not-budget",
-    "requirement": "开发笔记本 内存至少 32G 512G SSD",
+    "requirement": "开发笔记本 内存至少 32G 512G SSD 预算5000",
     "sites": ["jd"],
-    "message": "开发笔记本 内存至少 32G 512G SSD",
+    "message": "开发笔记本 内存至少 32G 512G SSD 预算5000",
     "expect": {
       "interrupted": false,
       "min_recommendations": 1
+    }
+  },
+  {
+    "id": "clarify-when-budget-missing",
+    "requirement": "帮我挑一台笔记本",
+    "sites": ["jd"],
+    "message": "帮我挑一台笔记本",
+    "expect": {
+      "interrupted": true,
+      "interrupt_reason": "clarify"
     }
   },
   {

@@ -122,6 +122,7 @@ def get_session(session_id: str) -> SessionDetail:
         recommendations=session.recommendations,
         searched_sites=session.searched_sites,
         interrupt_reason=session.interrupt_reason,
+        pending_questions=session.pending_questions,
         blocked_sites=session.blocked_sites,
         execution_logs=session.execution_logs,
         created_at=session.created_at,
@@ -139,14 +140,23 @@ async def post_message(session_id: str, payload: MessageRequest) -> MessageRespo
         from app.agent_runner import run_agent
 
         content = payload.content.strip()
-        session.messages.append(
-            {
-                "role": "user",
-                "content": content,
-                "ts": datetime.now(timezone.utc).isoformat(),
-            }
+        log_event(
+            session,
+            "收到用户消息",
+            stage="api.message",
+            source="api",
+            data={"content": content[:200], "answers": payload.answers},
+            persist=False,
         )
-        result = await run_agent(session, content)
+        if content:
+            session.messages.append(
+                {
+                    "role": "user",
+                    "content": content,
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        result = await run_agent(session, content, payload.answers)
         return MessageResponse(**result)
 
 

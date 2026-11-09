@@ -100,6 +100,15 @@ LLM 调用失败不会 500：回合以 `agent_error` 中断，用户可重试。
 - Extension 断线时，其在途 job 立即以 `extension_disconnected` 失败，不再傻等超时。  
 - MV3 service worker 每 20s 发 ping 保活。  
 
+## 6.3 需求澄清（interview gate）
+
+开始浏览前，若**关键过滤条件缺失或互相冲突**，Agent 先一次性列出结构化澄清问题，收集齐答案再执行：
+
+- 触发条件（规则策略）：即将发起搜索且 ① 无预算 ② 无品类 ③ 预算与内存硬约束冲突（如 ¥3000 配 32G）。已在缓存可重排（不搜索）时不打扰；用户明确说「跳过/直接开始」也不问。  
+- 形态：`MessageResponse.clarify = [{id, question, options[]}]`，Side Panel 渲染成可点选项 + 自由输入，一次提交全部答案（也可跳过）。  
+- 回传：`POST messages` 带 `answers: {question_id: 值}`，服务端并入需求后**本轮跳过文本重解析**（防止原始需求覆盖用户答案），继续执行。  
+- LLM 策略同样有 `clarify` 工具（由模型决定何时问、问什么）。  
+
 ## 7. 非目标
 
 - 不做固定「搜 3 页 → 选 5 候选 → 一次 LLM」死流水线当主路径  

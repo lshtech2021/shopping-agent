@@ -47,7 +47,8 @@ SYSTEM_PROMPT = """你是购物选品助手，通过工具完成：理解需求 
 4. search 后必须 scrape_listing 才会有商品；对最有希望的至多 3 个商品 fetch_detail 核实规格后再推荐。
 5. 浏览工具返回 rate_limited / captcha / login_required / blocked 时系统会自动中断并交给用户，你不需要也不能重试。
 6. recommend 只能引用 query_inventory 返回的 product_id，给出 1-3 个，理由要引用具体价格/规格。
-7. 必须以 recommend（完成）或 ask_user（信息不足、需用户决定时）结束本轮。不要编造商品、价格或规格。"""
+7. 必须以 recommend（完成）或 ask_user（信息不足、需用户决定时）结束本轮。不要编造商品、价格或规格。
+8. 若缺少预算或品类等关键过滤条件、或硬约束之间明显冲突（如低预算配高内存），先用 clarify 一次性列出全部问题（每题给候选项）；用户的回答会在下一条消息的 answers 里自动并入需求。"""
 
 
 # --- tool schemas ------------------------------------------------------------
@@ -100,6 +101,16 @@ class _Recommend(BaseModel):
 class _Ask(BaseModel):
     question: str
     reason: str = Field("clarify", description="clarify | empty | other")
+
+
+class _ClarifyQ(BaseModel):
+    id: str = Field(description="问题标识，如 budget / category / budget_ram_conflict")
+    question: str
+    options: list[str] = Field(default_factory=list, description="候选项；用户也可自由输入")
+
+
+class _Clarify(BaseModel):
+    questions: list[_ClarifyQ] = Field(min_length=1, max_length=5)
 
 
 def _compact_browse(result: dict[str, Any]) -> dict[str, Any]:
@@ -155,6 +166,12 @@ def build_tools(box: ToolBox, state: dict[str, Any]) -> list[StructuredTool]:
         state["done"] = {"kind": "ask_user", **result}
         return result
 
+    async def clarify(questions: list[dict[str, Any]]) -> dict[str, Any]:
+        questions = [q.model_dump() if hasattr(q, "model_dump") else dict(q) for q in questions]
+        result = box.ask_clarify(questions)
+        state["done"] = {"kind": "clarify", "questions": questions}
+        return result
+
     def tool(fn, name, description, schema):
         return StructuredTool.from_function(
             coroutine=fn, name=name, description=description, args_schema=schema
@@ -170,6 +187,7 @@ def build_tools(box: ToolBox, state: dict[str, Any]) -> list[StructuredTool]:
         tool(fetch_detail, "fetch_detail", "打开一个商品详情页，补全规格与价格（每站每轮最多 5 次）。", _Detail),
         tool(recommend, "recommend", "提交最终推荐（1-3 个已缓存商品）并结束本轮。", _Recommend),
         tool(ask_user, "ask_user", "向用户提问或请求其决定，并结束本轮。", _Ask),
+        tool(clarify, "clarify", "关键过滤条件（预算/品类等）不明或有冲突时，一次性列出结构化澄清问题（每题给候选项），用户回答后随下一条消息自动并入需求。", _Clarify),
     ]
 
 
@@ -214,9 +232,13 @@ def _text_of(message: AnyMessage) -> str:
     ).strip()
 
 
-async def run_llm_policy(session: Session, text: str, box: ToolBox) -> dict[str, Any]:
+async def run_llm_policy(
+    session: Session, text: str, box: ToolBox, *, skip_parse: bool = False
+) -> dict[str, Any]:
     # Cheap deterministic parse first, so the model starts from known constraints.
-    box.update_requirements(text)
+    # Skipped when this turn applied clarify answers (they must not be clobbered).
+    if not skip_parse:
+        box.update_requirements(text)
 
     state: dict[str, Any] = {}
     tools = build_tools(box, state)
@@ -336,6 +358,10 @@ def _finish(session: Session, box: ToolBox, state: dict[str, Any], final: dict[s
         }
     if done and done["kind"] == "ask_user":
         return interrupt_response(session, done["question"], done["reason"])
+    if done and done["kind"] == "clarify":
+        response = interrupt_response(session, "请先确认以下筛选条件。", "clarify")
+        response["clarify"] = done["questions"]
+        return response
 
     # Model answered in plain text, or the step cap was hit.
     last_text = _text_of(final["messages"][-1]) if final.get("messages") else ""

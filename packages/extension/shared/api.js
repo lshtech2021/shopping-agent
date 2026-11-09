@@ -23,10 +23,10 @@ export function createSession(requirement, sites) {
   })
 }
 
-export function sendMessage(sessionId, content) {
+export function sendMessage(sessionId, content, answers) {
   return request(`/api/v1/sessions/${sessionId}/messages`, {
     method: 'POST',
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, answers }),
   })
 }
 

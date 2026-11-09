@@ -107,6 +107,14 @@ async function loadDetail(sessionId) {
   els.sessionDetail.innerHTML = `
     <h3>${escapeHtml(data.requirement)}</h3>
     <p class="muted">${escapeHtml(data.status)} · sites ${escapeHtml((data.sites || []).join(','))} · searched ${escapeHtml((data.searched_sites || []).join(',') || '-')}</p>
+    ${(data.pending_questions || []).length
+      ? `<div class="block"><h3>待澄清</h3><div class="cards">${data.pending_questions
+          .map(
+            (q) => `
+      <article class="card"><strong>${escapeHtml(q.question)}</strong><div class="muted">${escapeHtml((q.options || []).join(' / '))}</div></article>`,
+          )
+          .join('')}</div></div>`
+      : ''}
     <div class="block">
       <h3>执行日志（${(data.execution_logs || []).length}）</h3>
       <div class="log-stream">${logs || '<p class="empty">暂无执行日志</p>'}</div>

@@ -251,11 +251,7 @@ class ToolBox:
     ) -> dict[str, Any]:
         products = list(self.session.products.values())
         budget = self.session.requirements.get("budget_cny")
-        must = self.session.requirements.get("must_have") or []
-        min_ram = max(
-            (int(m.group(1)) for item in must if (m := _RAM_MUST.search(str(item)))),
-            default=None,
-        )
+        min_ram = min_ram_gb(self.session.requirements or {})
         category = str(self.session.requirements.get("category") or "")
         filtered = []
         for product in products:
@@ -440,6 +436,51 @@ class ToolBox:
         store.touch(self.session)
         return {"ok": True, "question": question, "reason": reason}
 
+    def ask_clarify(self, questions: list[dict[str, Any]]) -> dict[str, Any]:
+        """Interrupt with a structured questionnaire (each item: id/question/options)."""
+        self.session.status = "interrupted"
+        self.session.interrupt_reason = "clarify"
+        self.session.pending_questions = questions
+        self.last_ask = "请确认筛选条件"
+        store.touch(self.session)
+        return {"ok": True, "questions": questions}
+
+    def apply_clarify(self, answers: dict[str, str]) -> dict[str, Any]:
+        """Merge answered clarify questions into requirements; clear pending list."""
+        req = dict(self.session.requirements or {})
+        applied: dict[str, str] = {}
+        for qid, raw in (answers or {}).items():
+            value = str(raw or "").strip()
+            if not value:
+                continue
+            if qid == "budget":
+                if re.search(r"不限|无所谓|都可以|越贵越好", value):
+                    req["budget_cny"] = None
+                else:
+                    parsed = _parse_budget_answer(value)
+                    if parsed is not None:
+                        req["budget_cny"] = parsed
+            elif qid == "category":
+                req["category"] = value
+            elif qid == "budget_ram_conflict":
+                if "放宽" in value:
+                    req["budget_cny"] = None
+                elif re.search(r"16", value):
+                    req["must_have"] = ["16G内存"]
+                # 维持硬约束 → keep both; an empty result will interrupt later.
+            applied[qid] = value
+        self.session.requirements = req
+        self.session.pending_questions = []
+        store.touch(self.session)
+        log_event(
+            self.session,
+            "应用澄清回答",
+            stage="tool.clarify",
+            source="tool",
+            data={"applied": applied, "requirements": req},
+        )
+        return {"ok": True, "applied": applied, "requirements": req}
+
     def _upsert_listing(self, site: str, item: dict[str, Any]) -> bool:
         source_id = str(item.get("source_product_id") or "").strip()
         if not source_id:
@@ -488,6 +529,40 @@ def _inventory_summary(products: list[dict[str, Any]]) -> str:
 _RAM_MUST = re.compile(r"(\d{1,3})\s*G内存", re.I)
 _CN_DIGITS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
 _UNIT = {"万": 10000.0, "千": 1000.0, "k": 1000.0, "K": 1000.0, "": 1.0}
+
+
+def min_ram_gb(req: dict[str, Any]) -> int | None:
+    """Minimum RAM (GB) demanded by must_have entries like '32G内存'."""
+    return max(
+        (
+            int(m.group(1))
+            for item in (req.get("must_have") or [])
+            if (m := _RAM_MUST.search(str(item)))
+        ),
+        default=None,
+    )
+
+
+def _parse_budget_answer(value: str) -> float | None:
+    """Parse a clarify answer like '3000以内' / '5000-8000' / '1.5万' / '六千' → upper bound."""
+    m = re.search(
+        r"(\d+(?:\.\d+)?)\s*(万|千|k)?(?:\s*[-~到至]\s*(\d+(?:\.\d+)?)\s*(万|千|k)?)?",
+        value,
+        re.I,
+    )
+    if m and m.group(1):
+        def val(num: str, unit: str | None) -> float:
+            return float(num) * {"万": 10000.0, "千": 1000.0, "k": 1000.0}.get(
+                (unit or "").lower(), 1.0
+            )
+
+        if m.group(3):
+            return val(m.group(3), m.group(4))
+        return val(m.group(1), m.group(2))
+    cn = re.search(r"([一二两三四五六七八九])\s*(千|万)", value)
+    if cn:
+        return _CN_DIGITS[cn.group(1)] * _UNIT[cn.group(2)]
+    return None
 
 
 def _extract_min_ram_gb(text: str) -> int | None:
