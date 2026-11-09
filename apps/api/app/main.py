@@ -20,6 +20,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import llm
+from app.api.actions import router as actions_router
 from app.config import settings
 from app.logging_setup import setup_logging
 from app.schemas import (
@@ -44,6 +45,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, version="0.5.0", lifespan=lifespan)
+app.include_router(actions_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],

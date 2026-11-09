@@ -68,6 +68,8 @@ _UPDATE_COLUMNS = [
 class RunRepository:
     _memory_instance: "RunRepository | None" = None
     _memory_runs: dict[str, dict[str, Any]] = {}
+    _memory_actions: dict[str, dict[str, Any]] = {}
+    _memory_observations: dict[str, dict[str, Any]] = {}
 
     def __new__(cls, database_url: str | None = "memory"):
         if _pg_url(database_url) is None:
@@ -91,6 +93,8 @@ class RunRepository:
     def clear(self) -> None:
         if self._url is None:
             self._memory_runs.clear()
+            self._memory_actions.clear()
+            self._memory_observations.clear()
             return
         with self._conn_lock():
             conn = self._connection()
@@ -318,6 +322,114 @@ class RunRepository:
             self._connection().execute(
                 "DELETE FROM runs WHERE id = %s", (run_id,)
             )
+
+    # --- actions / observations ---------------------------------------------
+
+    def create_action(self, record: dict[str, Any]) -> dict[str, Any]:
+        record = copy.deepcopy(record)
+        if self._url is None:
+            existing = self._memory_actions.get(record["action_id"])
+            if existing:
+                return copy.deepcopy(existing)
+            self._memory_actions[record["action_id"]] = record
+            return copy.deepcopy(record)
+        with self._lock:
+            row = self._connection().execute(
+                """
+                INSERT INTO actions
+                    (action_id, run_id, tool, args, status, result,
+                     created_at, updated_at)
+                VALUES (%(action_id)s, %(run_id)s, %(tool)s, %(args)s,
+                        %(status)s, %(result)s, %(created_at)s, %(updated_at)s)
+                ON CONFLICT (action_id) DO NOTHING
+                RETURNING *
+                """,
+                {
+                    **record,
+                    "args": Jsonb(record.get("args") or {}),
+                    "result": Jsonb(record["result"])
+                    if record.get("result") is not None
+                    else None,
+                },
+            ).fetchone()
+            if row is None:
+                row = self._connection().execute(
+                    "SELECT * FROM actions WHERE action_id = %s",
+                    (record["action_id"],),
+                ).fetchone()
+        return self._decode(row)
+
+    def get_action(self, action_id: str) -> dict[str, Any] | None:
+        if self._url is None:
+            record = self._memory_actions.get(action_id)
+            return copy.deepcopy(record) if record else None
+        with self._lock:
+            row = self._connection().execute(
+                "SELECT * FROM actions WHERE action_id = %s", (action_id,)
+            ).fetchone()
+        return self._decode(row) if row else None
+
+    def next_action(self, run_id: str) -> dict[str, Any] | None:
+        if self._url is None:
+            for record in self._memory_actions.values():
+                if (
+                    record["run_id"] == run_id
+                    and record["status"] in {"pending", "running"}
+                ):
+                    return copy.deepcopy(record)
+            return None
+        with self._lock:
+            row = self._connection().execute(
+                "SELECT * FROM actions WHERE run_id = %s "
+                "AND status IN ('pending', 'running') "
+                "ORDER BY created_at ASC LIMIT 1",
+                (run_id,),
+            ).fetchone()
+        return self._decode(row) if row else None
+
+    def submit_observation(
+        self, record: dict[str, Any]
+    ) -> dict[str, Any]:
+        payload = copy.deepcopy(record.get("payload") or {})
+        action_id = str(record["action_id"])
+        if self._url is None:
+            existing = self._memory_observations.get(action_id)
+            if existing:
+                return copy.deepcopy(existing["payload"])
+            self._memory_observations[action_id] = copy.deepcopy(record)
+            action = self._memory_actions.get(action_id)
+            if action:
+                action["status"] = "done"
+                action["result"] = payload
+                action["updated_at"] = record.get("created_at")
+            return copy.deepcopy(payload)
+        with self._lock:
+            row = self._connection().execute(
+                """
+                INSERT INTO observations(action_id, run_id, payload, created_at)
+                VALUES (%(action_id)s, %(run_id)s, %(payload)s, %(created_at)s)
+                ON CONFLICT (action_id) DO NOTHING
+                RETURNING payload
+                """,
+                {
+                    **record,
+                    "payload": Jsonb(payload),
+                },
+            ).fetchone()
+            if row is None:
+                row = self._connection().execute(
+                    "SELECT payload FROM observations WHERE action_id = %s",
+                    (action_id,),
+                ).fetchone()
+            self._connection().execute(
+                "UPDATE actions SET status = 'done', result = %s, "
+                "updated_at = %s WHERE action_id = %s",
+                (Jsonb(payload), record.get("created_at"), action_id),
+            )
+        stored = row.get("payload") if row else payload
+        if isinstance(stored, str):
+            stored = json.loads(stored)
+        return stored or payload
 
     @staticmethod
     def _decode(row: dict[str, Any] | None) -> dict[str, Any]:

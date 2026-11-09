@@ -134,6 +134,13 @@ class ExtensionHub:
             websocket = self._connections[conn_id]
 
         job_id = uuid.uuid4().hex
+        from app.browser.action_broker import ActionBroker
+
+        action_id = ActionBroker.deterministic_id(
+            session.id if session is not None else "anonymous",
+            tool_name,
+            args,
+        )
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[job_id] = fut
         self._pending_conn[job_id] = conn_id
@@ -154,6 +161,7 @@ class ExtensionHub:
                     {
                         "type": "job",
                         "job_id": job_id,
+                        "action_id": action_id,
                         "tool": tool_name,
                         "args": args,
                     }

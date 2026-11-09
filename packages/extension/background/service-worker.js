@@ -1,6 +1,7 @@
 import { loadConfig } from '../shared/config.js'
 import { runBrowserJob } from './browser-jobs.js'
 import { createJobLogger } from '../shared/logger.js'
+import { getCachedResult, setCachedResult } from '../shared/action-cache.js'
 import { buildWebSocketUrl } from '../shared/ws-url.js'
 
 let socket = null
@@ -88,25 +89,37 @@ async function connectWs() {
     if (data.type === 'job') {
       log.info('extension.ws', `收到任务 ${data.tool}`, {
         job_id: data.job_id,
+        action_id: data.action_id,
         args: data.args,
       })
-      let result
-      try {
-        result = await handleJob(data.tool, {
-          ...(data.args || {}),
+      const actionId = data.action_id || data.job_id
+      let result = actionId ? await getCachedResult(actionId) : null
+      if (result) {
+        log.info('extension.ws', '复用已缓存的任务结果', {
           job_id: data.job_id,
+          action_id: actionId,
         })
-      } catch (error) {
-        result = {
-          status: 'blocked',
-          error: String(error?.message || error),
-          job_id: data.job_id ?? null,
-          extension_logs: [],
+      } else {
+        try {
+          result = await handleJob(data.tool, {
+            ...(data.args || {}),
+            job_id: data.job_id,
+            action_id: actionId,
+          })
+        } catch (error) {
+          result = {
+            status: 'blocked',
+            error: String(error?.message || error),
+            job_id: data.job_id ?? null,
+            extension_logs: [],
+          }
         }
+        if (actionId) await setCachedResult(actionId, result)
       }
       const envelope = {
         type: 'job_result',
         job_id: data.job_id,
+        action_id: actionId,
         result,
       }
       if (
