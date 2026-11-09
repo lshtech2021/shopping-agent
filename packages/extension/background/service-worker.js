@@ -9,6 +9,53 @@ let socketGeneration = 0
 let reconnectTimer = null
 let keepAliveTimer = null
 
+const PENDING_RESULTS_KEY = 'pendingJobResults'
+
+async function queueJobResult(envelope) {
+  try {
+    const stored = await chrome.storage.local.get({
+      [PENDING_RESULTS_KEY]: [],
+    })
+    const queue = Array.isArray(stored?.[PENDING_RESULTS_KEY])
+      ? stored[PENDING_RESULTS_KEY]
+      : []
+    queue.push(envelope)
+    await chrome.storage.local.set({
+      [PENDING_RESULTS_KEY]: queue.slice(-50),
+    })
+  } catch (_) {
+    /* best effort */
+  }
+}
+
+async function flushPendingResults(ws, generation) {
+  try {
+    const stored = await chrome.storage.local.get({
+      [PENDING_RESULTS_KEY]: [],
+    })
+    const queue = Array.isArray(stored?.[PENDING_RESULTS_KEY])
+      ? stored[PENDING_RESULTS_KEY]
+      : []
+    if (!queue.length) return
+    let sent = 0
+    for (const envelope of queue) {
+      if (
+        generation !== socketGeneration ||
+        ws.readyState !== WebSocket.OPEN
+      ) {
+        break
+      }
+      ws.send(JSON.stringify(envelope))
+      sent += 1
+    }
+    await chrome.storage.local.set({
+      [PENDING_RESULTS_KEY]: queue.slice(sent),
+    })
+  } catch (_) {
+    /* retry on the next reconnect */
+  }
+}
+
 // MV3 suspends an idle service worker after ~30s, which would silently drop the
 // WebSocket. Traffic on an open socket keeps the worker alive, so ping regularly.
 const KEEPALIVE_MS = 20000
@@ -72,6 +119,7 @@ async function connectWs() {
     })
     ws.send(JSON.stringify({ type: 'ping', ts: Date.now() }))
     startKeepAlive()
+    flushPendingResults(ws, generation)
   })
   ws.addEventListener('message', async (event) => {
     if (generation !== socketGeneration) return
@@ -126,17 +174,22 @@ async function connectWs() {
         generation === socketGeneration &&
         ws.readyState === WebSocket.OPEN
       ) {
-        ws.send(JSON.stringify(envelope))
-        log.info(
-          'extension.ws',
-          `回传任务结果 ${data.tool}=${result?.status}`,
-          {
-            job_id: data.job_id,
-            log_count: (result?.extension_logs || []).length,
-          },
-        )
+        try {
+          ws.send(JSON.stringify(envelope))
+          log.info(
+            'extension.ws',
+            `回传任务结果 ${data.tool}=${result?.status}`,
+            {
+              job_id: data.job_id,
+              log_count: (result?.extension_logs || []).length,
+            },
+          )
+        } catch (_) {
+          await queueJobResult(envelope)
+        }
       } else {
-        log.warn('extension.ws', 'WebSocket 已断开，任务结果无法回传', {
+        await queueJobResult(envelope)
+        log.warn('extension.ws', 'WebSocket 已断开，任务结果已排队', {
           job_id: data.job_id,
         })
       }
@@ -144,10 +197,10 @@ async function connectWs() {
   })
   ws.addEventListener('close', () => {
     if (generation !== socketGeneration) return
-    log.warn('extension.ws', 'WebSocket 断开，3s 后重连')
+    log.warn('extension.ws', 'WebSocket 断开，1s 后重连')
     stopKeepAlive()
     clearTimeout(reconnectTimer)
-    reconnectTimer = setTimeout(connectWs, 3000)
+    reconnectTimer = setTimeout(connectWs, 1000)
   })
   ws.addEventListener('error', (err) => {
     log.error('extension.ws', 'WebSocket 错误', { error: String(err) })

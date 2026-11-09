@@ -41,7 +41,7 @@ test('saving options does not create a reconnect loop', async () => {
   FakeWebSocket.OPEN = 1
 
   globalThis.setTimeout = (fn, ms) => {
-    if (ms === 3000) {
+    if (ms === 1000) {
       const id = nextTimer
       nextTimer += 1
       reconnectTimers.set(id, fn)

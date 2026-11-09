@@ -39,6 +39,7 @@ class ExtensionHub:
         self._pending: dict[str, asyncio.Future] = {}
         self._pending_conn: dict[str, str] = {}
         self._last_seen: dict[str, float] = {}
+        self._disconnect_tasks: dict[str, asyncio.Task] = {}
         self._lock = asyncio.Lock()
 
     @property
@@ -58,20 +59,40 @@ class ExtensionHub:
         async with self._lock:
             self._connections.pop(conn_id, None)
             self._last_seen.pop(conn_id, None)
-        failed = 0
-        for job_id, owner in list(self._pending_conn.items()):
-            if owner != conn_id:
-                continue
-            fut = self._pending.get(job_id)
-            if fut and not fut.done():
-                fut.set_result({"status": "blocked", "error": "extension_disconnected"})
-                failed += 1
+        pending = [
+            job_id
+            for job_id, owner in list(self._pending_conn.items())
+            if owner == conn_id
+        ]
+        for job_id in pending:
+            task = self._disconnect_tasks.pop(job_id, None)
+            if task is not None:
+                task.cancel()
+            self._disconnect_tasks[job_id] = asyncio.create_task(
+                self._fail_after_reconnect_grace(job_id, conn_id)
+            )
         logger.info(
-            "extension disconnected %s (online=%s, failed_jobs=%s)",
+            "extension disconnected %s (online=%s, pending_jobs=%s)",
             conn_id[:8],
             self.online_count,
-            failed,
+            len(pending),
         )
+
+    async def _fail_after_reconnect_grace(
+        self, job_id: str, conn_id: str, grace: float = 1.5
+    ) -> None:
+        try:
+            await asyncio.sleep(grace)
+        except asyncio.CancelledError:
+            return
+        self._disconnect_tasks.pop(job_id, None)
+        if self._pending_conn.get(job_id) != conn_id:
+            return
+        fut = self._pending.get(job_id)
+        if fut and not fut.done():
+            fut.set_result(
+                {"status": "blocked", "error": "extension_disconnected"}
+            )
 
     async def handle_message(self, conn_id: str, message: dict[str, Any]) -> Optional[dict]:
         msg_type = message.get("type")
@@ -83,7 +104,7 @@ class ExtensionHub:
             owner = self._pending_conn.get(job_id)
             if owner is None:
                 return {"type": "error", "error": "unknown_job", "job_id": job_id}
-            if owner != conn_id:
+            if owner != conn_id and owner in self._connections:
                 logger.warning(
                     "job_result owner mismatch job=%s expected=%s got=%s",
                     job_id[:8],
@@ -95,6 +116,16 @@ class ExtensionHub:
                     "error": "job_owner_mismatch",
                     "job_id": job_id,
                 }
+            if owner != conn_id:
+                logger.info(
+                    "accepting redelivered job_result job=%s from %s",
+                    job_id[:8],
+                    conn_id[:8],
+                )
+                task = self._disconnect_tasks.pop(job_id, None)
+                if task is not None:
+                    task.cancel()
+                self._pending_conn[job_id] = conn_id
             fut = self._pending.get(job_id)
             result = message.get("result") or {}
             logger.info(

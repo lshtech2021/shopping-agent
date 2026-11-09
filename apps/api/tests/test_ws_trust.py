@@ -67,6 +67,36 @@ def test_rest_requires_extension_token_when_configured(monkeypatch):
     assert allowed.status_code == 200
 
 
+def test_reconnected_extension_can_redeliver_a_pending_job_result():
+    async def scenario():
+        hub = ExtensionHub()
+
+        class FakeWS:
+            async def send_json(self, _payload):
+                return None
+
+        hub._connections["old"] = FakeWS()
+        hub._connections["new"] = FakeWS()
+        fut = asyncio.get_running_loop().create_future()
+        hub._pending["job-1"] = fut
+        hub._pending_conn["job-1"] = "old"
+        hub._connections.pop("old")
+
+        reply = await hub.handle_message(
+            "new",
+            {
+                "type": "job_result",
+                "job_id": "job-1",
+                "result": {"status": "ok", "items": [1]},
+            },
+        )
+
+        assert reply["type"] == "ack"
+        assert await fut == {"status": "ok", "items": [1]}
+
+    asyncio.run(scenario())
+
+
 def test_job_result_from_wrong_connection_is_rejected():
     async def scenario():
         hub = ExtensionHub()

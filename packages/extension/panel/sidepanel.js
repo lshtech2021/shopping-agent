@@ -1,8 +1,22 @@
-import { createSession, sendMessage, resumeSession } from '../shared/api.js'
+import {
+  createSession,
+  getSession,
+  sendMessage,
+  resumeSession,
+} from '../shared/api.js'
 import { logUi } from '../shared/logger.js'
+import {
+  isCurrentGeneration,
+  progressText,
+  shouldShowResume,
+} from './session-view.js'
 
 const state = {
   sessionId: null,
+  requestGeneration: 0,
+  clarifyCards: [],
+  pollTimer: null,
+  busy: false,
 }
 
 const els = {
@@ -18,6 +32,7 @@ const els = {
   wsStatus: document.getElementById('wsStatus'),
   execLogs: document.getElementById('execLogs'),
   clearLogsBtn: document.getElementById('clearLogsBtn'),
+  turnStatus: document.getElementById('turnStatus'),
 }
 
 function selectedSites() {
@@ -77,6 +92,7 @@ function appendClarify(questions = []) {
   if (!questions.length) return
   const card = document.createElement('div')
   card.className = 'bubble assistant clarify'
+  card.dataset.clarify = '1'
   const getters = []
 
   for (const q of questions) {
@@ -161,15 +177,115 @@ function appendClarify(questions = []) {
   actions.appendChild(skip)
   card.appendChild(actions)
   els.messages.appendChild(card)
+  state.clarifyCards.push(card)
   els.messages.scrollTop = els.messages.scrollHeight
 }
 
-function handleResult(result) {
+function clearClarifyCards() {
+  for (const card of state.clarifyCards) card.remove()
+  state.clarifyCards = []
+}
+
+function setBusy(busy) {
+  state.busy = busy
+  els.sendBtn.disabled = busy
+  els.resumeBtn.disabled = busy
+  els.startBtn.disabled = busy
+  els.followup.disabled = busy
+  if (!busy) {
+    els.turnStatus.hidden = true
+    stopPolling()
+  }
+}
+
+function stopPolling() {
+  clearInterval(state.pollTimer)
+  state.pollTimer = null
+}
+
+function startPolling(sessionId, generation) {
+  stopPolling()
+  if (!sessionId) return
+  state.pollTimer = setInterval(async () => {
+    if (
+      !isCurrentGeneration(generation, state.requestGeneration) ||
+      !state.busy
+    ) {
+      stopPolling()
+      return
+    }
+    try {
+      const detail = await getSession(sessionId)
+      els.turnStatus.hidden = false
+      els.turnStatus.textContent = progressText(detail)
+    } catch (_) {
+      /* keep the current status */
+    }
+  }, 2000)
+}
+
+async function persistSession(sessionId) {
+  try {
+    await chrome.storage.local.set({ sessionId })
+  } catch (_) {
+    /* best effort */
+  }
+}
+
+async function clearPersistedSession() {
+  try {
+    await chrome.storage.local.remove('sessionId')
+  } catch (_) {
+    /* best effort */
+  }
+}
+
+function renderHistory(detail) {
+  els.messages.innerHTML = ''
+  state.clarifyCards = []
+  for (const message of detail.messages || []) {
+    if (!message?.content) continue
+    appendBubble(message.role === 'user' ? 'user' : 'assistant', message.content)
+  }
+  if (detail.recommendations?.length) {
+    appendBubble('assistant', '已恢复的推荐', detail.recommendations)
+  }
+  appendLogs(detail.execution_logs || [])
+  els.resumeBtn.hidden = !shouldShowResume(detail)
+  if (detail.pending_questions?.length) {
+    appendClarify(detail.pending_questions)
+  }
+}
+
+async function restoreSession() {
+  let sessionId = null
+  try {
+    const stored = await chrome.storage.local.get({ sessionId: null })
+    sessionId = stored.sessionId
+  } catch (_) {
+    return
+  }
+  if (!sessionId) return
+  try {
+    const detail = await getSession(sessionId)
+    state.sessionId = sessionId
+    showChat()
+    renderHistory(detail)
+    appendLocal('ui.restore', '恢复上次会话', { session_id: sessionId })
+  } catch (error) {
+    appendLocal('ui.error', `恢复会话失败：${error.message || error}`)
+    await clearPersistedSession()
+  }
+}
+
+function handleResult(result, generation = state.requestGeneration) {
+  if (!isCurrentGeneration(generation, state.requestGeneration)) return
   appendBubble('assistant', result.reply, result.recommendations)
   appendLogs(result.execution_logs || [])
   const hasClarify = Boolean(result.clarify?.length)
   els.resumeBtn.hidden = !result.interrupted || hasClarify
   if (hasClarify) appendClarify(result.clarify)
+  setBusy(false)
 }
 
 function showChat() {
@@ -178,12 +294,24 @@ function showChat() {
 }
 
 function showNew() {
+  state.requestGeneration += 1
   state.sessionId = null
+  state.clarifyCards = []
+  stopPolling()
+  setBusy(false)
   els.messages.innerHTML = ''
   els.chat.hidden = true
   els.newSession.hidden = false
   els.resumeBtn.hidden = true
+  clearPersistedSession()
   appendLocal('ui.reset', '开始新会话视图')
+}
+
+function beginRequest() {
+  state.requestGeneration += 1
+  clearClarifyCards()
+  setBusy(true)
+  return state.requestGeneration
 }
 
 async function refreshWsStatus() {
@@ -206,46 +334,68 @@ els.startBtn.addEventListener('click', async () => {
     alert('请填写需求并至少选择一个站点')
     return
   }
-  els.startBtn.disabled = true
+  const generation = beginRequest()
   appendLocal('ui.start', '创建会话并开始选品', { requirement, sites })
   try {
     const created = await createSession(requirement, sites)
     state.sessionId = created.session_id
+    await persistSession(state.sessionId)
     showChat()
     appendBubble('user', requirement)
     appendLocal('ui.message', '发送首轮消息', { session_id: state.sessionId })
+    startPolling(state.sessionId, generation)
     const result = await sendMessage(state.sessionId, requirement)
-    handleResult(result)
+    handleResult(result, generation)
   } catch (error) {
-    appendLocal('ui.error', String(error.message || error))
-    alert(String(error.message || error))
+    if (generation === state.requestGeneration) {
+      appendLocal('ui.error', String(error.message || error))
+      alert(String(error.message || error))
+    }
   } finally {
-    els.startBtn.disabled = false
+    if (generation === state.requestGeneration) setBusy(false)
   }
 })
 
 els.sendBtn.addEventListener('click', async () => {
   const content = els.followup.value.trim()
-  if (!content || !state.sessionId) return
+  if (!content || !state.sessionId || state.busy) return
+  const generation = beginRequest()
   els.followup.value = ''
   appendBubble('user', content)
   appendLocal('ui.followup', '发送追问', { content })
   try {
-    handleResult(await sendMessage(state.sessionId, content))
+    startPolling(state.sessionId, generation)
+    handleResult(
+      await sendMessage(state.sessionId, content),
+      generation,
+    )
   } catch (error) {
-    appendBubble('assistant', `错误：${error.message || error}`)
-    appendLocal('ui.error', String(error.message || error))
+    if (generation === state.requestGeneration) {
+      appendBubble('assistant', `错误：${error.message || error}`)
+      appendLocal('ui.error', String(error.message || error))
+    }
+  } finally {
+    if (generation === state.requestGeneration) setBusy(false)
   }
 })
 
 els.resumeBtn.addEventListener('click', async () => {
-  if (!state.sessionId) return
+  if (!state.sessionId || state.busy) return
+  const generation = beginRequest()
   appendLocal('ui.resume', '继续中断会话')
   try {
-    handleResult(await resumeSession(state.sessionId, 'user continued'))
+    startPolling(state.sessionId, generation)
+    handleResult(
+      await resumeSession(state.sessionId, 'user continued'),
+      generation,
+    )
   } catch (error) {
-    appendBubble('assistant', `错误：${error.message || error}`)
-    appendLocal('ui.error', String(error.message || error))
+    if (generation === state.requestGeneration) {
+      appendBubble('assistant', `错误：${error.message || error}`)
+      appendLocal('ui.error', String(error.message || error))
+    }
+  } finally {
+    if (generation === state.requestGeneration) setBusy(false)
   }
 })
 
@@ -253,3 +403,4 @@ els.resetBtn.addEventListener('click', showNew)
 
 refreshWsStatus()
 setInterval(refreshWsStatus, 3000)
+restoreSession()

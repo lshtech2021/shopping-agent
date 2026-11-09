@@ -2,15 +2,24 @@ import { createJobLogger } from '../shared/logger.js'
 
 const SITE_TABS = new Map()
 const SITE_URLS = new Map()
+const SITE_QUERIES = new Map()
+const SITE_PAGES = new Map()
 const SITE_TABS_KEY = 'siteTabs'
 const JOB_TIMEOUT_MS = 50000
 
 async function persistTabState() {
   if (typeof chrome === 'undefined' || !chrome.storage?.session) return
   try {
-    await chrome.storage.session.set({
-      [SITE_TABS_KEY]: Object.fromEntries(SITE_TABS),
-    })
+    const state = {}
+    for (const [site, tabId] of SITE_TABS.entries()) {
+      state[site] = {
+        tabId,
+        url: SITE_URLS.get(site) || null,
+        query: SITE_QUERIES.get(site) || null,
+        page: SITE_PAGES.get(site) || null,
+      }
+    }
+    await chrome.storage.session.set({ [SITE_TABS_KEY]: state })
   } catch (_) {
     /* session storage is best effort */
   }
@@ -21,8 +30,10 @@ async function restoreTabState() {
   try {
     const stored = await chrome.storage.session.get({ [SITE_TABS_KEY]: {} })
     const entries = stored?.[SITE_TABS_KEY] || {}
-    for (const [site, tabId] of Object.entries(entries)) {
+    for (const [site, value] of Object.entries(entries)) {
       try {
+        const tabId = typeof value === 'object' ? value?.tabId : value
+        if (!tabId) continue
         const tab = await chrome.tabs.get(tabId)
         const allowedSite = siteForTabKey(site)
         if (!tab.url || !isAllowedSiteUrl(allowedSite, tab.url)) {
@@ -30,6 +41,10 @@ async function restoreTabState() {
         }
         SITE_TABS.set(site, tab.id)
         SITE_URLS.set(site, tab.url)
+        if (typeof value === 'object') {
+          if (value.query) SITE_QUERIES.set(site, String(value.query))
+          if (value.page) SITE_PAGES.set(site, Number(value.page))
+        }
       } catch (_) {
         /* tab was closed while the worker slept */
       }
@@ -49,6 +64,8 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved?.addListener) {
       if (id === tabId) {
         SITE_TABS.delete(site)
         SITE_URLS.delete(site)
+        SITE_QUERIES.delete(site)
+        SITE_PAGES.delete(site)
         changed = true
       }
     }
@@ -169,15 +186,16 @@ async function ensureTab(site, url, log, deadline, tabKey = site) {
       await chrome.tabs.update(tab.id, { url, active: false })
       await waitComplete(tab.id, url, deadline)
       SITE_URLS.set(tabKey, url)
+      await persistTabState()
       return tab.id
     }
   }
   const tab = await chrome.tabs.create({ url, active: false })
   SITE_TABS.set(tabKey, tab.id)
-  await persistTabState()
   log.info('extension.tab', `新建标签 ${tabKey}`, { tabId: tab.id, url })
   await waitComplete(tab.id, url, deadline)
   SITE_URLS.set(tabKey, url)
+  await persistTabState()
   return tab.id
 }
 
@@ -332,6 +350,9 @@ export async function runBrowserJob(tool, args = {}) {
           jobId,
         )
       }
+      SITE_QUERIES.set(site, String(args.query || ''))
+      SITE_PAGES.set(site, Number(args.page || 1))
+      await persistTabState()
       log.info('extension.search', '搜索页就绪', { url, tabId })
       return withLogs(
         {
@@ -400,6 +421,8 @@ export async function runBrowserJob(tool, args = {}) {
           jobId,
         )
       }
+      SITE_PAGES.set(site, Number(result.page || args.page || 1))
+      await persistTabState()
       log.info('extension.scrape', `列表解析完成 items=${itemCount}`, {
         status: result.status,
         itemCount,
@@ -485,6 +508,11 @@ export async function runBrowserJob(tool, args = {}) {
           )
         }
         SITE_URLS.set(site, response.document_url || meta.nextUrl)
+        SITE_PAGES.set(
+          site,
+          Number(result.page || args.page || 1),
+        )
+        await persistTabState()
         return withLogs(
           {
             ...result,
@@ -549,6 +577,8 @@ export async function runBrowserJob(tool, args = {}) {
           )
         }
         if (clicked.document_url) SITE_URLS.set(site, clicked.document_url)
+        SITE_PAGES.set(site, Number(result.page || args.page || 1))
+        await persistTabState()
         return withLogs(
           {
             ...result,
