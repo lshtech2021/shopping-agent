@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from dataclasses import replace
 from typing import Any, Literal, Protocol
@@ -129,15 +130,14 @@ class AgentRuntime:
         state.setdefault("pending_user", None)
         state.setdefault("error", None)
 
-        memory_summary = self.memory_summary
-        if self.memory is not None:
-            try:
-                memory_summary = await self.memory.summarize(run_id)
-            except Exception:  # noqa: BLE001 — memory is advisory context
-                memory_summary = self.memory_summary
-
         critic_iterations = 0
         while int(state["step"]) < self.max_steps:
+            memory_summary = self.memory_summary
+            if self.memory is not None:
+                try:
+                    memory_summary = await self.memory.summarize(run_id)
+                except Exception:  # noqa: BLE001 — memory is advisory context
+                    memory_summary = self.memory_summary
             context = self.context_builder.build(
                 system_prompt=self.system_prompt,
                 state=state,
@@ -147,8 +147,13 @@ class AgentRuntime:
             ai = await policy.next_action(state, context)
             state["messages"].append(ai)
             state["step"] = int(state["step"]) + 1
-
             tool_calls = list(getattr(ai, "tool_calls", None) or [])
+            self.tool_context.trace.event(
+                "llm.step",
+                step=int(state["step"]),
+                tool_calls=[call.get("name") for call in tool_calls],
+                text=_text_of(ai)[:200],
+            )
             if not tool_calls:
                 state["phase"] = "done"
                 return TurnResult(
@@ -162,13 +167,31 @@ class AgentRuntime:
             waiting: PendingUser | None = None
             failure: str | None = None
             for call in tool_calls:
+                started = time.perf_counter()
                 result = await self._execute_tool(call, state, run_id)
+                self.tool_context.trace.event(
+                    "llm.tool",
+                    tool=result.tool,
+                    args=call.get("args") or {},
+                    result=result.data,
+                    error=result.error,
+                    status=result.data.get("status")
+                    or ("error" if not result.ok else "ok"),
+                    duration_ms=(time.perf_counter() - started) * 1000,
+                )
                 state["tool_results"].append(result.model_dump())
+                payload = dict(result.data)
+                if result.error:
+                    payload.setdefault("error", result.error)
+                if result.control != "continue":
+                    payload.setdefault("control", result.control)
+                if result.output is not None:
+                    payload.setdefault("output", result.output)
                 state["messages"].append(
                     ToolMessage(
                         content="[UNTRUSTED_TOOL_RESULT]\n"
                         + json.dumps(
-                            result.model_dump(),
+                            payload,
                             ensure_ascii=False,
                             default=str,
                         ),

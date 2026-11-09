@@ -89,7 +89,7 @@ def test_query_inventory_returns_observation_fields():
 
 
 def test_browse_observation_keeps_pagination_signals():
-    from app.llm_agent import _compact_browse
+    from app.domains.shopping.tools import _compact_browse
 
     result = _compact_browse(
         {

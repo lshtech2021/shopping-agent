@@ -74,11 +74,6 @@ class ShoppingMemory:
         return matches
 
     async def summarize(self, run_id: str) -> str:
-        requirements = self.session.requirements or {}
-        return (
-            f"会话状态={self.session.status}；"
-            f"商品数={len(self.session.products)}；"
-            f"预算={requirements.get('budget_cny')}；"
-            f"硬性要求={requirements.get('must_have') or []}；"
-            f"已推荐={len(self.session.recommendations)}"
-        )
+        from app.domains.shopping.prompt import context_block
+
+        return context_block(self.toolbox)

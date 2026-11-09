@@ -153,21 +153,6 @@ async def resume_agent(session: Session, note: str) -> dict[str, Any]:
     return await run_agent(session, content, skip_parse=True)
 
 
-def blocked_text(site: str, result: dict[str, Any], what: str) -> str:
-    status = str(result.get("status"))
-    error = result.get("error")
-    if error == "no_extension_online":
-        return "没有检测到在线的浏览器插件。请打开 Chrome 并确认 Side Panel 显示 WS: connected 后点「继续」。"
-    if error == "extension_disconnected":
-        return "插件连接中断，请确认插件在线后点「继续」。"
-    if error == "job_timeout":
-        return f"{site} {what}超时（页面可能卡住或需要验证），处理后点「继续」。"
-    if status in {"rate_limited", "captcha", "login_required"}:
-        label = {"rate_limited": "访问过频", "captcha": "出现验证码", "login_required": "需要登录"}[status]
-        return f"{site} {what}受阻：{label}。请在浏览器中处理后点「继续」。"
-    return f"{site} {what}受阻（{error or status}），处理后点「继续」。"
-
-
 def interrupt_response(session: Session, question: str, reason: str) -> dict[str, Any]:
     log_event(
         session,

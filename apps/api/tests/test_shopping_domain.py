@@ -1,0 +1,164 @@
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+from app.agent.runtime import TurnResult
+from app.agent.state import PendingUser
+from app.domains.shopping.adapter import to_message_response
+from app.domains.shopping.state import ShoppingOutput, ShoppingState
+from app.domains.shopping.tools import build_shopping_tools
+from app.store import store
+from app.tools import ToolBox
+
+
+class Context:
+    pass
+
+
+def seed_session():
+    session = store.create("需要一台开发笔记本", ["jd"])
+    session.requirements = {
+        "budget_cny": 5000,
+        "must_have": [],
+        "category": "笔记本",
+    }
+    session.products["p1"] = {
+        "product_id": "p1",
+        "source": "jd",
+        "source_product_id": "1001",
+        "title": "ThinkPad T14 32G 开发本",
+        "price": 4800.0,
+        "currency": "CNY",
+        "price_cny": 4800.0,
+        "url": "https://item.jd.com/1001.html",
+        "detail_fetched": True,
+        "attributes": {"内存": "32GB"},
+    }
+    return session
+
+
+def test_shopping_state_and_output_are_domain_models():
+    state = ShoppingState(requirements={"budget_cny": 5000}, sites=["jd"])
+    output = ShoppingOutput(reply="推荐", recommendations=[{"product_id": "p1"}])
+    assert state.sites == ["jd"]
+    assert output.recommendations[0]["product_id"] == "p1"
+
+
+def test_build_shopping_tools_exposes_ten_typed_tools():
+    session = seed_session()
+    specs = build_shopping_tools(ToolBox(session), {})
+
+    names = [spec.name for spec in specs]
+    assert names == [
+        "get_session",
+        "update_requirements",
+        "query_inventory",
+        "search",
+        "scrape_listing",
+        "next_page",
+        "fetch_detail",
+        "recommend",
+        "ask_user",
+        "clarify",
+    ]
+    assert all(spec.args_model is not None for spec in specs)
+
+
+def test_recommend_sets_finish_control_and_output():
+    session = seed_session()
+    spec = next(
+        item
+        for item in build_shopping_tools(ToolBox(session), {})
+        if item.name == "recommend"
+    )
+    args = spec.args_model.model_validate(
+        {
+            "picks": [{"product_id": "p1", "reason": "4800 元 32G"}],
+            "answer": "推荐 ThinkPad",
+        }
+    )
+
+    result = asyncio.run(spec.handler(args, Context()))
+
+    assert result.control == "finish"
+    assert result.output["reply"] == "推荐 ThinkPad"
+    assert result.output["recommendations"][0]["product_id"] == "p1"
+
+
+def test_ask_user_and_clarify_set_wait_user_control():
+    session = seed_session()
+    specs = {
+        item.name: item
+        for item in build_shopping_tools(ToolBox(session), {})
+    }
+
+    ask_args = specs["ask_user"].args_model.model_validate(
+        {"question": "预算多少？", "reason": "clarify"}
+    )
+    ask_result = asyncio.run(specs["ask_user"].handler(ask_args, Context()))
+    assert ask_result.control == "wait_user"
+    assert ask_result.output["pending_user"]["question"] == "预算多少？"
+
+    clarify_args = specs["clarify"].args_model.model_validate(
+        {
+            "questions": [
+                {
+                    "id": "budget",
+                    "field": "budget",
+                    "question": "预算？",
+                    "options": ["5000"],
+                }
+            ]
+        }
+    )
+    clarify_result = asyncio.run(
+        specs["clarify"].handler(clarify_args, Context())
+    )
+    assert clarify_result.control == "wait_user"
+    questions = clarify_result.output["pending_user"]["metadata"]["clarify"]
+    assert questions[0]["id"] == "budget"
+
+
+def test_to_message_response_maps_finish_and_waiting():
+    done = TurnResult(
+        run_id="run-1",
+        status="done",
+        output={
+            "reply": "推荐",
+            "recommendations": [
+                {"product_id": "p1", "title": "ThinkPad", "reason": "32G"}
+            ],
+        },
+        steps=2,
+    )
+    response = to_message_response(done)
+    assert response.reply == "推荐"
+    assert response.interrupted is False
+
+    waiting = TurnResult(
+        run_id="run-1",
+        status="waiting_user",
+        pending_user=PendingUser(
+            question="请确认预算",
+            reason="clarify",
+            metadata={
+                "clarify": [
+                    {"id": "budget", "field": "budget", "question": "预算？"}
+                ]
+            },
+        ),
+        steps=1,
+    )
+    response = to_message_response(waiting)
+    assert response.interrupted is True
+    assert response.interrupt_reason == "clarify"
+    assert response.clarify[0].id == "budget"
+
+
+def test_llm_agent_no_longer_contains_the_old_graph():
+    path = Path(__file__).resolve().parents[1] / "app" / "llm_agent.py"
+    source = path.read_text(encoding="utf-8")
+    assert "StateGraph" not in source
+    assert "StructuredTool" not in source
+    assert "AgentRuntime" in source
