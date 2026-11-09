@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from app.config import settings
 from app import mock_browser
+from app.constraints import check_product
 from app.store import Session, store
 from app.trace import log_event
 from app.ws_hub import hub
@@ -249,22 +250,17 @@ class ToolBox:
         prefer_detail: bool = False,
     ) -> dict[str, Any]:
         products = list(self.session.products.values())
-        budget = self.session.requirements.get("budget_cny")
-        min_ram = min_ram_gb(self.session.requirements or {})
+        requirements = self.session.requirements or {}
         filtered = []
         for product in products:
-            if product.get("source") not in self.session.sites:
-                continue
-            if budget is not None and product.get("price_cny") is not None:
-                if float(product["price_cny"]) > float(budget):
-                    continue
-            if min_ram is not None:
-                ram = _ram_gb(product)
-                if ram is None or ram < min_ram:
-                    continue
-            if prefer_detail and not product.get("detail_fetched"):
-                continue
-            filtered.append(product)
+            eligibility = check_product(
+                product,
+                requirements,
+                sites=self.session.sites,
+                require_detail=prefer_detail,
+            )
+            if eligibility.ok:
+                filtered.append(product)
         filtered.sort(key=lambda p: (not p.get("detail_fetched"), p.get("price_cny") or 1e18))
         samples = filtered[:limit]
         return {
@@ -379,13 +375,29 @@ class ToolBox:
         picks: list[dict[str, Any]],
         answer: str,
     ) -> dict[str, Any]:
+        requirements = self.session.requirements or {}
         recommendations = []
         unknown: list[str] = []
+        violations: list[str] = []
+        details: list[dict[str, Any]] = []
         for pick in picks:
             pid = str(pick.get("product_id") or "")
             product = self.session.products.get(pid)
             if product is None:
                 unknown.append(pid)
+                continue
+            eligibility = check_product(
+                product,
+                requirements,
+                sites=self.session.sites,
+                # Mock catalog has no detail pages; live mode must verify details.
+                require_detail=not self.mock_mode,
+            )
+            if not eligibility.ok:
+                violations.extend(eligibility.violations)
+                details.append(
+                    {"product_id": pid, "codes": eligibility.violations}
+                )
                 continue
             recommendations.append(
                 {
@@ -406,6 +418,22 @@ class ToolBox:
                 level="warning",
                 data={"unknown": unknown},
             )
+        if violations:
+            log_event(
+                self.session,
+                "recommend 引用了不满足硬约束的商品",
+                stage="tool.recommend",
+                source="tool",
+                level="warning",
+                data={"details": details},
+            )
+            return {
+                "ok": False,
+                "error": "ineligible_product",
+                "violations": list(dict.fromkeys(violations)),
+                "details": details,
+                "hint": "只能推荐当前预算、站点、must_have 和详情验证都满足的商品",
+            }
         if not recommendations:
             # Never close a turn on an empty/invalid recommendation (design review focus).
             return {
