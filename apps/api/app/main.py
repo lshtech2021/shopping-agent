@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,6 +42,9 @@ from app.ws_hub import hub, origin_allowed
 async def lifespan(_app: FastAPI):
     setup_logging()
     store.reset(settings.database_url)
+    from app.agent.supervisor import RunSupervisor
+
+    RunSupervisor(store).reconcile_startup()
     yield
 
 
@@ -66,6 +70,30 @@ _session_locks: dict[str, asyncio.Lock] = {}
 
 def _lock_for(session_id: str) -> asyncio.Lock:
     return _session_locks.setdefault(session_id, asyncio.Lock())
+
+
+@asynccontextmanager
+async def _turn_slot(session_id: str):
+    lock = _lock_for(session_id)
+    if lock.locked():
+        raise HTTPException(status_code=409, detail="上一轮仍在执行，请稍候")
+    if not store.try_turn_lock(session_id):
+        raise HTTPException(status_code=409, detail="上一轮仍在执行，请稍候")
+    try:
+        async with lock:
+            yield
+    finally:
+        store.release_turn_lock(session_id)
+
+
+def _receipt_key(
+    endpoint: str,
+    session_id: str,
+    header_key: str | None,
+    client_id: str | None,
+) -> str | None:
+    value = (header_key or client_id or "").strip()
+    return f"{endpoint}:{session_id}:{value}" if value else None
 
 
 def _require_session(session_id: str):
@@ -158,12 +186,19 @@ async def post_message(
     session_id: str,
     payload: MessageRequest,
     _token: None = Depends(_require_extension_token),
+    idempotency_key: str | None = Header(
+        default=None, alias="Idempotency-Key"
+    ),
 ) -> MessageResponse:
     session = _require_session(session_id)
-    lock = _lock_for(session_id)
-    if lock.locked():
-        raise HTTPException(status_code=409, detail="上一轮仍在执行，请稍候")
-    async with lock:
+    key = _receipt_key(
+        "message", session_id, idempotency_key, payload.client_message_id
+    )
+    if key:
+        cached = store.get_receipt(key)
+        if cached is not None:
+            return MessageResponse(**cached["response"])
+    async with _turn_slot(session_id):
         from app.agent_runner import run_agent
 
         content = payload.content.strip()
@@ -184,6 +219,8 @@ async def post_message(
                 }
             )
         result = await run_agent(session, content, payload.answers)
+        if key:
+            store.save_receipt(key, session_id, "message", result)
         return MessageResponse(**result)
 
 
@@ -192,15 +229,29 @@ async def resume_session(
     session_id: str,
     payload: ResumeRequest,
     _token: None = Depends(_require_extension_token),
+    idempotency_key: str | None = Header(
+        default=None, alias="Idempotency-Key"
+    ),
 ) -> MessageResponse:
     session = _require_session(session_id)
-    lock = _lock_for(session_id)
-    if lock.locked():
-        raise HTTPException(status_code=409, detail="上一轮仍在执行，请稍候")
-    async with lock:
+    key = _receipt_key(
+        "resume", session_id, idempotency_key, payload.client_message_id
+    )
+    if key:
+        cached = store.get_receipt(key)
+        if cached is not None:
+            return MessageResponse(**cached["response"])
+    if session.status not in {"interrupted", "blocked"}:
+        raise HTTPException(
+            status_code=409,
+            detail="session is not interrupted; resume is not allowed",
+        )
+    async with _turn_slot(session_id):
         from app.agent_runner import resume_agent
 
         result = await resume_agent(session, payload.note or "continue")
+        if key:
+            store.save_receipt(key, session_id, "resume", result)
         return MessageResponse(**result)
 
 

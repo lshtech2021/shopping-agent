@@ -38,8 +38,8 @@ def upgrade() -> None:
             updated_at TEXT NOT NULL,
             version BIGINT NOT NULL DEFAULT 1,
             lease_owner TEXT,
-            lease_expires_at TIMESTAMPTZ,
-            heartbeat_at TIMESTAMPTZ
+            lease_expires_at TEXT,
+            heartbeat_at TEXT
         )
         """
     )
@@ -89,6 +89,17 @@ def upgrade() -> None:
     )
     op.execute(
         """
+        CREATE TABLE IF NOT EXISTS request_receipts (
+            idempotency_key TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            endpoint TEXT NOT NULL,
+            response JSONB NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    op.execute(
+        """
         CREATE TABLE IF NOT EXISTS checkpoints (
             run_id TEXT PRIMARY KEY,
             state JSONB NOT NULL,
@@ -129,6 +140,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     for table in (
         "messages",
+        "request_receipts",
         "checkpoints",
         "candidates",
         "products",

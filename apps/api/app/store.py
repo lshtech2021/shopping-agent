@@ -40,6 +40,9 @@ class Session:
     execution_logs: list[dict[str, Any]] = field(default_factory=list)
     turn: int = 0
     version: int = 0
+    lease_owner: Optional[str] = None
+    lease_expires_at: Optional[str] = None
+    heartbeat_at: Optional[str] = None
     created_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)
 
@@ -66,6 +69,9 @@ class Session:
             execution_logs=list(data.get("execution_logs") or []),
             turn=int(data.get("turn") or 0),
             version=int(data.get("version") or 0),
+            lease_owner=data.get("lease_owner"),
+            lease_expires_at=data.get("lease_expires_at"),
+            heartbeat_at=data.get("heartbeat_at"),
             created_at=str(data.get("created_at") or _now()),
             updated_at=str(data.get("updated_at") or _now()),
         )
@@ -161,6 +167,26 @@ class SessionStore:
         if session is None:
             return None
         return Session.from_dict(copy.deepcopy(session.to_dict()))
+
+    def try_turn_lock(self, run_id: str) -> bool:
+        return self._repo.try_turn_lock(run_id)
+
+    def release_turn_lock(self, run_id: str) -> None:
+        self._repo.release_turn_lock(run_id)
+
+    def get_receipt(self, key: str) -> dict[str, Any] | None:
+        return self._repo.get_receipt(key)
+
+    def save_receipt(
+        self,
+        key: str,
+        run_id: str,
+        endpoint: str,
+        response: dict[str, Any],
+    ) -> None:
+        self._repo.save_receipt(
+            key, run_id, endpoint, response, _now()
+        )
 
     def touch(self, session: Session) -> None:
         session.updated_at = _now()

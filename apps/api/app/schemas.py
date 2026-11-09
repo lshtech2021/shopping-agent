@@ -36,6 +36,9 @@ class MessageRequest(BaseModel):
     answers: Optional[dict[str, str]] = Field(
         None, description="对上一轮 clarify 问题的回答：question.id -> 用户选择/输入"
     )
+    client_message_id: Optional[str] = Field(
+        None, max_length=200, description="客户端幂等键；重复请求返回原始响应"
+    )
 
     @model_validator(mode="after")
     def _require_content_or_answers(self) -> "MessageRequest":
@@ -97,3 +100,4 @@ class SessionDetail(BaseModel):
 
 class ResumeRequest(BaseModel):
     note: str = ""
+    client_message_id: Optional[str] = Field(None, max_length=200)

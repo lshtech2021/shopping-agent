@@ -56,9 +56,12 @@ _ALL_COLUMNS = [
     "blocked_sites",
     "execution_logs",
     "turn",
+    "version",
+    "lease_owner",
+    "lease_expires_at",
+    "heartbeat_at",
     "created_at",
     "updated_at",
-    "version",
 ]
 _UPDATE_COLUMNS = [
     column for column in _ALL_COLUMNS if column not in {"id", "created_at"}
@@ -71,6 +74,8 @@ class RunRepository:
     _memory_actions: dict[str, dict[str, Any]] = {}
     _memory_observations: dict[str, dict[str, Any]] = {}
     _memory_checkpoints: dict[str, dict[str, Any]] = {}
+    _memory_receipts: dict[str, dict[str, Any]] = {}
+    _memory_locks: set[str] = set()
 
     def __new__(cls, database_url: str | None = "memory"):
         if _pg_url(database_url) is None:
@@ -97,12 +102,14 @@ class RunRepository:
             self._memory_actions.clear()
             self._memory_observations.clear()
             self._memory_checkpoints.clear()
+            self._memory_receipts.clear()
+            self._memory_locks.clear()
             return
         with self._conn_lock():
             conn = self._connection()
             conn.execute(
                 "TRUNCATE runs, actions, observations, run_events, "
-                "products, candidates, messages, checkpoints"
+                "products, candidates, messages, checkpoints, request_receipts"
             )
 
     def _conn_lock(self) -> threading.Lock:
@@ -142,8 +149,8 @@ class RunRepository:
                     updated_at TEXT NOT NULL,
                     version BIGINT NOT NULL DEFAULT 1,
                     lease_owner TEXT,
-                    lease_expires_at TIMESTAMPTZ,
-                    heartbeat_at TIMESTAMPTZ
+                    lease_expires_at TEXT,
+                    heartbeat_at TEXT
                 )
                 """
             )
@@ -188,6 +195,17 @@ class RunRepository:
                     product_id TEXT NOT NULL,
                     payload JSONB NOT NULL,
                     PRIMARY KEY (run_id, product_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS request_receipts (
+                    idempotency_key TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL,
+                    endpoint TEXT NOT NULL,
+                    response JSONB NOT NULL,
+                    created_at TEXT NOT NULL
                 )
                 """
             )
@@ -333,6 +351,144 @@ class RunRepository:
             self._connection().execute(
                 "DELETE FROM runs WHERE id = %s", (run_id,)
             )
+
+    # --- turn locks ----------------------------------------------------------
+
+    def try_turn_lock(self, run_id: str) -> bool:
+        if self._url is None:
+            locked = self._memory_locks
+            if run_id in locked:
+                return False
+            locked.add(run_id)
+            return True
+        with self._lock:
+            row = self._connection().execute(
+                "SELECT pg_try_advisory_lock(hashtext(%s)) AS locked",
+                (run_id,),
+            ).fetchone()
+        return bool(row and row["locked"])
+
+    def release_turn_lock(self, run_id: str) -> None:
+        if self._url is None:
+            self._memory_locks.discard(run_id)
+            return
+        with self._lock:
+            self._connection().execute(
+                "SELECT pg_advisory_unlock(hashtext(%s))", (run_id,)
+            )
+
+    # --- request idempotency -------------------------------------------------
+
+    def get_receipt(self, key: str) -> dict[str, Any] | None:
+        if self._url is None:
+            receipt = self._memory_receipts.get(key)
+            return copy.deepcopy(receipt) if receipt else None
+        with self._lock:
+            row = self._connection().execute(
+                "SELECT * FROM request_receipts WHERE idempotency_key = %s",
+                (key,),
+            ).fetchone()
+        if not row:
+            return None
+        response = row["response"]
+        if isinstance(response, str):
+            response = json.loads(response)
+        return {"response": response, "run_id": row["run_id"]}
+
+    def save_receipt(
+        self,
+        key: str,
+        run_id: str,
+        endpoint: str,
+        response: dict[str, Any],
+        created_at: str,
+    ) -> None:
+        if self._url is None:
+            self._memory_receipts[key] = {
+                "response": copy.deepcopy(response),
+                "run_id": run_id,
+            }
+            return
+        with self._lock:
+            self._connection().execute(
+                """
+                INSERT INTO request_receipts
+                    (idempotency_key, run_id, endpoint, response, created_at)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (idempotency_key) DO NOTHING
+                """,
+                (key, run_id, endpoint, Jsonb(response), created_at),
+            )
+
+    # --- leases / reconciliation --------------------------------------------
+
+    def acquire_lease(
+        self, run_id: str, owner: str, expires_at: str
+    ) -> bool:
+        if self._url is None:
+            run = self._memory_runs.get(run_id)
+            if run is None:
+                return False
+            current = run.get("lease_owner")
+            expired = str(run.get("lease_expires_at") or "") < (
+                expires_at[:19]
+            )
+            if current not in (None, "", owner) and not expired:
+                return False
+            run["lease_owner"] = owner
+            run["lease_expires_at"] = expires_at
+            run["heartbeat_at"] = expires_at
+            return True
+        with self._lock:
+            row = self._connection().execute(
+                """
+                UPDATE runs
+                SET lease_owner = %s, lease_expires_at = %s,
+                    heartbeat_at = %s, version = version + 1
+                WHERE id = %s
+                  AND (lease_owner IS NULL OR lease_owner = ''
+                       OR lease_owner = %s OR lease_expires_at < %s)
+                RETURNING id
+                """,
+                (
+                    owner,
+                    expires_at,
+                    expires_at,
+                    run_id,
+                    owner,
+                    expires_at,
+                ),
+            ).fetchone()
+        return row is not None
+
+    def running_runs(self) -> list[dict[str, Any]]:
+        if self._url is None:
+            return [
+                copy.deepcopy(record)
+                for record in self._memory_runs.values()
+                if record.get("status") == "running"
+            ]
+        with self._lock:
+            rows = self._connection().execute(
+                "SELECT * FROM runs WHERE status = 'running'"
+            ).fetchall()
+        return [self._decode(row) for row in rows]
+
+    def expired_leases(self, now: str) -> list[dict[str, Any]]:
+        if self._url is None:
+            return [
+                copy.deepcopy(record)
+                for record in self._memory_runs.values()
+                if record.get("lease_expires_at")
+                and str(record["lease_expires_at"]) < now
+            ]
+        with self._lock:
+            rows = self._connection().execute(
+                "SELECT * FROM runs WHERE lease_expires_at IS NOT NULL "
+                "AND lease_expires_at < %s",
+                (now,),
+            ).fetchall()
+        return [self._decode(row) for row in rows]
 
     # --- checkpoints ---------------------------------------------------------
 
