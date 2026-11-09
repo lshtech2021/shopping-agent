@@ -73,6 +73,8 @@ class ToolBox:
         self.active_query: Optional[str] = None
         self.page_by_site: dict[str, int] = {}
         self.last_ask: Optional[str] = None
+        self._product_index: dict[tuple[str, str], str] = {}
+        self._reindex_products()
 
     def _require_site(self, site: str) -> Optional[dict[str, Any]]:
         if site and site in self.session.sites:
@@ -723,16 +725,21 @@ class ToolBox:
             must.append(normalized)
         req["must_have"] = must
 
+    def _reindex_products(self) -> None:
+        index: dict[tuple[str, str], str] = {}
+        for product_id, product in self.session.products.items():
+            source = str(product.get("source") or "")
+            source_id = str(product.get("source_product_id") or "").strip()
+            if source and source_id:
+                index[(source, source_id)] = str(product_id)
+        self._product_index = index
+
     def _upsert_listing(self, site: str, item: dict[str, Any]) -> bool:
         source_id = str(item.get("source_product_id") or "").strip()
         if not source_id:
             return False
-        key = None
-        for pid, existing in self.session.products.items():
-            if existing.get("source") == site and existing.get("source_product_id") == source_id:
-                key = pid
-                break
-        if key is None:
+        key = self._product_index.get((site, source_id))
+        if key is None or key not in self.session.products:
             key = uuid.uuid4().hex[:12]
         price = item.get("price")
         currency = item.get("currency") or ("CNY" if site == "jd" else "USD")
@@ -775,6 +782,7 @@ class ToolBox:
             "attributes": existing.get("attributes") or {},
             **listing_fields,
         }
+        self._product_index[(site, source_id)] = key
         return True
 
 
