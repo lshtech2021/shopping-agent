@@ -115,8 +115,34 @@ def _compact_browse(result: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _browse_result(result: dict[str, Any], tool: str) -> ToolResult:
+def _plan_meta(
+    context: Any, *evidence: str, done: bool = False
+) -> dict[str, Any]:
+    resources = getattr(context, "resources", None) or {}
+    step_id = resources.get("plan_step_id")
+    if not step_id:
+        return {}
+    meta: dict[str, Any] = {
+        "plan_step_id": str(step_id),
+        "evidence": [item for item in evidence if item],
+    }
+    if done:
+        meta["plan_step_done"] = True
+    return meta
+
+
+def _browse_result(
+    result: dict[str, Any], tool: str, context: Any = None
+) -> ToolResult:
     data = _compact_browse(result)
+    evidence = [f"{tool}:{result.get('status')}"]
+    if "result_count" in result:
+        evidence.append(f"result_count={result.get('result_count')}")
+    elif isinstance(result.get("items"), list):
+        evidence.append(f"item_count={len(result['items'])}")
+    if "accepted" in result:
+        evidence.append(f"accepted={result.get('accepted')}")
+    meta = _plan_meta(context, *evidence)
     status = str(result.get("status") or "")
     if status in BLOCKING and result.get("error") != "quota_exceeded":
         site = str(result.get("site") or "")
@@ -133,6 +159,7 @@ def _browse_result(result: dict[str, Any], tool: str) -> ToolResult:
             ok=False,
             data=data,
             error=result.get("error"),
+            meta=meta,
             control="wait_user",
             output={
                 "question": question,
@@ -146,6 +173,7 @@ def _browse_result(result: dict[str, Any], tool: str) -> ToolResult:
         ok=status == "ok",
         data=data,
         error=result.get("error"),
+        meta=meta,
     )
 
 
@@ -182,16 +210,19 @@ def build_shopping_tools(
             tool="update_requirements",
             ok=True,
             data=box.update_requirements("", patch),
+            meta=_plan_meta(_context, "requirements_updated"),
         )
 
     async def query_inventory(
         args: _QueryInv, _context: Any
     ) -> ToolResult:
+        result = box.query_inventory(limit=args.limit)
         return ToolResult(
             call_id="",
             tool="query_inventory",
             ok=True,
-            data=box.query_inventory(limit=args.limit),
+            data=result,
+            meta=_plan_meta(_context, f"count={result.get('count')}"),
         )
 
     async def search(args: _Search, _context: Any) -> ToolResult:
@@ -205,33 +236,50 @@ def build_shopping_tools(
         if args.sort:
             filters["sort"] = args.sort
         return _browse_result(
-            await box.search(args.site, args.query, **filters), "search"
+            await box.search(args.site, args.query, **filters),
+            "search",
+            _context,
         )
 
     async def scrape_listing(
         args: _Scrape, _context: Any
     ) -> ToolResult:
         return _browse_result(
-            await box.scrape_listing(args.site, args.page), "scrape_listing"
+            await box.scrape_listing(args.site, args.page),
+            "scrape_listing",
+            _context,
         )
 
     async def next_page(args: _NextPage, _context: Any) -> ToolResult:
-        return _browse_result(await box.next_page(args.site), "next_page")
+        return _browse_result(
+            await box.next_page(args.site), "next_page", _context
+        )
 
     async def fetch_detail(args: _Detail, _context: Any) -> ToolResult:
         return _browse_result(
-            await box.fetch_detail(args.product_id), "fetch_detail"
+            await box.fetch_detail(args.product_id),
+            "fetch_detail",
+            _context,
         )
 
     async def recommend(args: _Recommend, _context: Any) -> ToolResult:
         picks = [pick.model_dump() for pick in args.picks]
         result = box.recommend(picks, args.answer)
         if result.get("ok"):
+            picks = [
+                str(item.get("product_id") or "")
+                for item in result.get("recommendations") or []
+            ]
             return ToolResult(
                 call_id="",
                 tool="recommend",
                 ok=True,
                 data=result,
+                meta=_plan_meta(
+                    _context,
+                    "recommended=" + ",".join(picks),
+                    done=True,
+                ),
                 control="finish",
                 output={
                     "reply": result.get("answer") or args.answer,

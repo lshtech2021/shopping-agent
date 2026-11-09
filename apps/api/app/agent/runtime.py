@@ -13,6 +13,10 @@ from pydantic import BaseModel
 from app.agent.context import ContextBuilder
 from app.agent.critic import Critic
 from app.agent.memory import Memory
+from app.agent.policies.plan_execute import (
+    first_open_step_id,
+    record_plan_evidence,
+)
 from app.agent.state import AgentState, PendingUser
 from app.agent.tools import (
     BrowserClient,
@@ -189,6 +193,7 @@ class AgentRuntime:
                     duration_ms=(time.perf_counter() - started) * 1000,
                 )
                 state["tool_results"].append(result.model_dump())
+                record_plan_evidence(state, result)
                 payload = dict(result.data)
                 if result.error:
                     payload.setdefault("error", result.error)
@@ -288,7 +293,13 @@ class AgentRuntime:
                 ok=False,
                 error=f"unknown_tool:{name}",
             )
-        context = replace(self.tool_context, run_id=run_id)
+        resources = dict(self.tool_context.resources)
+        step_id = first_open_step_id(state.get("plan"))
+        if step_id:
+            resources["plan_step_id"] = step_id
+        context = replace(
+            self.tool_context, run_id=run_id, resources=resources
+        )
         try:
             args = spec.args_model.model_validate(call.get("args") or {})
         except Exception as exc:  # noqa: BLE001
