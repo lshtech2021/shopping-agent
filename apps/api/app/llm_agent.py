@@ -11,8 +11,8 @@ from app.agent.policies.plan_execute import (
     record_plan_evidence,
 )
 from app.agent.policies.react import ReActPolicy
-from app.agent.runtime import AgentRuntime, TurnResult
-from app.agent.state import PendingUser, Plan
+from app.agent.runtime import AgentRuntime
+from app.agent.state import Plan
 from app.agent.tools import ToolContext, ToolRegistry, ToolResult
 from app.config import settings
 from app.domains.shopping.adapter import (
@@ -34,14 +34,6 @@ from app.tools import ToolBox
 from app.trace import log_event
 
 
-def _finish_response(session: Session, result: TurnResult) -> dict[str, Any]:
-    response = to_message_response(result)
-    session.messages.append({"role": "assistant", "content": response.reply})
-    payload = response.model_dump()
-    payload["plan"] = session.plan
-    return payload
-
-
 async def run_llm_policy(
     session: Session,
     text: str,
@@ -50,44 +42,24 @@ async def run_llm_policy(
     skip_parse: bool = False,
     checkpoint_resume: bool = False,
 ) -> dict[str, Any]:
+    # Host may parse high-confidence fields into requirements, but policy
+    # decisions (including clarify) stay in the model tool loop.
+    ambiguous_budget = False
     if not skip_parse:
         parsed = box.update_requirements(text)
-        if parsed.get("needs_clarify"):
-            questions = [
-                {
-                    "id": "budget",
-                    "field": "budget",
-                    "question": "预算大概是多少？请给出一个上限，或选择「不限预算」。",
-                    "options": [
-                        "3000以内",
-                        "3000-5000",
-                        "5000-8000",
-                        "8000-15000",
-                        "1.5万以上",
-                        "不限预算",
-                    ],
-                }
-            ]
-            box.ask_clarify(questions)
-            pending = PendingUser(
-                question="请先确认以下筛选条件。",
-                reason="clarify",
-                metadata={"clarify": questions},
-            )
-            return _finish_response(
-                session,
-                TurnResult(
-                    run_id=session.id,
-                    status="waiting_user",
-                    pending_user=pending,
-                ),
-            )
+        ambiguous_budget = bool(parsed.get("needs_clarify"))
 
     turn_text = text
     if skip_parse:
         turn_text = (
             "（用户已回答澄清问题，请直接继续选品，不要再次调用 clarify。）\n"
             + text
+        )
+    elif ambiguous_budget:
+        turn_text = (
+            text
+            + "\n（解析提示：出现了可能是预算的模糊数字，尚未写入 requirements。"
+            "请用 clarify 向用户确认，不要自行写入预算。）"
         )
 
     base_model = llm.build_chat_model()

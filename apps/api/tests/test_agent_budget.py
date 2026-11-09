@@ -72,16 +72,37 @@ def test_budget_unlimited_requires_budget_context():
     assert parsed.min_cny is None
 
 
-def test_needs_clarify_for_low_confidence_budget_is_consumed_by_policy(
-    fake_llm,
-):
+def test_low_confidence_budget_is_clarified_via_model_tool(fake_llm):
+    """Ambiguous bare numbers stay unset; the model must call clarify."""
     import asyncio
 
+    from conftest import _call
     from app.llm_agent import run_llm_policy
     from app.store import store
     from app.tools import ToolBox
 
-    model = fake_llm([])
+    model = fake_llm(
+        [
+            _call(
+                "clarify",
+                questions=[
+                    {
+                        "id": "budget",
+                        "field": "budget",
+                        "question": "预算大概是多少？请给出一个上限，或选择「不限预算」。",
+                        "options": [
+                            "3000以内",
+                            "3000-5000",
+                            "5000-8000",
+                            "8000-15000",
+                            "1.5万以上",
+                            "不限预算",
+                        ],
+                    }
+                ],
+            )
+        ]
+    )
     session = store.create("笔记本 5000", ["jd"])
     session.requirements = {
         "budget_cny": None,
@@ -100,5 +121,5 @@ def test_needs_clarify_for_low_confidence_budget_is_consumed_by_policy(
     assert result["interrupted"] is True
     assert result["interrupt_reason"] == "clarify"
     assert result["clarify"][0]["field"] == "budget"
-    assert model.calls == 0
+    assert model.calls == 1
     assert session.requirements["budget_cny"] is None
