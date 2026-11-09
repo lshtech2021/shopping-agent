@@ -46,8 +46,8 @@ class ToolSpec:
     description: str
     args_model: type[BaseModel]
     handler: Callable[[BaseModel, ToolContext], Awaitable[ToolResult]]
-    read_only: bool = True
-    idempotent: bool = True
+    read_only: bool = False
+    idempotent: bool = False
 
 
 class ToolRegistry:

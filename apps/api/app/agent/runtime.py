@@ -11,7 +11,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 from pydantic import BaseModel
 
 from app.agent.context import ContextBuilder
-from app.agent.critic import Critic, Critique
+from app.agent.critic import Critic
 from app.agent.memory import Memory
 from app.agent.state import AgentState, PendingUser
 from app.agent.tools import (
@@ -130,7 +130,6 @@ class AgentRuntime:
         state.setdefault("pending_user", None)
         state.setdefault("error", None)
 
-        critic_iterations = 0
         while int(state["step"]) < self.max_steps:
             memory_summary = self.memory_summary
             if self.memory is not None:
@@ -166,9 +165,19 @@ class AgentRuntime:
             finish_output: dict[str, Any] | None = None
             waiting: PendingUser | None = None
             failure: str | None = None
+            terminal: str | None = None
             for call in tool_calls:
                 started = time.perf_counter()
-                result = await self._execute_tool(call, state, run_id)
+                if terminal is not None:
+                    result = ToolResult(
+                        call_id=str(call.get("id") or uuid.uuid4().hex),
+                        tool=str(call.get("name") or ""),
+                        ok=False,
+                        data={"error": "turn_already_finished"},
+                        error="turn_already_finished",
+                    )
+                else:
+                    result = await self._execute_tool(call, state, run_id)
                 self.tool_context.trace.event(
                     "llm.tool",
                     tool=result.tool,
@@ -199,15 +208,17 @@ class AgentRuntime:
                         name=result.tool,
                     )
                 )
+                if terminal is not None:
+                    continue
                 if result.control == "finish":
                     finish_output = result.output or {}
-                    break
-                if result.control == "wait_user":
+                    terminal = "finish"
+                elif result.control == "wait_user":
                     waiting = _pending_user(result.output)
-                    break
-                if result.control == "fail":
+                    terminal = "wait_user"
+                elif result.control == "fail":
                     failure = result.error or "tool_failed"
-                    break
+                    terminal = "fail"
 
             if waiting is not None:
                 state["phase"] = "waiting_user"
@@ -228,25 +239,6 @@ class AgentRuntime:
                     steps=int(state["step"]),
                 )
             if finish_output is not None:
-                critique = await self._evaluate(state, finish_output)
-                if (
-                    critique is not None
-                    and not critique.ok
-                    and critique.retry
-                    and critic_iterations < self.max_critic_iterations
-                ):
-                    critic_iterations += 1
-                    state["messages"].append(
-                        HumanMessage(
-                            content="[CRITIC_FEEDBACK]\n"
-                            + json.dumps(
-                                critique.model_dump(),
-                                ensure_ascii=False,
-                                default=str,
-                            )
-                        )
-                    )
-                    continue
                 state["phase"] = "done"
                 return TurnResult(
                     run_id=run_id,
@@ -325,10 +317,3 @@ class AgentRuntime:
         return result.model_copy(
             update={"call_id": call_id, "tool": name}
         )
-
-    async def _evaluate(
-        self, state: AgentState, output: dict[str, Any]
-    ) -> Critique | None:
-        if self.critic is None:
-            return None
-        return await self.critic.evaluate(state=state, output=output)

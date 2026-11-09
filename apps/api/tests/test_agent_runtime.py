@@ -252,6 +252,94 @@ def test_step_cap_returns_max_steps():
     assert model.calls == 2
 
 
+def test_terminal_control_still_answers_all_parallel_tool_calls():
+    calls = []
+    registry = ToolRegistry()
+
+    async def finish_handler(_args, _context):
+        return ToolResult(
+            call_id="",
+            tool="finish",
+            ok=True,
+            control="finish",
+            output={"reply": "done"},
+        )
+
+    async def search_handler(_args, _context):
+        calls.append("search")
+        return ToolResult(call_id="", tool="search", ok=True)
+
+    registry.register(
+        ToolSpec(
+            name="finish",
+            description="finish",
+            args_model=EmptyArgs,
+            handler=finish_handler,
+        )
+    )
+    registry.register(
+        ToolSpec(
+            name="search",
+            description="search",
+            args_model=EmptyArgs,
+            handler=search_handler,
+        )
+    )
+    ai = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "finish", "args": {}, "id": "call-a", "type": "tool_call"},
+            {"name": "search", "args": {}, "id": "call-b", "type": "tool_call"},
+            {"name": "search", "args": {}, "id": "call-c", "type": "tool_call"},
+        ],
+    )
+    model = FakeModel([ai])
+
+    runtime, policy, _ = runtime_for(registry, model)
+    state = make_state()
+    result = asyncio.run(runtime.run_turn(state=state, policy=policy))
+
+    assert result.status == "done"
+    tool_messages = [m for m in state["messages"] if isinstance(m, ToolMessage)]
+    assert {m.tool_call_id for m in tool_messages} == {"call-a", "call-b", "call-c"}
+    assert calls == []
+
+
+def test_parallel_non_terminal_tool_calls_all_execute():
+    calls = []
+    registry = ToolRegistry()
+
+    async def handler(_args, _context):
+        calls.append(1)
+        return ToolResult(call_id="", tool="search", ok=True)
+
+    registry.register(
+        ToolSpec(
+            name="search",
+            description="search",
+            args_model=EmptyArgs,
+            handler=handler,
+        )
+    )
+    ai = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "search", "args": {}, "id": "a", "type": "tool_call"},
+            {"name": "search", "args": {}, "id": "b", "type": "tool_call"},
+        ],
+    )
+    model = FakeModel([ai, AIMessage(content="done")])
+
+    runtime, policy, _ = runtime_for(registry, model)
+    state = make_state()
+    result = asyncio.run(runtime.run_turn(state=state, policy=policy))
+
+    assert result.status == "done"
+    assert len(calls) == 2
+    tool_messages = [m for m in state["messages"] if isinstance(m, ToolMessage)]
+    assert {m.tool_call_id for m in tool_messages} == {"a", "b"}
+
+
 def test_unknown_tool_is_fed_back_and_does_not_crash():
     model = FakeModel([call("missing"), AIMessage(content="recovered")])
 

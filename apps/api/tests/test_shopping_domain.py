@@ -65,6 +65,19 @@ def test_build_shopping_tools_exposes_ten_typed_tools():
     assert all(spec.args_model is not None for spec in specs)
 
 
+def test_state_mutating_shopping_tools_are_not_marked_read_only():
+    session = seed_session()
+    specs = {
+        spec.name: spec
+        for spec in build_shopping_tools(ToolBox(session), {})
+    }
+
+    for name in ("update_requirements", "recommend", "ask_user", "clarify"):
+        assert specs[name].read_only is False
+    assert specs["get_session"].read_only is True
+    assert specs["query_inventory"].read_only is True
+
+
 def test_recommend_sets_finish_control_and_output():
     session = seed_session()
     spec = next(
