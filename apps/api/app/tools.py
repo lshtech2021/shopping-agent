@@ -217,11 +217,10 @@ class ToolBox:
         budget = _extract_budget(text)
         if budget is not None:
             req["budget_cny"] = budget
-        if re.search(r"开发|编程|coding|development", text, re.I):
-            req["use_case"] = "开发"
-            req["category"] = req.get("category") or "笔记本"
-        if re.search(r"笔记本|laptop|notebook", text, re.I):
-            req["category"] = "笔记本"
+        # Only record what the user said; never infer category/use case on our own.
+        category = _extract_category(text)
+        if category:
+            req["category"] = category
         ram = _extract_min_ram_gb(text)
         if ram is not None:
             must = [m for m in (req.get("must_have") or []) if not _RAM_MUST.search(str(m))]
@@ -252,15 +251,9 @@ class ToolBox:
         products = list(self.session.products.values())
         budget = self.session.requirements.get("budget_cny")
         min_ram = min_ram_gb(self.session.requirements or {})
-        category = str(self.session.requirements.get("category") or "")
         filtered = []
         for product in products:
             if product.get("source") not in self.session.sites:
-                continue
-            title = product.get("title") or ""
-            if category == "笔记本" and any(
-                token in title for token in ("配件", "贴纸", "保护膜", "贴膜")
-            ):
                 continue
             if budget is not None and product.get("price_cny") is not None:
                 if float(product["price_cny"]) > float(budget):
@@ -563,6 +556,33 @@ def _parse_budget_answer(value: str) -> float | None:
     if cn:
         return _CN_DIGITS[cn.group(1)] * _UNIT[cn.group(2)]
     return None
+
+
+# canonical category -> (regex over user text, English search term for global sites)
+CATEGORIES: dict[str, tuple[str, str]] = {
+    "笔记本": (r"笔记本|laptop|notebook", "laptop"),
+    "手机": (r"手机|phone|smartphone", "smartphone"),
+    "平板": (r"平板|tablet|ipad", "tablet"),
+    "耳机": (r"耳机|headphone|earphone|earbud", "headphones"),
+    "显示器": (r"显示器|monitor", "monitor"),
+    "台式机": (r"台式机|desktop", "desktop computer"),
+    "相机": (r"相机|camera", "camera"),
+    "键盘": (r"键盘|keyboard", "keyboard"),
+    "鞋": (r"跑鞋|球鞋|运动鞋|shoes?|sneakers?", "shoes"),
+    "背包": (r"背包|双肩包|backpack", "backpack"),
+}
+CATEGORY_OPTIONS = list(CATEGORIES)
+
+
+def _extract_category(text: str) -> str | None:
+    for name, (pattern, _en) in CATEGORIES.items():
+        if re.search(pattern, text or "", re.I):
+            return name
+    return None
+
+
+def english_term(category: str) -> str:
+    return CATEGORIES.get(category, ("", category))[1]
 
 
 def _extract_min_ram_gb(text: str) -> int | None:

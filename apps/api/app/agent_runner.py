@@ -17,7 +17,7 @@ from typing import Any
 from app import llm
 from app.config import settings
 from app.store import Session, store
-from app.tools import BLOCKING, ToolBox, min_ram_gb
+from app.tools import BLOCKING, CATEGORY_OPTIONS, ToolBox, english_term, min_ram_gb
 from app.trace import log_event, timed_step, turn_logs
 
 logger = logging.getLogger(__name__)
@@ -329,7 +329,7 @@ def _clarify_gaps(session: Session) -> list[dict[str, Any]]:
             {
                 "id": "category",
                 "question": "想买什么品类？",
-                "options": ["笔记本", "手机", "平板", "耳机", "显示器", "台式机"],
+                "options": [*CATEGORY_OPTIONS[:6], "其他（请直接输入）"],
             }
         )
     else:
@@ -431,29 +431,15 @@ def _explicit_research(text: str) -> bool:
 
 def _build_query(session: Session, site: str) -> str:
     req = session.requirements or {}
+    category = req.get("category")
     if site == "ebay":
-        parts = []
-        if req.get("category") in {None, "笔记本"} or "笔记本" in (session.requirement or ""):
-            parts.append("laptop")
-        elif req.get("category"):
-            parts.append(str(req["category"]))
-        else:
-            parts.append("item")
-        if req.get("use_case") == "开发":
-            parts.append("development")
-        return " ".join(parts)[:80]
+        term = english_term(str(category)) if category else "item"
+        return term[:80]
 
-    parts = []
-    if req.get("category"):
-        parts.append(str(req["category"]))
-    elif "笔记本" in (session.requirement or ""):
-        parts.append("笔记本")
-    else:
-        parts.append("商品")
+    parts = [str(category) if category else "商品"]
     if req.get("use_case"):
         parts.append(str(req["use_case"]))
     return " ".join(parts)[:80]
-
 
 def _pick_recommendations(session: Session) -> list[dict[str, Any]]:
     inventory_items = ToolBox(session).query_inventory(limit=10)["items"]
@@ -476,8 +462,6 @@ def _pick_recommendations(session: Session) -> list[dict[str, Any]]:
         ssd = attrs.get("ssd") or attrs.get("SSD Capacity") or attrs.get("硬盘")
         if ssd:
             reason_bits.append(f"SSD {ssd}")
-        if session.requirements.get("use_case") == "开发":
-            reason_bits.append("适合开发使用")
         reason_bits.append(f"来源{product.get('source')}")
         picks.append(
             {

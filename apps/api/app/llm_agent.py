@@ -38,17 +38,40 @@ from app.trace import log_event
 
 TERMINAL_TOOLS = {"recommend", "ask_user"}
 
-SYSTEM_PROMPT = """你是购物选品助手，通过工具完成：理解需求 → 搜索/抓取 → 比较 → 推荐。
+SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: clarify requirements → (reuse cache | search) → compare → recommend.
 
-规则：
-1. 先看下方「当前状态」。已有缓存商品足够时，用 query_inventory 直接重排，不要重复搜索；用户明确要求重新搜索/换站点时才再搜。
-2. 预算、内存等硬约束用 update_requirements 写入（价格统一按人民币 price_cny 比较）。
-3. 每站每轮最多 search 2 次、next_page 2 次、fetch_detail 5 次；被拒绝（quota_exceeded）时用已有数据收尾，不要硬试。
-4. search 后必须 scrape_listing 才会有商品；对最有希望的至多 3 个商品 fetch_detail 核实规格后再推荐。
-5. 浏览工具返回 rate_limited / captcha / login_required / blocked 时系统会自动中断并交给用户，你不需要也不能重试。
-6. recommend 只能引用 query_inventory 返回的 product_id，给出 1-3 个，理由要引用具体价格/规格。
-7. 必须以 recommend（完成）或 ask_user（信息不足、需用户决定时）结束本轮。不要编造商品、价格或规格。
-8. 若缺少预算或品类等关键过滤条件、或硬约束之间明显冲突（如低预算配高内存），先用 clarify 一次性列出全部问题（每题给候选项）；用户的回答会在下一条消息的 answers 里自动并入需求。"""
+## Workflow
+
+1. Requirements
+   - Use only criteria the user stated (or that arrived via `answers`) as filters, keywords, or hard constraints. Never add one on your own initiative (brand, color, memory size, price cap, etc.). Translating or rephrasing the user's own terms for search is allowed; adding new criteria is not.
+   - If you think an unstated criterion would materially improve results, do not apply it. Ask about it in `clarify`, with options, including "No preference".
+   - If a key criterion (budget, product category) is missing, or hard constraints conflict (e.g., low budget + high memory), call `clarify` ONCE with all questions, each with options. Stop and wait. Answers arrive in `answers` in the next message and are treated as requirements.
+   - Save only confirmed hard constraints (budget, memory, etc.) via `update_requirements`. Compare prices only in RMB using `price_cny`.
+
+2. Data source
+   - Check "Current Status". If cached products are sufficient, use `query_inventory` to sort/filter them; do not search again.
+   - Search again only if the user explicitly asks for a new search or a different site.
+
+3. Collection (per site, per round, max): 2 `search`, 2 `next_page`, 5 `fetch_detail`.
+   - Every `search`/`next_page` must be followed by `scrape_listing`.
+   - Run `fetch_detail` on the top 3 candidates to verify specs before recommending. If the detail page contradicts the listing, trust the detail page and mention the discrepancy.
+   - On `quota_exceeded`: stop calling that tool and proceed with existing data.
+
+4. Recommendation
+   - Use `query_inventory` to rank, then call `recommend` with 1–3 `product_ids` returned by `query_inventory` only.
+   - Justify each pick with its specific price (`price_cny`) and verified specs. Mark any unverified spec as unverified.
+   - Mention soft observations (e.g., few reviews) in the justification only; never use them as filters.
+
+## Hard stops
+- On `rate_limited`, `captcha`, `login_required`, or `blocked`: the system hands over to the user. Do not retry, work around, or call more browsing tools; briefly state what happened.
+- Never fabricate products, prices, or specs, and never invent user requirements. Use only tool-returned data and user-confirmed criteria.
+
+## Ending the round
+End with exactly one of:
+- `recommend`: results are ready.
+- `ask_user`: a decision is needed from the user, or no products satisfy the constraints (explain, and suggest which specific constraints to relax).
+
+(`clarify` is only for up-front requirement gaps in step 1.)"""
 
 
 # --- tool schemas ------------------------------------------------------------
@@ -60,9 +83,9 @@ class _NoArgs(BaseModel):
 
 class _UpdateReq(BaseModel):
     budget_cny: Optional[float] = Field(None, description="预算上限，人民币")
-    category: Optional[str] = Field(None, description="品类，如 笔记本")
-    use_case: Optional[str] = Field(None, description="用途，如 开发")
-    must_have: Optional[list[str]] = Field(None, description="硬性要求，如 ['32G内存']；内存请写成 '<数字>G内存'")
+    category: Optional[str] = Field(None, description="品类，如 手机 / 跑鞋 / 笔记本")
+    use_case: Optional[str] = Field(None, description="用途，如 通勤 / 送礼")
+    must_have: Optional[list[str]] = Field(None, description="硬性要求，如 ['防水']；若是内存请写成 '<数字>G内存'")
     preferences: Optional[list[str]] = Field(None, description="偏好（非硬性）")
 
 
@@ -179,15 +202,15 @@ def build_tools(box: ToolBox, state: dict[str, Any]) -> list[StructuredTool]:
 
     return [
         tool(get_session, "get_session", "查看会话：需求、站点、库存摘要、配额。", _NoArgs),
-        tool(update_requirements, "update_requirements", "写入/合并结构化需求（预算、品类、用途、硬性要求、偏好）。", _UpdateReq),
+        tool(update_requirements, "update_requirements", "仅写入用户明确陈述或已通过 answers 确认的结构化需求（预算、品类、用途、硬性要求、偏好）；不得自行添加用户没说过的条件。", _UpdateReq),
         tool(query_inventory, "query_inventory", "按当前硬约束查询已缓存商品（不访问站点）。返回 product_id/标题/价格/是否已抓详情。", _QueryInv),
         tool(search, "search", "在一个站点打开一个搜索词的结果页。之后需 scrape_listing 才会入库。", _Search),
         tool(scrape_listing, "scrape_listing", "解析当前搜索结果页并把商品写入缓存。", _Scrape),
         tool(next_page, "next_page", "翻到下一页并入库（每站每轮最多 2 次）。", _NextPage),
         tool(fetch_detail, "fetch_detail", "打开一个商品详情页，补全规格与价格（每站每轮最多 5 次）。", _Detail),
         tool(recommend, "recommend", "提交最终推荐（1-3 个已缓存商品）并结束本轮。", _Recommend),
-        tool(ask_user, "ask_user", "向用户提问或请求其决定，并结束本轮。", _Ask),
-        tool(clarify, "clarify", "关键过滤条件（预算/品类等）不明或有冲突时，一次性列出结构化澄清问题（每题给候选项），用户回答后随下一条消息自动并入需求。", _Clarify),
+        tool(ask_user, "ask_user", "需要用户做决定、或没有商品满足约束时使用（说明原因并建议放宽哪些具体约束），并结束本轮。需求缺口请用 clarify，不要用它。", _Ask),
+        tool(clarify, "clarify", "关键过滤条件（预算/品类）缺失或硬约束冲突时，只调用一次，一次性列出全部结构化问题（每题给候选项；询问未陈述的可选条件时候选须含「无偏好」）。调用后本轮结束，用户的回答会在下一条消息的 answers 中并入需求。", _Clarify),
     ]
 
 
@@ -202,7 +225,7 @@ class AgentState(TypedDict):
 def _context_block(box: ToolBox) -> str:
     info = box.get_session()
     return (
-        "当前状态：\n"
+        "Current Status:\n"
         f"- 站点：{info['sites']}（已搜索：{box.session.searched_sites}）\n"
         f"- 需求：{json.dumps(info['requirements'], ensure_ascii=False)}\n"
         f"- {info['inventory_summary']}\n"
