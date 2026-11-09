@@ -1,5 +1,6 @@
 import asyncio
 
+from app.domains.shopping.requirements_patch import RequirementPatch
 from app.domains.shopping.tools import build_shopping_tools
 from app.store import store
 from app.tools import ToolBox
@@ -24,3 +25,27 @@ def test_domain_update_requirements_extracts_free_text():
     result = asyncio.run(spec.handler(spec.args_model(text="预算 6000 元"), None))
 
     assert result.data["requirements"]["budget_cny"] == 6000
+
+
+def test_questioned_price_does_not_create_budget():
+    session = store.create("找一台笔记本", ["jd"])
+
+    result = ToolBox(session).update_requirements("这个5000元的怎么样？")
+
+    assert result["requirements"]["budget_cny"] is None
+
+
+def test_ambiguous_list_constraints_are_not_applied():
+    session = store.create("找一台笔记本", ["jd"])
+    patch = RequirementPatch(
+        must_have=["防水"],
+        preferences=["红色"],
+        confidence={"must_have": "low", "preferences": "low"},
+        ambiguous_fields=["must_have", "preferences"],
+    )
+
+    result = ToolBox(session).update_requirements("", patch)
+
+    assert result["requirements"]["must_have"] == []
+    assert result["requirements"]["preferences"] == []
+    assert result["needs_clarify"] is True

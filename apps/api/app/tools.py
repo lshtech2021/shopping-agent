@@ -166,12 +166,20 @@ class ToolBox:
         explicit_names = set(explicit_fields)
         if (
             text
-            and req.get("budget_cny") is not None
             and _QUESTION_MENTION.search(text)
-            and not {"budget_cny", "budget_min_cny"} & explicit_names
+            and not {
+                "budget_cny",
+                "budget_min_cny",
+                "budget_unlimited",
+            }
+            & explicit_names
         ):
             requirement_patch = requirement_patch.model_copy(
-                update={"budget_cny": None, "budget_min_cny": None}
+                update={
+                    "budget_cny": None,
+                    "budget_min_cny": None,
+                    "budget_unlimited": None,
+                }
             )
         if (
             text
@@ -229,6 +237,23 @@ class ToolBox:
                             [*requirement_patch.ambiguous_fields, *low_confidence]
                         )
                     )
+                }
+            )
+
+        ambiguous = set(requirement_patch.ambiguous_fields)
+        if {"must_have", "preferences"} & ambiguous:
+            requirement_patch = requirement_patch.model_copy(
+                update={
+                    "must_have": (
+                        []
+                        if "must_have" in ambiguous
+                        else requirement_patch.must_have
+                    ),
+                    "preferences": (
+                        []
+                        if "preferences" in ambiguous
+                        else requirement_patch.preferences
+                    ),
                 }
             )
 
