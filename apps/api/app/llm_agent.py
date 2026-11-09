@@ -89,14 +89,18 @@ async def run_llm_policy(
     saved = None
     if checkpoint_resume:
         candidate = await checkpoint_store.load(session.id)
+        # run_agent bumps turn before resume, so a checkpoint saved during the
+        # interrupted turn is under turn-1 (or equal if turn was not bumped).
+        candidate_turn = int(candidate.get("turn") or 0) if candidate else -1
         if (
             candidate is not None
-            and int(candidate.get("turn") or 0) == session.turn
+            and candidate_turn in {session.turn, session.turn - 1}
             and candidate.get("phase")
             in {"executing", "waiting_user", "failed"}
         ):
             saved = candidate
             state = saved
+            state["turn"] = session.turn
     else:
         await checkpoint_store.delete(session.id)
     memory = ShoppingMemory(session, box)
