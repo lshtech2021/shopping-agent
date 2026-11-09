@@ -11,9 +11,10 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 from pydantic import BaseModel
 
 from app.agent.context import ContextBuilder
-from app.agent.critic import Critic
+from app.agent.critic import Critic, Critique
 from app.agent.memory import Memory
 from app.agent.policies.plan_execute import (
+    Replanner,
     first_open_step_id,
     record_plan_evidence,
 )
@@ -100,6 +101,8 @@ class AgentRuntime:
         critic: Critic | None = None,
         max_steps: int = 24,
         max_critic_iterations: int = 2,
+        replanner: Replanner | None = None,
+        max_replans: int = 2,
         system_prompt: str = "",
         memory: Memory | None = None,
         tool_context: ToolContext | None = None,
@@ -110,6 +113,8 @@ class AgentRuntime:
         self.critic = critic
         self.max_steps = max_steps
         self.max_critic_iterations = max_critic_iterations
+        self.replanner = replanner
+        self.max_replans = max_replans
         self.system_prompt = system_prompt
         self.memory = memory or _NullMemory()
         self.tool_context = tool_context or ToolContext(
@@ -134,6 +139,7 @@ class AgentRuntime:
         state.setdefault("pending_user", None)
         state.setdefault("error", None)
 
+        replans = 0
         while int(state["step"]) < self.max_steps:
             memory_summary = self.memory_summary
             if self.memory is not None:
@@ -224,6 +230,21 @@ class AgentRuntime:
                 elif result.control == "fail":
                     failure = result.error or "tool_failed"
                     terminal = "fail"
+
+            if (
+                terminal is None
+                and self.replanner is not None
+                and replans < self.max_replans
+            ):
+                new_plan = await self.replanner.replan(
+                    state=state,
+                    output={},
+                    critique=Critique(ok=True),
+                )
+                if new_plan is not None:
+                    state["plan"] = new_plan.model_dump()
+                    replans += 1
+                    continue
 
             if waiting is not None:
                 state["phase"] = "waiting_user"

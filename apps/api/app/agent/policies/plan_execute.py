@@ -5,6 +5,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from langchain_core.messages import AIMessage, BaseMessage
 
+from app.agent.critic import Critique
 from app.agent.state import AgentState, Plan, PlanStep
 from app.agent.tools import ToolResult
 
@@ -14,6 +15,17 @@ class Planner(Protocol):
     async def plan(
         self, *, goal: str, context: dict[str, Any]
     ) -> Plan: ...
+
+
+@runtime_checkable
+class Replanner(Protocol):
+    async def replan(
+        self,
+        *,
+        state: AgentState,
+        output: dict[str, Any],
+        critique: Critique,
+    ) -> Plan | None: ...
 
 
 @runtime_checkable
