@@ -1,0 +1,58 @@
+# requirements_patch.py
+from __future__ import annotations
+from typing import Any, Literal
+from pydantic import BaseModel, Field
+
+Confidence = Literal["high", "low"]
+
+
+class RequirementPatch(BaseModel):
+    budget_cny: float | None = None
+    budget_min_cny: float | None = None
+    budget_unlimited: bool | None = None
+    category: str | None = None
+    use_case: str | None = None
+    must_have: list[str] = Field(default_factory=list)
+    preferences: list[str] = Field(default_factory=list)
+    confidence: dict[str, Confidence] = Field(default_factory=dict)
+    ambiguous_fields: list[str] = Field(default_factory=list)
+    source_spans: dict[str, str] = Field(default_factory=dict)
+
+
+def apply_requirement_patch(
+    requirements: dict[str, Any], patch: RequirementPatch
+) -> dict[str, Any]:
+    req = dict(requirements or {})
+    conf = patch.confidence or {}
+
+    def high(field: str) -> bool:
+        return conf.get(field, "high") == "high" and field not in patch.ambiguous_fields
+
+    if patch.budget_unlimited is True and high("budget_unlimited"):
+        req["budget_cny"] = None
+        req["budget_min_cny"] = None
+        req["budget_unlimited"] = True
+    else:
+        if patch.budget_cny is not None and high("budget_cny"):
+            req["budget_cny"] = float(patch.budget_cny)
+            req["budget_unlimited"] = False
+        if patch.budget_min_cny is not None and high("budget_min_cny"):
+            req["budget_min_cny"] = float(patch.budget_min_cny)
+            req["budget_unlimited"] = False
+    if patch.category and high("category"):
+        req["category"] = patch.category
+    if patch.use_case and high("use_case"):
+        req["use_case"] = patch.use_case
+    if patch.must_have:
+        must = list(req.get("must_have") or [])
+        for item in patch.must_have:
+            if item and item not in must:
+                must.append(item)
+        req["must_have"] = must
+    if patch.preferences:
+        prefs = list(req.get("preferences") or [])
+        for item in patch.preferences:
+            if item and item not in prefs:
+                prefs.append(item)
+        req["preferences"] = prefs
+    return req
