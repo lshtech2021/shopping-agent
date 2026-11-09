@@ -1,6 +1,7 @@
 """Generic ReAct runtime driven by typed tools and control signals."""
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -46,6 +47,11 @@ class Policy(Protocol):
 
 
 Finalizer = Callable[[AgentState, dict[str, Any]], Awaitable[None]]
+
+# Independent read/detail tools that do not share site-tab throttle state.
+PARALLEL_SAFE_TOOLS = frozenset(
+    {"fetch_detail", "query_inventory", "get_session"}
+)
 
 
 class _NullMemory:
@@ -188,20 +194,10 @@ class AgentRuntime:
             failure: str | None = None
             terminal: str | None = None
             batch_step_id = first_open_step_id(state.get("plan"))
-            for call in tool_calls:
-                started = time.perf_counter()
-                if terminal is not None:
-                    result = ToolResult(
-                        call_id=str(call.get("id") or uuid.uuid4().hex),
-                        tool=str(call.get("name") or ""),
-                        ok=False,
-                        data={"error": "turn_already_finished"},
-                        error="turn_already_finished",
-                    )
-                else:
-                    result = await self._execute_tool(
-                        call, state, run_id, batch_step_id
-                    )
+            executed = await self._execute_tool_batch(
+                tool_calls, state, run_id, batch_step_id
+            )
+            for call, result, started in executed:
                 self.tool_context.trace.event(
                     "llm.tool",
                     tool=result.tool,
@@ -251,7 +247,6 @@ class AgentRuntime:
                 elif result.control == "fail":
                     failure = result.error or "tool_failed"
                     terminal = "fail"
-
             await self._save_checkpoint(state)
             current_plan = plan_from_state(state)
             persisted_replans = (
@@ -463,6 +458,56 @@ class AgentRuntime:
                 steps=int(state.get("step") or 0),
             )
         return await self.run_turn(state=state, policy=chosen)
+
+    @staticmethod
+    def _batch_is_parallel_safe(tool_calls: list[dict[str, Any]]) -> bool:
+        if len(tool_calls) < 2:
+            return False
+        names = [str(call.get("name") or "") for call in tool_calls]
+        return all(name in PARALLEL_SAFE_TOOLS for name in names)
+
+    async def _execute_tool_batch(
+        self,
+        tool_calls: list[dict[str, Any]],
+        state: AgentState,
+        run_id: str,
+        step_id: str | None,
+    ) -> list[tuple[dict[str, Any], ToolResult, float]]:
+        if self._batch_is_parallel_safe(tool_calls):
+
+            async def _one(
+                call: dict[str, Any],
+            ) -> tuple[dict[str, Any], ToolResult, float]:
+                started = time.perf_counter()
+                result = await self._execute_tool(
+                    call, state, run_id, step_id
+                )
+                return call, result, started
+
+            return list(
+                await asyncio.gather(*[_one(call) for call in tool_calls])
+            )
+
+        executed: list[tuple[dict[str, Any], ToolResult, float]] = []
+        terminal = False
+        for call in tool_calls:
+            started = time.perf_counter()
+            if terminal:
+                result = ToolResult(
+                    call_id=str(call.get("id") or uuid.uuid4().hex),
+                    tool=str(call.get("name") or ""),
+                    ok=False,
+                    data={"error": "turn_already_finished"},
+                    error="turn_already_finished",
+                )
+            else:
+                result = await self._execute_tool(
+                    call, state, run_id, step_id
+                )
+                if result.control in {"finish", "wait_user", "fail"}:
+                    terminal = True
+            executed.append((call, result, started))
+        return executed
 
     async def _execute_tool(
         self,

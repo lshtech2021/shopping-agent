@@ -340,6 +340,45 @@ def test_parallel_non_terminal_tool_calls_all_execute():
     assert {m.tool_call_id for m in tool_messages} == {"a", "b"}
 
 
+def test_parallel_safe_tools_run_concurrently():
+    """fetch_detail batches must overlap in wall time."""
+    import time
+
+    starts: list[float] = []
+    ends: list[float] = []
+    registry = ToolRegistry()
+
+    async def handler(_args, _context):
+        starts.append(time.monotonic())
+        await asyncio.sleep(0.15)
+        ends.append(time.monotonic())
+        return ToolResult(call_id="", tool="fetch_detail", ok=True)
+
+    registry.register(
+        ToolSpec(
+            name="fetch_detail",
+            description="fetch_detail",
+            args_model=EmptyArgs,
+            handler=handler,
+        )
+    )
+    ai = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "fetch_detail", "args": {}, "id": "d1", "type": "tool_call"},
+            {"name": "fetch_detail", "args": {}, "id": "d2", "type": "tool_call"},
+        ],
+    )
+    model = FakeModel([ai, AIMessage(content="done")])
+    runtime, policy, _ = runtime_for(registry, model)
+    state = make_state()
+    result = asyncio.run(runtime.run_turn(state=state, policy=policy))
+    assert result.status == "done"
+    assert len(starts) == 2 and len(ends) == 2
+    # Both calls started before either finished ⇒ concurrent.
+    assert max(starts) < min(ends)
+
+
 def test_unknown_tool_is_fed_back_and_does_not_crash():
     model = FakeModel([call("missing"), AIMessage(content="recovered")])
 
