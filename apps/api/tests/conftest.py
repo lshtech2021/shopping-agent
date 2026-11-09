@@ -33,9 +33,19 @@ def _call(name: str, **args) -> AIMessage:
     )
 
 
+UNTRUSTED_PREFIX = "[UNTRUSTED_TOOL_RESULT]\n"
+
+
+def _tool_payload(message: ToolMessage) -> dict:
+    content = message.content
+    if content.startswith(UNTRUSTED_PREFIX):
+        content = content[len(UNTRUSTED_PREFIX) :]
+    return json.loads(content)
+
+
 def _last_tool_json(messages) -> dict:
     tool_msgs = [m for m in messages if isinstance(m, ToolMessage)]
-    return json.loads(tool_msgs[-1].content)
+    return _tool_payload(tool_msgs[-1])
 
 
 class FakeModel:
@@ -121,7 +131,7 @@ class MockShopper:
 
         tool_msgs = _trailing_tool_messages(messages)
         name = tool_msgs[-1].name if tool_msgs else ""
-        data = json.loads(tool_msgs[-1].content) if tool_msgs else {}
+        data = _tool_payload(tool_msgs[-1]) if tool_msgs else {}
 
         if name == "search":
             site = data.get("site") or (status["sites"] or ["jd"])[0]

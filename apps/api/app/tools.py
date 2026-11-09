@@ -8,6 +8,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Literal, Optional
+from urllib.parse import urlparse
 
 from app.config import settings
 from app import mock_browser
@@ -482,7 +483,7 @@ class ToolBox:
                     "product_id": pid,
                     "title": product.get("title") or pid,
                     "reason": str(pick.get("reason") or "")[:300],
-                    "url": product.get("url"),
+                    "url": _safe_product_url(product.get("url")),
                     "price": product.get("price"),
                     "currency": product.get("currency"),
                 }
@@ -526,7 +527,7 @@ class ToolBox:
         store.touch(self.session)
         return {
             "ok": True,
-            "answer": answer,
+            "answer": str(answer or "")[:2000],
             "recommendations": recommendations,
         }
 
@@ -688,8 +689,10 @@ def _inventory_summary(products: list[dict[str, Any]]) -> str:
         f"价区¥{min(priced):.0f}-¥{max(priced):.0f}" if priced else "价区未知"
     )
     site_part = "；".join(f"{k}={v}" for k, v in sorted(by_site.items()))
-    sample = "；".join((p.get("title") or "")[:30] for p in products[:3])
-    return f"库存摘要：{site_part}；总计={len(products)}；{price_part}；样本：{sample}"
+    return (
+        f"库存摘要：商品数={len(products)}；总计={len(products)}；"
+        f"{site_part}；{price_part}"
+    )
 
 
 _RAM_MUST = re.compile(r"(\d{1,3})\s*G内存", re.I)
@@ -841,6 +844,24 @@ def _extract_min_ram_gb(text: str) -> int | None:
         match = re.search(pattern, text, re.I)
         if match and 2 <= int(match.group(1)) <= 256:
             return int(match.group(1))
+    return None
+
+
+def _safe_product_url(url: Any) -> str | None:
+    if not url:
+        return None
+    text = str(url)
+    try:
+        parsed = urlparse(text)
+    except ValueError:
+        return None
+    if parsed.scheme not in {"http", "https"}:
+        return None
+    host = (parsed.hostname or "").lower()
+    if host == "jd.com" or host.endswith(".jd.com"):
+        return text
+    if host == "ebay.com" or host.endswith(".ebay.com"):
+        return text
     return None
 
 
