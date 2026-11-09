@@ -22,6 +22,12 @@ from fastapi.staticfiles import StaticFiles
 
 from app import llm
 from app.api.actions import router as actions_router
+from app.auth import (
+    extension_auth_enabled,
+    require_extension_token,
+    require_extension_token_header,
+    tokens_match,
+)
 from app.config import settings
 from app.logging_setup import setup_logging
 from app.schemas import (
@@ -137,13 +143,6 @@ def _require_session(session_id: str):
     return session
 
 
-def _require_extension_token(
-    x_extension_token: str | None = Header(default=None),
-) -> None:
-    if settings.extension_token and x_extension_token != settings.extension_token:
-        raise HTTPException(status_code=403, detail="extension token required")
-
-
 @app.get("/")
 def root() -> RedirectResponse:
     return RedirectResponse(url="/console/")
@@ -162,14 +161,17 @@ def health() -> dict:
 
 
 @app.get("/api/v1/sessions", response_model=list[SessionSummary])
-def list_sessions(limit: int = Query(default=50, ge=1, le=200)) -> list[SessionSummary]:
+def list_sessions(
+    limit: int = Query(default=50, ge=1, le=200),
+    _token: None = Depends(require_extension_token_header),
+) -> list[SessionSummary]:
     return [SessionSummary(**item) for item in store.list_summaries(limit=limit)]
 
 
 @app.post("/api/v1/sessions", response_model=CreateSessionResponse)
 def create_session(
     payload: CreateSessionRequest,
-    _token: None = Depends(_require_extension_token),
+    _token: None = Depends(require_extension_token_header),
 ) -> CreateSessionResponse:
     if not payload.sites:
         raise HTTPException(status_code=422, detail="至少选择一个站点")
@@ -191,7 +193,10 @@ def create_session(
 
 
 @app.get("/api/v1/sessions/{session_id}", response_model=SessionDetail)
-async def get_session(session_id: str) -> SessionDetail:
+async def get_session(
+    session_id: str,
+    _token: None = Depends(require_extension_token_header),
+) -> SessionDetail:
     session = store.snapshot(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -219,7 +224,7 @@ async def get_session(session_id: str) -> SessionDetail:
 async def post_message(
     session_id: str,
     payload: MessageRequest,
-    _token: None = Depends(_require_extension_token),
+    _token: None = Depends(require_extension_token_header),
     idempotency_key: str | None = Header(
         default=None, alias="Idempotency-Key"
     ),
@@ -263,7 +268,7 @@ async def post_message(
 async def resume_session(
     session_id: str,
     payload: ResumeRequest,
-    _token: None = Depends(_require_extension_token),
+    _token: None = Depends(require_extension_token_header),
     idempotency_key: str | None = Header(
         default=None, alias="Idempotency-Key"
     ),
@@ -294,7 +299,10 @@ async def resume_session(
 @app.websocket("/ws/extension")
 async def extension_ws(websocket: WebSocket) -> None:
     token = websocket.query_params.get("token")
-    if settings.extension_token and token != settings.extension_token:
+    if extension_auth_enabled() and (
+        not settings.extension_token
+        or not tokens_match(token, settings.extension_token)
+    ):
         await websocket.close(code=4401)
         return
     origin = websocket.headers.get("origin")

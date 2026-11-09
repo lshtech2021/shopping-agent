@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:8100,http://127.0.0.1:8100"
     extension_token: str = ""
     extension_id: str = ""
+    # When true, reject requests without a matching SA_EXTENSION_TOKEN
+    # (including session GETs). Local/dev defaults to open when token is empty.
+    auth_required: bool = False
     mock_browser: bool = True
 
     # Live-browse pacing, enforced server-side per site (design §6).
