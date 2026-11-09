@@ -50,7 +50,7 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
 
 2. Data source
    - Check "Current Status". If cached products are sufficient, use `query_inventory` to sort/filter them; do not search again.
-   - Search again only if the user explicitly asks for a new search or a different site.
+   - Search again only if the user explicitly asks for a new search. Sites come from the session (Side Panel selection); do not invent or drop sites.
 
 3. Collection (per site, per round, max): 2 `search`, 2 `next_page`, 5 `fetch_detail`.
    - Every `search`/`next_page` must be followed by `scrape_listing`.
@@ -263,6 +263,11 @@ async def run_llm_policy(
     if not skip_parse:
         box.update_requirements(text)
 
+    turn_text = text
+    if skip_parse:
+        # Tell the model answers are already merged — do not clarify again.
+        turn_text = "（用户已回答澄清问题，请直接继续选品，不要再次调用 clarify。）\n" + text
+
     state: dict[str, Any] = {}
     tools = build_tools(box, state)
     by_name = {t.name: t for t in tools}
@@ -335,7 +340,7 @@ async def run_llm_policy(
     app = graph.compile()
 
     final = await app.ainvoke(
-        {"messages": _history(session, text), "steps": 0},
+        {"messages": _history(session, turn_text), "steps": 0},
         config={"recursion_limit": max_steps * 2 + 4},
     )
     return _finish(session, box, state, final)

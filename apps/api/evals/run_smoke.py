@@ -1,4 +1,4 @@
-"""Run mock-browser smoke evals against the in-process API."""
+"""Run mock-browser smoke evals against the in-process API (scripted LLM)."""
 from __future__ import annotations
 
 import json
@@ -9,22 +9,30 @@ from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+TESTS = ROOT / "tests"
+sys.path.insert(0, str(TESTS))
 
+from app import llm  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.main import app  # noqa: E402
 from app.store import store  # noqa: E402
+from conftest import MockShopper  # noqa: E402
 
 
 def main() -> int:
     cases = json.loads((Path(__file__).parent / "smoke_cases.json").read_text(encoding="utf-8"))
     settings.mock_browser = True
     store.reset("memory")
+    shopper = MockShopper()
+    llm.llm_enabled = lambda: True  # type: ignore[method-assign]
+    llm.build_chat_model = lambda: shopper  # type: ignore[method-assign]
     client = TestClient(app)
 
     passed = 0
     failed = 0
     for case in cases:
         store.reset("memory")
+        shopper.calls = 0
         created = client.post(
             "/api/v1/sessions",
             json={"requirement": case["requirement"], "sites": case["sites"]},

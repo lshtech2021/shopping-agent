@@ -36,7 +36,7 @@
 
 | 层 | 选择 |
 |----|------|
-| Agent | LangGraph 工具循环（LLM）+ 规则策略（离线/基线） |
+| Agent | LangGraph 工具循环（LLM；需 API key） |
 | API | FastAPI + WebSocket |
 | DB | PostgreSQL（单测可用 memory；Docker Compose 提供本地实例） |
 | Extension | Chrome MV3 + Side Panel |
@@ -86,7 +86,7 @@
 | 策略 | 触发 | 说明 |
 |------|------|------|
 | `llm_agent`（LangGraph） | 设置了 `SA_LLM_API_KEY` | `model ⇄ tools` 循环；模型决定做什么，`ToolBox` 决定允许什么；风控结果确定性中断；`agent_max_steps` 封顶；纯文本回复视为澄清提问 |
-| 规则策略 | 默认（无 key） | 确定性流水线：作为离线演示、评测基线与 LLM 故障对照 |
+| （已移除）规则策略 | — | 应用改为纯 LLM；离线测试用脚本化 FakeModel / MockShopper |
 
 LLM 调用失败不会 500：回合以 `agent_error` 中断，用户可重试。
 
@@ -104,7 +104,7 @@ LLM 调用失败不会 500：回合以 `agent_error` 中断，用户可重试。
 
 开始浏览前，若**关键过滤条件缺失或互相冲突**，Agent 先一次性列出结构化澄清问题，收集齐答案再执行：
 
-- 触发条件（规则策略）：即将发起搜索且 ① 无预算 ② 无品类 ③ 预算与内存硬约束冲突（如 ¥3000 配 32G）。已在缓存可重排（不搜索）时不打扰；用户明确说「跳过/直接开始」也不问。  
+- 触发条件：模型按系统提示在关键过滤条件缺失或硬约束冲突时调用 `clarify`（一次性列出全部问题）。  
 - 形态：`MessageResponse.clarify = [{id, question, options[]}]`，Side Panel 渲染成可点选项 + 自由输入，一次提交全部答案（也可跳过）。  
 - 回传：`POST messages` 带 `answers: {question_id: 值}`，服务端并入需求后**本轮跳过文本重解析**（防止原始需求覆盖用户答案），继续执行。  
 - LLM 策略同样有 `clarify` 工具（由模型决定何时问、问什么）。  
@@ -121,7 +121,7 @@ LLM 调用失败不会 500：回合以 `agent_error` 中断，用户可重试。
 ```
 shopping-agent/
   apps/api/
-    app/                 main / agent_runner（分派+规则策略）/ llm_agent（LangGraph）
+    app/                 main / agent_runner（回合入口）/ llm_agent（LangGraph）
                          tools（ToolBox：9 工具 + 守卫/配额/节流）/ store / ws_hub / trace
     tests/  evals/       pytest 与冒烟评测
   apps/web/              只读控制台（静态页）

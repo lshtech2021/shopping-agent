@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://shopping:shopping@localhost:5432/shopping_agent"
     log_level: str = "INFO"
 
-    # LLM (OpenAI-compatible). Empty key => deterministic rule policy is used.
+    # LLM (OpenAI-compatible). Required — empty key interrupts turns with llm_unavailable.
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4o-mini"

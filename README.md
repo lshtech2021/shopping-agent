@@ -43,13 +43,12 @@ uvicorn app.main:app --reload --port 8100
 
 ## Agent 策略
 
-- 未设置 `SA_LLM_API_KEY`：规则策略（确定性流水线，离线可跑、作评测基线）
-- 设置后：LangGraph 工具循环，模型决策、`ToolBox` 兜底（配额 / 风控锁定 / 推荐校验）
-- 两者共用同一套 9 个工具与同一份执行日志；`GET /health` 的 `llm_enabled` 可确认当前策略
+- 始终走 LangGraph 工具循环（需配置 `SA_LLM_API_KEY`）；未配置时回合以 `llm_unavailable` 中断
+- 模型决策，`ToolBox` 兜底（配额 / 风控锁定 / 推荐校验）；`GET /health` 的 `llm_enabled` 可确认是否已配置
 
 ## 需求澄清
 
-开始搜索前，若缺预算 / 缺品类、或预算与内存硬约束冲突，Agent 会一次性返回结构化澄清问题（`clarify` 字段），Side Panel 渲染成可点选项 + 自由输入；提交答案后继续执行，也可「跳过，直接开始」。已有缓存可重排时不打扰。
+开始搜索前，若缺预算 / 缺品类、或硬约束冲突，模型应一次性返回结构化澄清问题（`clarify` 字段），Side Panel 渲染成可点选项 + 自由输入；提交答案后继续执行。
 
 ## 测试
 

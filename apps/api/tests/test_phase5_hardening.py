@@ -61,7 +61,7 @@ def test_extract_min_ram(text, ram):
     assert _extract_min_ram_gb(text) == ram
 
 
-def test_missing_budget_asks_instead_of_false_parsing():
+def test_missing_budget_asks_instead_of_false_parsing(mock_shopper):
     sid = _new_session("开发笔记本 内存至少 32G 512G SSD")
     body = client.post(
         f"/api/v1/sessions/{sid}/messages",
@@ -77,7 +77,7 @@ def test_missing_budget_asks_instead_of_false_parsing():
 # --- turn-scoped logs --------------------------------------------------------
 
 
-def test_response_logs_are_only_for_current_turn():
+def test_response_logs_are_only_for_current_turn(mock_shopper):
     sid = _new_session()
     first = client.post(f"/api/v1/sessions/{sid}/messages", json={"content": REQ}).json()
     second = client.post(
@@ -91,7 +91,7 @@ def test_response_logs_are_only_for_current_turn():
 # --- risk lockout ------------------------------------------------------------
 
 
-def test_rate_limited_site_stays_closed_until_resume():
+def test_rate_limited_site_stays_closed_until_resume(mock_shopper):
     sid = _new_session("笔记本 预算5000")
     body = client.post(
         f"/api/v1/sessions/{sid}/messages", json={"content": "笔记本 触发限流 rate_limit_me"}
@@ -109,7 +109,7 @@ def test_rate_limited_site_stays_closed_until_resume():
     assert client.get(f"/api/v1/sessions/{sid}").json()["blocked_sites"] == {}
 
 
-def test_no_extension_gives_actionable_message():
+def test_no_extension_gives_actionable_message(mock_shopper):
     settings.mock_browser = False
     try:
         sid = _new_session("笔记本 预算5000")
@@ -118,7 +118,6 @@ def test_no_extension_gives_actionable_message():
         settings.mock_browser = True
     assert body["interrupted"]
     assert "插件" in body["reply"]
-
 
 def test_browse_throttle_spaces_calls(monkeypatch):
     monkeypatch.setattr(settings, "browse_min_interval_s", 0.15)
@@ -134,7 +133,7 @@ def test_browse_throttle_spaces_calls(monkeypatch):
     assert waited > 0.05 and elapsed >= 0.1
 
 
-def test_quotas_reset_every_turn_so_followup_research_still_works():
+def test_quotas_reset_every_turn_so_followup_research_still_works(mock_shopper):
     sid = _new_session()
     for turn in range(1, 5):  # > the per-turn search quota of 2 in total
         body = client.post(

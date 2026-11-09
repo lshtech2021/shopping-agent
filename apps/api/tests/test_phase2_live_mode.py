@@ -6,7 +6,7 @@ from app.main import app
 client = TestClient(app)
 
 
-def test_live_mode_without_extension_blocks_browse(monkeypatch):
+def test_live_mode_without_extension_blocks_browse(mock_shopper, monkeypatch):
     monkeypatch.setattr(settings, "mock_browser", False)
     created = client.post(
         "/api/v1/sessions",

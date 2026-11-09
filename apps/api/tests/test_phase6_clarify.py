@@ -9,7 +9,7 @@ client = TestClient(app)
 REQ_FULL = "帮我挑一台 5000 元内用于开发的笔记本，内存至少 32G"
 
 
-def test_missing_budget_and_category_asks_structured_questions():
+def test_missing_budget_and_category_asks_structured_questions(mock_shopper):
     sid = _new_session("随便推荐点东西")
     body = client.post(
         f"/api/v1/sessions/{sid}/messages", json={"content": "随便推荐点东西"}
@@ -23,7 +23,7 @@ def test_missing_budget_and_category_asks_structured_questions():
     assert client.get(f"/api/v1/sessions/{sid}").json()["pending_questions"]
 
 
-def test_known_category_only_asks_budget():
+def test_known_category_only_asks_budget(mock_shopper):
     sid = _new_session("帮我挑一台笔记本")
     body = client.post(
         f"/api/v1/sessions/{sid}/messages", json={"content": "帮我挑一台笔记本"}
@@ -32,7 +32,7 @@ def test_known_category_only_asks_budget():
     assert [q["id"] for q in body["clarify"]] == ["budget"]
 
 
-def test_answers_apply_and_turn_completes():
+def test_answers_apply_and_turn_completes(mock_shopper):
     sid = _new_session("帮我挑一台笔记本")
     first = client.post(
         f"/api/v1/sessions/{sid}/messages", json={"content": "帮我挑一台笔记本"}
@@ -51,7 +51,7 @@ def test_answers_apply_and_turn_completes():
     assert detail["pending_questions"] == []
 
 
-def test_conflict_question_for_low_budget_high_ram():
+def test_conflict_question_for_low_budget_high_ram(mock_shopper):
     sid = _new_session("3000块的笔记本 内存至少32G")
     body = client.post(
         f"/api/v1/sessions/{sid}/messages",
@@ -69,7 +69,7 @@ def test_conflict_question_for_low_budget_high_ram():
     assert req["budget_cny"] is None and req["must_have"] == ["32G内存"]
 
 
-def test_free_text_answer_is_parsed():
+def test_free_text_answer_is_parsed(mock_shopper):
     sid = _new_session("帮我挑一台笔记本")
     client.post(f"/api/v1/sessions/{sid}/messages", json={"content": "帮我挑一台笔记本"})
     body = client.post(
@@ -80,7 +80,7 @@ def test_free_text_answer_is_parsed():
     assert client.get(f"/api/v1/sessions/{sid}").json()["requirements"]["budget_cny"] == 6000.0
 
 
-def test_skip_keyword_bypasses_clarify():
+def test_skip_keyword_bypasses_clarify(mock_shopper):
     sid = _new_session("帮我挑一台笔记本")
     body = client.post(
         f"/api/v1/sessions/{sid}/messages",
@@ -90,7 +90,7 @@ def test_skip_keyword_bypasses_clarify():
     assert body["recommendations"]
 
 
-def test_reanalyze_path_does_not_re_clarify():
+def test_reanalyze_path_does_not_re_clarify(mock_shopper):
     sid = _new_session(REQ_FULL)
     client.post(f"/api/v1/sessions/{sid}/messages", json={"content": REQ_FULL})
     followup = client.post(
@@ -100,7 +100,7 @@ def test_reanalyze_path_does_not_re_clarify():
     assert followup["interrupted"] is False
 
 
-def test_clarify_answers_without_pending_questions_are_ignored():
+def test_clarify_answers_without_pending_questions_are_ignored(mock_shopper):
     sid = _new_session(REQ_FULL)
     body = client.post(
         f"/api/v1/sessions/{sid}/messages",

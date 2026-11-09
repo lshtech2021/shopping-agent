@@ -5,7 +5,7 @@ from app.main import app
 client = TestClient(app)
 
 
-def test_closed_loop_returns_recommendations():
+def test_closed_loop_returns_recommendations(mock_shopper):
     created = client.post(
         "/api/v1/sessions",
         json={
@@ -34,7 +34,7 @@ def test_closed_loop_returns_recommendations():
     assert detail["status"] == "done"
 
 
-def test_rate_limited_search_interrupts_and_resume_works():
+def test_rate_limited_search_interrupts_and_resume_works(mock_shopper):
     created = client.post(
         "/api/v1/sessions",
         json={"requirement": "笔记本 预算5000", "sites": ["jd"]},

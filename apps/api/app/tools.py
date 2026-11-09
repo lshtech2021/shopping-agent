@@ -313,6 +313,8 @@ class ToolBox:
         for item in result.get("items") or []:
             if self._upsert_listing(site, item):
                 accepted += 1
+        if site and site not in self.session.searched_sites:
+            self.session.searched_sites.append(site)
         store.touch(self.session)
         return {
             **result,
@@ -571,18 +573,11 @@ CATEGORIES: dict[str, tuple[str, str]] = {
     "鞋": (r"跑鞋|球鞋|运动鞋|shoes?|sneakers?", "shoes"),
     "背包": (r"背包|双肩包|backpack", "backpack"),
 }
-CATEGORY_OPTIONS = list(CATEGORIES)
-
-
 def _extract_category(text: str) -> str | None:
     for name, (pattern, _en) in CATEGORIES.items():
         if re.search(pattern, text or "", re.I):
             return name
     return None
-
-
-def english_term(category: str) -> str:
-    return CATEGORIES.get(category, ("", category))[1]
 
 
 def _extract_min_ram_gb(text: str) -> int | None:

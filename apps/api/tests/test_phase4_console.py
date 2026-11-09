@@ -9,7 +9,7 @@ from app.store import SessionStore, store
 client = TestClient(app)
 
 
-def test_list_sessions_memory():
+def test_list_sessions_memory(mock_shopper):
     created = client.post(
         "/api/v1/sessions",
         json={"requirement": "开发笔记本 5000", "sites": ["jd"]},
@@ -50,7 +50,7 @@ def _postgres_ready(url: str) -> bool:
     not os.getenv("SA_TEST_DATABASE_URL"),
     reason="Set SA_TEST_DATABASE_URL to run PostgreSQL persistence tests",
 )
-def test_postgres_persistence(monkeypatch):
+def test_postgres_persistence(mock_shopper, monkeypatch):
     from app.config import settings
 
     url = os.environ["SA_TEST_DATABASE_URL"]

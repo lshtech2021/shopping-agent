@@ -68,7 +68,7 @@
 - Message endpoint runs graph until recommend / ask_user / interrupt
 
 - [x] Domain models + persistence (now PostgreSQL)
-- [x] Nine tools + mock browse (rule policy; LLM loop added in Phase 5)
+- [x] Nine tools + mock browse (LLM loop; rule policy removed)
 - [x] Wire message API to agent
 - [x] Tests for mock closed loop
 - [x] Commit: `feat: phase1 agent tools and mock browse closed loop`
@@ -99,7 +99,7 @@
 
 ### Task 7: Phase 5 - hardening
 
-- [x] LangGraph tool-loop policy (`llm_agent`) + rule policy fallback
+- [x] LangGraph tool-loop policy (`llm_agent`) only — rule policy removed
 - [x] Risk-site lockout until resume; per-turn quotas; server-side throttle
 - [x] Budget/RAM parsing no longer reads spec numbers as price
 - [x] Per-session turn lock (409), WS Origin check, CORS tightened
@@ -112,7 +112,7 @@
 - [x] `answers` merged into requirements without text re-parse clobbering
 - [x] `clarify` tool for the LLM policy
 - [x] Tests + smoke eval case
-- [ ] Commit: `feat: clarify interview gate before browsing`
+- [x] Commit: `feat: clarify interview gate before browsing`
 
-- [ ] Evaluate LLM policy against rule baseline on real model (needs API key)
+- [x] Remove rule-policy fallback — app is LLM-only (`MockShopper` for offline tests)
 - [ ] Split session JSONB into tables; connection pool
