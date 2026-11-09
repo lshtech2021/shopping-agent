@@ -7,12 +7,29 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function searchUrl(site, query) {
+export function buildSearchUrl(site, query, options = {}) {
+  const baseQuery = String(query || '').trim()
   if (site === 'jd') {
-    return `https://search.jd.com/Search?keyword=${encodeURIComponent(query || '')}&enc=utf-8`
+    return `https://search.jd.com/Search?keyword=${encodeURIComponent(baseQuery)}&enc=utf-8`
   }
   if (site === 'ebay') {
-    return `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query || '')}&_ipg=60`
+    const exclusions = Array.isArray(options.excludeTerms)
+      ? options.excludeTerms.join(' ')
+      : String(options.excludeTerms || '').trim()
+    const keywordText = exclusions ? `${baseQuery} ${exclusions}` : baseQuery
+    let url = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(keywordText)}`
+    if (options.categoryId) {
+      url += `&_sacat=${encodeURIComponent(options.categoryId)}`
+    }
+    if (options.maxPrice != null) {
+      url += `&_udhi=${encodeURIComponent(options.maxPrice)}`
+    }
+    if (options.sort === 'price_asc') {
+      url += '&_sop=15'
+    } else if (options.sort === 'price_desc') {
+      url += '&_sop=16'
+    }
+    return `${url}&_ipg=60`
   }
   throw new Error(`unsupported site ${site}`)
 }
@@ -117,7 +134,7 @@ export async function runBrowserJob(tool, args = {}) {
 
   try {
     if (tool === 'search') {
-      const url = searchUrl(site, args.query || '')
+      const url = buildSearchUrl(site, args.query || '', args)
       const tabId = await ensureTab(site, url, log)
       await delay(800)
       const probe = await sendToTab(tabId, { type: 'detect_block' })

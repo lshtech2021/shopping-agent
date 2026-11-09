@@ -20,6 +20,9 @@ test('parseListing extracts jd cards', () => {
   assert.equal(result.items[0].source_product_id, '1001')
   assert.equal(result.items[0].price, 4899)
   assert.match(result.items[0].title, /ThinkPad/)
+  assert.equal(result.result_count, 2)
+  assert.equal(result.has_next, true)
+  assert.ok('rating' in result.items[0])
   assert.ok(jd.nextPageUrl(dom.window.document, dom.window.location.href))
 })
 

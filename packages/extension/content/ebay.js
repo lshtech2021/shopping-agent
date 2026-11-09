@@ -26,6 +26,12 @@
     return null
   }
 
+  function categoryOf(root) {
+    const links = [...root.querySelectorAll('.breadcrumbs a, .se-crumb a')]
+    if (!links.length) return null
+    return clean(links[links.length - 1].textContent) || null
+  }
+
   function extractItemId(value) {
     if (!value) return null
     const byPath = String(value).match(/\/itm\/(\d+)/)
@@ -64,6 +70,7 @@
     const blocked = detectBlock(root, baseUrl)
     if (blocked) return { status: blocked, items: [] }
 
+    const category = categoryOf(root)
     const items = []
     for (const node of root.querySelectorAll(ITEM_SELECTORS)) {
       const link =
@@ -78,6 +85,20 @@
       if (!sourceProductId || !title || /^shop on ebay$/i.test(title)) continue
       const priceText = text(node, ['.s-item__price', '.s-card__price'])
       const shopName = text(node, ['.s-item__seller-info-text'])
+      const ratingText = text(node, [
+        '.x-star-rating',
+        '.s-item__reviews',
+        '[class*="star-rating"]',
+      ])
+      const salesText = text(node, [
+        '.s-item__hotness',
+        '.s-item__additionalItemHotness',
+      ])
+      const shipping = text(node, [
+        '.s-item__shipping',
+        '.s-item__logisticsCost',
+      ])
+      const condition = text(node, ['.s-item__subtitle', '.SECONDARY_INFO'])
       items.push({
         source_product_id: String(sourceProductId),
         url: `${EBAY_ORIGIN}/itm/${sourceProductId}`,
@@ -85,12 +106,23 @@
         price: parseUtils.parsePrice(priceText),
         currency: parseUtils.parseCurrency(priceText, 'USD'),
         shop_name: shopName,
+        sales: parseUtils.parseSales(salesText),
+        rating: parseUtils.parseRating(ratingText),
+        sponsored: Boolean(
+          node.querySelector('.s-item__etrs-text, .s-item__ad-badge'),
+        ),
+        shipping,
+        condition,
+        badges: condition ? [condition] : [],
+        category,
       })
     }
     return {
       status: 'ok',
       items,
       page: currentPageNumber(baseUrl),
+      result_count: items.length,
+      has_next: hasNextPage(root, baseUrl),
     }
   }
 

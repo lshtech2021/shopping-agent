@@ -96,6 +96,12 @@ class _QueryInv(BaseModel):
 class _Search(BaseModel):
     site: str = Field(description="jd 或 ebay")
     query: str = Field(description="该站点的搜索词（eBay 用英文）")
+    category_id: Optional[str] = Field(None, description="eBay 品类 ID，如 177")
+    max_price: Optional[float] = Field(None, description="预算上限（目标站点币种）")
+    exclude_terms: list[str] = Field(
+        default_factory=list, description="追加到搜索词的排除词，如 -book"
+    )
+    sort: Optional[str] = Field(None, description="price_asc / price_desc")
 
 
 class _Scrape(BaseModel):
@@ -165,8 +171,24 @@ def build_tools(box: ToolBox, state: dict[str, Any]) -> list[StructuredTool]:
     async def query_inventory(limit: int = 10) -> dict[str, Any]:
         return box.query_inventory(limit=limit)
 
-    async def search(site: str, query: str) -> dict[str, Any]:
-        return note_browse(await box.search(site, query))
+    async def search(
+        site: str,
+        query: str,
+        category_id: Optional[str] = None,
+        max_price: Optional[float] = None,
+        exclude_terms: Optional[list[str]] = None,
+        sort: Optional[str] = None,
+    ) -> dict[str, Any]:
+        filters: dict[str, Any] = {}
+        if category_id:
+            filters["categoryId"] = category_id
+        if max_price is not None:
+            filters["maxPrice"] = max_price
+        if exclude_terms:
+            filters["excludeTerms"] = exclude_terms
+        if sort:
+            filters["sort"] = sort
+        return note_browse(await box.search(site, query, **filters))
 
     async def scrape_listing(site: Optional[str] = None, page: Optional[int] = None) -> dict[str, Any]:
         return note_browse(await box.scrape_listing(site, page))

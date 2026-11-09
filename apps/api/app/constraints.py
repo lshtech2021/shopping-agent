@@ -56,6 +56,17 @@ def check_product(
     return EligibilityResult(ok=not violations, violations=violations)
 
 
+def must_have_match_count(
+    product: dict[str, Any], requirements: dict[str, Any]
+) -> int:
+    text = _product_text(product)
+    return sum(
+        1
+        for item in (requirements or {}).get("must_have") or []
+        if _matches_must_have(text, str(item))
+    )
+
+
 def _matches_must_have(text: str, item: str) -> bool:
     required_ram = _required_ram_gb(item)
     if required_ram is not None:

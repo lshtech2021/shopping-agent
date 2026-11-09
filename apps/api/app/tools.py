@@ -11,6 +11,7 @@ from typing import Any, Optional
 from app.config import settings
 from app import mock_browser
 from app.constraints import check_product
+from app.inventory import select_diverse_products
 from app.store import Session, store
 from app.trace import log_event
 from app.ws_hub import hub
@@ -251,20 +252,26 @@ class ToolBox:
     ) -> dict[str, Any]:
         products = list(self.session.products.values())
         requirements = self.session.requirements or {}
-        filtered = []
-        for product in products:
-            eligibility = check_product(
+        eligible = [
+            product
+            for product in products
+            if check_product(
                 product,
                 requirements,
                 sites=self.session.sites,
                 require_detail=prefer_detail,
-            )
-            if eligibility.ok:
-                filtered.append(product)
-        filtered.sort(key=lambda p: (not p.get("detail_fetched"), p.get("price_cny") or 1e18))
-        samples = filtered[:limit]
+            ).ok
+        ]
+        samples = select_diverse_products(
+            eligible,
+            requirements,
+            sites=self.session.sites,
+            limit=limit,
+            require_detail=prefer_detail,
+        )
         return {
-            "count": len(filtered),
+            "sort": "diverse",
+            "count": len(eligible),
             "total_cached": len(products),
             "items": [
                 {
@@ -274,6 +281,10 @@ class ToolBox:
                     "price": p.get("price"),
                     "currency": p.get("currency"),
                     "price_cny": p.get("price_cny"),
+                    "shop_name": p.get("shop_name"),
+                    "sales": p.get("sales"),
+                    "rating": p.get("rating"),
+                    "attributes": p.get("attributes") or {},
                     "detail_fetched": p.get("detail_fetched", False),
                     "url": p.get("url"),
                 }
@@ -283,12 +294,15 @@ class ToolBox:
 
     # --- browse ---
 
-    async def search(self, site: str, query: str) -> dict[str, Any]:
+    async def search(
+        self, site: str, query: str, **filters: Any
+    ) -> dict[str, Any]:
         site = site.lower()
         blocked = self._check_quota(site, "search")
         if blocked:
             return blocked
-        result = await self._browse("search", {"site": site, "query": query})
+        args = {"site": site, "query": query, **filters}
+        result = await self._browse("search", args)
         self._bump_quota(site, "search")
         if result.get("status") == "ok":
             self.active_site = site
@@ -517,8 +531,9 @@ class ToolBox:
             key = uuid.uuid4().hex[:12]
         price = item.get("price")
         currency = item.get("currency") or ("CNY" if site == "jd" else "USD")
+        existing = self.session.products.get(key, {})
         self.session.products[key] = {
-            **self.session.products.get(key, {}),
+            **existing,
             "product_id": key,
             "source": site,
             "source_product_id": source_id,
@@ -528,8 +543,15 @@ class ToolBox:
             "price_cny": _to_cny(price, currency),
             "url": item.get("url"),
             "shop_name": item.get("shop_name"),
-            "detail_fetched": self.session.products.get(key, {}).get("detail_fetched", False),
-            "attributes": self.session.products.get(key, {}).get("attributes") or {},
+            "sales": item.get("sales", existing.get("sales")),
+            "rating": item.get("rating", existing.get("rating")),
+            "sponsored": item.get("sponsored", existing.get("sponsored", False)),
+            "shipping": item.get("shipping", existing.get("shipping")),
+            "condition": item.get("condition", existing.get("condition")),
+            "badges": item.get("badges", existing.get("badges") or []),
+            "category": item.get("category", existing.get("category")),
+            "detail_fetched": existing.get("detail_fetched", False),
+            "attributes": existing.get("attributes") or {},
         }
         return True
 

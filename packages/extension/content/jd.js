@@ -78,6 +78,12 @@
       if (!sourceProductId || !title) continue
       const priceText = text(node, ['.p-price', '[class*="_price_"]', '.p-price i'])
       const shopName = text(node, ['[class*="_limit_"]', '.p-shop a', '.p-shop'])
+      const ratingText = text(node, [
+        '.p-commit',
+        '[class*="_rate_"]',
+        '[class*="_comment_"]',
+      ])
+      const salesText = text(node, ['.p-commit', '[class*="_sales_"]'])
       items.push({
         source_product_id: String(sourceProductId),
         url: `https://item.jd.com/${sourceProductId}.html`,
@@ -85,6 +91,15 @@
         price: parseUtils.parsePrice(priceText),
         currency: 'CNY',
         shop_name: shopName,
+        sales: parseUtils.parseSales(salesText),
+        rating: parseUtils.parseRating(ratingText),
+        sponsored: Boolean(
+          node.querySelector('[class*="sponsor"], [class*="_ad_"]'),
+        ),
+        shipping: null,
+        condition: null,
+        badges: [],
+        category: null,
       })
     }
 
@@ -95,7 +110,13 @@
       }
     }
 
-    return { status: 'ok', items, page: currentPageNumber(root, baseUrl) }
+    return {
+      status: 'ok',
+      items,
+      page: currentPageNumber(root, baseUrl),
+      result_count: items.length,
+      has_next: hasNextPage(root),
+    }
   }
 
   function parseDetail(root = document, url = location.href) {

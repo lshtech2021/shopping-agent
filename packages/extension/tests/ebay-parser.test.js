@@ -22,6 +22,9 @@ test('parseListing extracts ebay cards and skips shop on ebay', () => {
   assert.equal(result.items[0].source_product_id, '2001')
   assert.equal(result.items[0].currency, 'USD')
   assert.equal(result.items[0].price, 620)
+  assert.equal(result.result_count, 2)
+  assert.equal(result.has_next, true)
+  assert.ok('rating' in result.items[0])
   assert.ok(ebay.nextPageUrl(dom.window.document, dom.window.location.href))
 })
 

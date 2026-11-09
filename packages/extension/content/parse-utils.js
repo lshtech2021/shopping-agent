@@ -11,6 +11,14 @@
     return Number.isFinite(value) ? value : null
   }
 
+  function parseRating(text) {
+    if (!text) return null
+    const match = String(text).match(/(\d+(?:\.\d+)?)/)
+    if (!match) return null
+    const value = Number(match[1])
+    return Number.isFinite(value) ? value : null
+  }
+
   function parseSales(text) {
     if (!text) return null
     const value = String(text)
@@ -32,5 +40,5 @@
     return fallback
   }
 
-  return { parsePrice, parseSales, parseCurrency }
+  return { parsePrice, parseRating, parseSales, parseCurrency }
 })
