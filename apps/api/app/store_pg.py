@@ -373,9 +373,10 @@ class RunRepository:
             )
         return self._decode(row)
 
-    def list_runs(self) -> list[dict[str, Any]]:
+    def list_runs(self, limit: int | None = None) -> list[dict[str, Any]]:
+        cap = None if limit is None else max(0, int(limit))
         if self._url is None:
-            return [
+            records = [
                 copy.deepcopy(record)
                 for record in sorted(
                     self._memory_runs.values(),
@@ -383,10 +384,14 @@ class RunRepository:
                     reverse=True,
                 )
             ]
+            return records if cap is None else records[:cap]
+        sql = "SELECT * FROM runs ORDER BY updated_at DESC"
+        params: tuple[Any, ...] = ()
+        if cap is not None:
+            sql += " LIMIT %s"
+            params = (cap,)
         with self._lock:
-            rows = self._connection().execute(
-                "SELECT * FROM runs ORDER BY updated_at DESC"
-            ).fetchall()
+            rows = self._connection().execute(sql, params).fetchall()
         return [self._decode(row) for row in rows]
 
     def delete(self, run_id: str) -> None:

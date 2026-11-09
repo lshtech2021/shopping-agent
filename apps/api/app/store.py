@@ -14,6 +14,10 @@ from typing import Any, Optional
 
 from app.config import settings
 
+# Warm the in-process working set with recent runs only; older runs lazy-load
+# through ``get`` / ``refresh``.
+SESSION_WARM_LIMIT = 200
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -122,7 +126,7 @@ class SessionStore:
         self._load_all()
 
     def _load_all(self) -> None:
-        for record in self._repo.list_runs():
+        for record in self._repo.list_runs(limit=SESSION_WARM_LIMIT):
             session = Session.from_dict(record)
             self._sessions[session.id] = session
 

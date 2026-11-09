@@ -301,10 +301,11 @@ def test_run_llm_policy_creates_and_persists_a_plan(monkeypatch):
         json={"content": "笔记本 预算5000"},
     ).json()
 
-    assert model.plan_calls == 1
+    # Complete requirements use the template planner (no LLM plan call).
+    assert model.plan_calls == 0
     assert response["recommendations"]
     assert response["status"] == "done"
-    assert response["plan"]["goal"] == "pick a laptop"
+    assert response["plan"]["metadata"].get("planner") == "template"
     assert [step["id"] for step in response["plan"]["steps"]] == [
         "search",
         "verify",
