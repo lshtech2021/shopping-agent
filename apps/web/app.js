@@ -43,7 +43,7 @@ async function loadSessions() {
   els.sessionList.innerHTML = sessions
     .map(
       (item) => `
-      <button class="item ${item.session_id === state.selectedId ? 'active' : ''}" data-id="${item.session_id}" type="button">
+      <button class="item ${item.session_id === state.selectedId ? 'active' : ''}" data-id="${escapeHtml(item.session_id)}" type="button">
         <div class="title">${escapeHtml(item.requirement).slice(0, 80)}</div>
         <div class="sub">${escapeHtml(item.status)} · ${escapeHtml((item.sites || []).join(','))} · 商品 ${item.product_count} · 推荐 ${item.recommendation_count}</div>
         <div class="sub">${escapeHtml(item.updated_at)}</div>
