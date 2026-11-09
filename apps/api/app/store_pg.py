@@ -78,6 +78,8 @@ class RunRepository:
     _memory_checkpoints: dict[str, dict[str, Any]] = {}
     _memory_receipts: dict[str, dict[str, Any]] = {}
     _memory_locks: set[str] = set()
+    _memory_run_events: list[dict[str, Any]] = []
+    _memory_run_event_seq: int = 0
 
     def __new__(cls, database_url: str | None = "memory"):
         if _pg_url(database_url) is None:
@@ -119,6 +121,8 @@ class RunRepository:
             self._memory_checkpoints.clear()
             self._memory_receipts.clear()
             self._memory_locks.clear()
+            self._memory_run_events.clear()
+            self._memory_run_event_seq = 0
             return
         with self._db() as conn:
             conn.execute(
@@ -485,6 +489,77 @@ class RunRepository:
                 """,
                 (key, run_id, endpoint, Jsonb(response), created_at),
             )
+
+    # --- run events (mid-turn progress) -------------------------------------
+
+    def append_run_event(
+        self,
+        run_id: str,
+        event: dict[str, Any],
+        *,
+        created_at: str,
+    ) -> dict[str, Any]:
+        payload = copy.deepcopy(event)
+        if self._url is None:
+            self._memory_run_event_seq += 1
+            record = {
+                "id": self._memory_run_event_seq,
+                "run_id": run_id,
+                "event": payload,
+                "created_at": created_at,
+            }
+            self._memory_run_events.append(record)
+            return copy.deepcopy(record)
+        with self._db() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO run_events(run_id, event, created_at)
+                VALUES (%s, %s, %s)
+                RETURNING id, run_id, event, created_at
+                """,
+                (run_id, Jsonb(payload), created_at),
+            ).fetchone()
+        return self._decode_event(row)
+
+    def list_run_events(
+        self,
+        run_id: str,
+        *,
+        after_id: int = 0,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        cap = max(1, min(int(limit), 500))
+        cursor = max(0, int(after_id))
+        if self._url is None:
+            rows = [
+                copy.deepcopy(record)
+                for record in self._memory_run_events
+                if record["run_id"] == run_id and int(record["id"]) > cursor
+            ]
+            return rows[:cap]
+        with self._db() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, run_id, event, created_at
+                FROM run_events
+                WHERE run_id = %s AND id > %s
+                ORDER BY id ASC
+                LIMIT %s
+                """,
+                (run_id, cursor, cap),
+            ).fetchall()
+        return [self._decode_event(row) for row in rows]
+
+    @staticmethod
+    def _decode_event(row: dict[str, Any] | None) -> dict[str, Any]:
+        if row is None:
+            return {}
+        record = dict(row)
+        event = record.get("event")
+        if isinstance(event, str):
+            record["event"] = json.loads(event)
+        record["id"] = int(record["id"])
+        return record
 
     # --- leases / reconciliation --------------------------------------------
 

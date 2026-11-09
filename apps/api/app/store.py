@@ -236,6 +236,24 @@ class SessionStore:
             key, run_id, endpoint, response, _now()
         )
 
+    def append_run_event(
+        self, run_id: str, event: dict[str, Any]
+    ) -> dict[str, Any]:
+        return self._repo.append_run_event(
+            run_id, event, created_at=_now()
+        )
+
+    def list_run_events(
+        self,
+        run_id: str,
+        *,
+        after_id: int = 0,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return self._repo.list_run_events(
+            run_id, after_id=after_id, limit=limit
+        )
+
     def touch(self, session: Session, *, durable: bool = False) -> None:
         """Update the in-memory working set; persist only when durable/flushed."""
         session.updated_at = _now()
