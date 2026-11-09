@@ -98,6 +98,19 @@ class SessionDetail(BaseModel):
     updated_at: Optional[str] = None
 
 
+class RunEventOut(BaseModel):
+    id: int
+    run_id: str
+    event: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+
+
+class RunEventList(BaseModel):
+    session_id: str
+    events: list[RunEventOut] = Field(default_factory=list)
+    next_after: int = 0
+
+
 class ResumeRequest(BaseModel):
     note: str = ""
     client_message_id: Optional[str] = Field(None, max_length=200)

@@ -72,6 +72,15 @@ def log_event(
     log_fn = getattr(logger, level if level in {"debug", "info", "warning", "error"} else "info")
     log_fn("%s | %s", line, _trim(data) if data else "")
 
+    try:
+        store.append_run_event(session.id, event)
+    except Exception:
+        logger.exception(
+            "failed to append run_event sid=%s stage=%s",
+            session.id[:8],
+            stage,
+        )
+
     if persist:
         store.touch(session, durable=True)
     return event

@@ -35,6 +35,8 @@ from app.schemas import (
     MessageRequest,
     MessageResponse,
     ResumeRequest,
+    RunEventList,
+    RunEventOut,
     SessionDetail,
     SessionSummary,
 )
@@ -216,6 +218,34 @@ async def get_session(
         execution_logs=session.execution_logs,
         created_at=session.created_at,
         updated_at=session.updated_at,
+    )
+
+
+@app.get(
+    "/api/v1/sessions/{session_id}/events",
+    response_model=RunEventList,
+)
+async def list_session_events(
+    session_id: str,
+    after: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    _token: None = Depends(require_extension_token_header),
+) -> RunEventList:
+    if store.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    rows = store.list_run_events(session_id, after_id=after, limit=limit)
+    events = [
+        RunEventOut(
+            id=int(row["id"]),
+            run_id=str(row["run_id"]),
+            event=dict(row.get("event") or {}),
+            created_at=str(row.get("created_at") or ""),
+        )
+        for row in rows
+    ]
+    next_after = events[-1].id if events else after
+    return RunEventList(
+        session_id=session_id, events=events, next_after=next_after
     )
 
 
