@@ -1,11 +1,12 @@
 import { loadConfig } from './config.js'
 
 async function request(path, options = {}) {
-  const { backendUrl } = await loadConfig()
+  const { backendUrl, extensionToken } = await loadConfig()
   const response = await fetch(`${backendUrl}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(extensionToken ? { 'X-Extension-Token': extensionToken } : {}),
       ...(options.headers || {}),
     },
   })

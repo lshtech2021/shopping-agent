@@ -1,6 +1,7 @@
 import { loadConfig } from '../shared/config.js'
 import { runBrowserJob } from './browser-jobs.js'
 import { createJobLogger } from '../shared/logger.js'
+import { buildWebSocketUrl } from '../shared/ws-url.js'
 
 let socket = null
 let reconnectTimer = null
@@ -47,8 +48,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function connectWs() {
   const log = createJobLogger('ws')
-  const { backendUrl } = await loadConfig()
-  const wsUrl = backendUrl.replace(/^http/, 'ws') + '/ws/extension'
+  const { backendUrl, extensionToken } = await loadConfig()
+  const wsUrl = buildWebSocketUrl(backendUrl, extensionToken)
   if (socket) {
     try {
       socket.close()

@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     agent_turn_timeout_s: float = 600.0
 
     cors_origins: str = "http://localhost:8100,http://127.0.0.1:8100"
+    extension_token: str = ""
+    extension_id: str = ""
     mock_browser: bool = True
 
     # Live-browse pacing, enforced server-side per site (design §6).

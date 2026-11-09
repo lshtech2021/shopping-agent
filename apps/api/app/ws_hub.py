@@ -20,15 +20,17 @@ from app.trace import log_event
 logger = logging.getLogger(__name__)
 
 
-def origin_allowed(origin: str | None) -> bool:
-    """Only the extension itself (or a non-browser client such as tests/curl).
-
-    Browsers always send Origin on WebSocket handshakes, so a random web page
-    cannot impersonate the extension host.
-    """
+def origin_allowed(
+    origin: str | None, extension_id: str | None = None
+) -> bool:
+    """Require the configured extension ID when one is configured."""
     if not origin:
         return True
-    return origin.startswith("chrome-extension://")
+    if not origin.startswith("chrome-extension://"):
+        return False
+    if not extension_id:
+        return True
+    return origin == f"chrome-extension://{extension_id}"
 
 
 class ExtensionHub:
@@ -36,6 +38,7 @@ class ExtensionHub:
         self._connections: dict[str, WebSocket] = {}
         self._pending: dict[str, asyncio.Future] = {}
         self._pending_conn: dict[str, str] = {}
+        self._last_seen: dict[str, float] = {}
         self._lock = asyncio.Lock()
 
     @property
@@ -47,12 +50,14 @@ class ExtensionHub:
         conn_id = uuid.uuid4().hex
         async with self._lock:
             self._connections[conn_id] = websocket
+            self._last_seen[conn_id] = time.monotonic()
         logger.info("extension connected %s (online=%s)", conn_id[:8], self.online_count)
         return conn_id
 
     async def disconnect(self, conn_id: str) -> None:
         async with self._lock:
             self._connections.pop(conn_id, None)
+            self._last_seen.pop(conn_id, None)
         failed = 0
         for job_id, owner in list(self._pending_conn.items()):
             if owner != conn_id:
@@ -70,10 +75,26 @@ class ExtensionHub:
 
     async def handle_message(self, conn_id: str, message: dict[str, Any]) -> Optional[dict]:
         msg_type = message.get("type")
+        self._last_seen[conn_id] = time.monotonic()
         if msg_type == "ping":
             return {"type": "pong", "ts": message.get("ts")}
         if msg_type == "job_result":
             job_id = str(message.get("job_id") or "")
+            owner = self._pending_conn.get(job_id)
+            if owner is None:
+                return {"type": "error", "error": "unknown_job", "job_id": job_id}
+            if owner != conn_id:
+                logger.warning(
+                    "job_result owner mismatch job=%s expected=%s got=%s",
+                    job_id[:8],
+                    owner[:8],
+                    conn_id[:8],
+                )
+                return {
+                    "type": "error",
+                    "error": "job_owner_mismatch",
+                    "job_id": job_id,
+                }
             fut = self._pending.get(job_id)
             result = message.get("result") or {}
             logger.info(
@@ -106,7 +127,11 @@ class ExtensionHub:
                         data={"tool": tool_name, "args": args},
                     )
                 return {"status": "blocked", "error": "no_extension_online"}
-            conn_id, websocket = next(iter(self._connections.items()))
+            conn_id = max(
+                self._connections,
+                key=lambda cid: self._last_seen.get(cid, 0.0),
+            )
+            websocket = self._connections[conn_id]
 
         job_id = uuid.uuid4().hex
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
@@ -124,9 +149,23 @@ class ExtensionHub:
                 data={"job_id": job_id, "tool": tool_name, "args": args, "conn_id": conn_id},
             )
         try:
-            await websocket.send_json(
-                {"type": "job", "job_id": job_id, "tool": tool_name, "args": args}
-            )
+            try:
+                await websocket.send_json(
+                    {
+                        "type": "job",
+                        "job_id": job_id,
+                        "tool": tool_name,
+                        "args": args,
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001
+                async with self._lock:
+                    self._connections.pop(conn_id, None)
+                    self._last_seen.pop(conn_id, None)
+                return {
+                    "status": "blocked",
+                    "error": f"extension_send_failed: {exc}",
+                }
             result = await asyncio.wait_for(fut, timeout=timeout)
             if not isinstance(result, dict):
                 return {"status": "parse_error", "error": "invalid_result"}

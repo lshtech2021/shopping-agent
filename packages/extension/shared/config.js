@@ -1,11 +1,13 @@
 const DEFAULTS = {
   backendUrl: 'http://127.0.0.1:8100',
+  extensionToken: '',
 }
 
 export async function loadConfig() {
   const stored = await chrome.storage.local.get(DEFAULTS)
   return {
     backendUrl: String(stored.backendUrl || DEFAULTS.backendUrl).replace(/\/+$/, ''),
+    extensionToken: String(stored.extensionToken || ''),
   }
 }
 

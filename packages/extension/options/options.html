@@ -23,8 +23,10 @@
   </head>
   <body>
     <h1>设置</h1>
-    <label>后端地址</label>
+    <label for="backendUrl">后端地址</label>
     <input id="backendUrl" type="url" placeholder="http://127.0.0.1:8100" />
+    <label for="extensionToken">扩展 Token（与后端 SA_EXTENSION_TOKEN 一致）</label>
+    <input id="extensionToken" type="password" placeholder="留空表示后端未启用 token" />
     <button id="save" type="button">保存</button>
     <p id="status"></p>
     <script type="module" src="options.js"></script>

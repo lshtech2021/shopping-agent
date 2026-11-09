@@ -6,7 +6,15 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -65,6 +73,13 @@ def _require_session(session_id: str):
     return session
 
 
+def _require_extension_token(
+    x_extension_token: str | None = Header(default=None),
+) -> None:
+    if settings.extension_token and x_extension_token != settings.extension_token:
+        raise HTTPException(status_code=403, detail="extension token required")
+
+
 @app.get("/")
 def root() -> RedirectResponse:
     return RedirectResponse(url="/console/")
@@ -88,7 +103,10 @@ def list_sessions(limit: int = Query(default=50, ge=1, le=200)) -> list[SessionS
 
 
 @app.post("/api/v1/sessions", response_model=CreateSessionResponse)
-def create_session(payload: CreateSessionRequest) -> CreateSessionResponse:
+def create_session(
+    payload: CreateSessionRequest,
+    _token: None = Depends(_require_extension_token),
+) -> CreateSessionResponse:
     if not payload.sites:
         raise HTTPException(status_code=422, detail="至少选择一个站点")
     session = store.create(payload.requirement, list(payload.sites))
@@ -131,7 +149,11 @@ def get_session(session_id: str) -> SessionDetail:
 
 
 @app.post("/api/v1/sessions/{session_id}/messages", response_model=MessageResponse)
-async def post_message(session_id: str, payload: MessageRequest) -> MessageResponse:
+async def post_message(
+    session_id: str,
+    payload: MessageRequest,
+    _token: None = Depends(_require_extension_token),
+) -> MessageResponse:
     session = _require_session(session_id)
     lock = _lock_for(session_id)
     if lock.locked():
@@ -161,7 +183,11 @@ async def post_message(session_id: str, payload: MessageRequest) -> MessageRespo
 
 
 @app.post("/api/v1/sessions/{session_id}/resume", response_model=MessageResponse)
-async def resume_session(session_id: str, payload: ResumeRequest) -> MessageResponse:
+async def resume_session(
+    session_id: str,
+    payload: ResumeRequest,
+    _token: None = Depends(_require_extension_token),
+) -> MessageResponse:
     session = _require_session(session_id)
     lock = _lock_for(session_id)
     if lock.locked():
@@ -175,8 +201,12 @@ async def resume_session(session_id: str, payload: ResumeRequest) -> MessageResp
 
 @app.websocket("/ws/extension")
 async def extension_ws(websocket: WebSocket) -> None:
+    token = websocket.query_params.get("token")
+    if settings.extension_token and token != settings.extension_token:
+        await websocket.close(code=4401)
+        return
     origin = websocket.headers.get("origin")
-    if not origin_allowed(origin):
+    if not origin_allowed(origin, settings.extension_id or None):
         await websocket.close(code=4403)
         return
     conn_id = await hub.connect(websocket)
