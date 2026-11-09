@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     # When true, reject requests without a matching SA_EXTENSION_TOKEN
     # (including session GETs). Local/dev defaults to open when token is empty.
     auth_required: bool = False
+    # When true, RunRepository creates tables on connect. Prefer Alembic
+    # (`alembic upgrade head`) and leave this false outside quick local hacks.
+    auto_create_schema: bool = False
     mock_browser: bool = True
 
     # Live-browse pacing, enforced server-side per site (design §6).

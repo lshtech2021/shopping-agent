@@ -66,7 +66,11 @@ def test_two_repository_instances_share_memory_version_state():
     not os.getenv("SA_TEST_DATABASE_URL"),
     reason="Set SA_TEST_DATABASE_URL to run PostgreSQL repository tests",
 )
-def test_postgres_repository_round_trip():
+def test_postgres_repository_round_trip(monkeypatch):
+    from app.config import settings
+
+    # Integration DB may not have been migrated in CI; allow one-shot DDL here.
+    monkeypatch.setattr(settings, "auto_create_schema", True)
     url = os.environ["SA_TEST_DATABASE_URL"]
     repo = RunRepository(url)
     repo.delete("pg-run-1")

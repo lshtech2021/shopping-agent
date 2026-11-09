@@ -85,11 +85,13 @@ class RunRepository:
         return super().__new__(cls)
 
     def __init__(self, database_url: str | None = "memory") -> None:
+        from app.config import settings
+
         url = _pg_url(database_url)
         self._url = url
         self._conn: Optional[psycopg.Connection] = None
         self._lock = threading.Lock()
-        if url is not None:
+        if url is not None and settings.auto_create_schema:
             self._init_schema()
 
     @property

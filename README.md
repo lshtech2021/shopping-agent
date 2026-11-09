@@ -25,6 +25,7 @@ uvicorn app.main:app --reload --port 8100
 ```
 
 默认数据库：`postgresql://shopping:shopping@localhost:5432/shopping_agent`  
+启动前执行：`cd apps/api && alembic upgrade head`（schema 由 Alembic 管理；`SA_AUTO_CREATE_SCHEMA` 默认关闭）。  
 单测使用内存库；持久化测试需设置 `SA_TEST_DATABASE_URL`。
 没有 Postgres 时可临时 `SA_DATABASE_URL=memory` 启动（重启即丢会话）。
 
