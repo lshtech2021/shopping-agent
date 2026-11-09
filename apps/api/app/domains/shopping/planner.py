@@ -23,6 +23,20 @@ Plan steps must not be skipped: order them so each step has observable evidence.
 """
 
 
+def requirements_complete(
+    requirements: dict[str, Any] | None, *, sites: list[Any] | None
+) -> bool:
+    """True when category, budget stance, and sites are already known."""
+    req = requirements or {}
+    if not sites:
+        return False
+    if not req.get("category"):
+        return False
+    if req.get("budget_unlimited"):
+        return True
+    return req.get("budget_cny") is not None or req.get("budget_min_cny") is not None
+
+
 class ShoppingPlanner:
     def __init__(self, model: Any | None = None) -> None:
         self.model = model or llm.build_chat_model()
@@ -30,6 +44,13 @@ class ShoppingPlanner:
     async def plan(
         self, *, goal: str, context: dict[str, Any]
     ) -> Plan:
+        if requirements_complete(
+            context.get("requirements"),
+            sites=list(context.get("sites") or []),
+        ):
+            return self._normalize(
+                self._fallback_plan(goal, context), goal=goal, context=context
+            )
         messages = [
             SystemMessage(content=PLANNER_PROMPT),
             HumanMessage(
@@ -175,7 +196,11 @@ class ShoppingPlanner:
     @staticmethod
     def _fallback_plan(goal: str, context: dict[str, Any]) -> Plan:
         sites = [str(site) for site in context.get("sites") or ["jd"]]
-        queries = {site: [goal] for site in sites}
+        req = dict(context.get("requirements") or {})
+        category = str(req.get("category") or "").strip()
+        use_case = str(req.get("use_case") or "").strip()
+        query = " ".join(part for part in (category, use_case) if part) or goal
+        queries = {site: [query] for site in sites}
         steps = [
             PlanStep(id="search", description="search"),
             PlanStep(id="verify", description="verify"),
@@ -193,7 +218,8 @@ class ShoppingPlanner:
                     "verify": "verify",
                     "recommend": "recommend",
                 },
-                "requirements": dict(context.get("requirements") or {}),
+                "requirements": req,
+                "planner": "template",
             },
         )
 
