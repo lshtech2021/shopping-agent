@@ -45,11 +45,17 @@
     } catch (_) {
       /* ignore */
     }
+    const hasListing = Boolean(root.querySelector(ITEM_SELECTORS))
+    const hasDetail = Boolean(
+      root.querySelector('.sku-name, #name h1, .summary-price .p-price'),
+    )
+    if (hasListing || hasDetail) return null
+
     const bodyText = root.body?.innerText || root.body?.textContent || ''
     if (!bodyText.trim()) return 'rate_limited'
     if (root.querySelector('#JDJRV, .JDJRV, [class*="captcha"]')) return 'captcha'
     if (/验证码|安全验证|滑动验证/i.test(bodyText)) return 'captcha'
-    if (/访问出错|频繁|请稍后再试|网络繁忙/i.test(bodyText) && !root.querySelector(ITEM_SELECTORS)) {
+    if (/访问出错|频繁|请稍后再试|网络繁忙/i.test(bodyText)) {
       return 'rate_limited'
     }
     return null
@@ -77,6 +83,7 @@
         ) || text(node, ['.p-name em', '.p-name', '[class*="_goods_title"]'])
       if (!sourceProductId || !title) continue
       const priceText = text(node, ['.p-price', '[class*="_price_"]', '.p-price i'])
+      const priceRange = parseUtils.parsePriceRange(priceText)
       const shopName = text(node, ['[class*="_limit_"]', '.p-shop a', '.p-shop'])
       const ratingText = text(node, [
         '.p-commit',
@@ -88,7 +95,9 @@
         source_product_id: String(sourceProductId),
         url: `https://item.jd.com/${sourceProductId}.html`,
         title,
-        price: parseUtils.parsePrice(priceText),
+        price: priceRange ? priceRange.min : parseUtils.parsePrice(priceText),
+        price_max: priceRange ? priceRange.max : null,
+        price_is_range: Boolean(priceRange),
         currency: 'CNY',
         shop_name: shopName,
         sales: parseUtils.parseSales(salesText),

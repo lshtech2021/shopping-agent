@@ -1,0 +1,174 @@
+const { test } = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+const { JSDOM } = require('jsdom')
+
+const BROWSER_JOBS_JS = path.join(
+  __dirname,
+  '..',
+  'background',
+  'browser-jobs.js',
+)
+
+async function loadBrowserJobs() {
+  return import(`${require('node:url').pathToFileURL(BROWSER_JOBS_JS).href}?t=${Date.now()}`)
+}
+
+function installChrome({ getTab, sendMessage, createTab } = {}) {
+  const calls = { sendMessage: 0, click: 0 }
+  globalThis.chrome = {
+    tabs: {
+      async get(tabId) {
+        return getTab ? getTab(tabId) : { id: tabId, url: '', status: 'complete' }
+      },
+      async create({ url }) {
+        return createTab ? createTab(url) : { id: 1, url }
+      },
+      async update(tabId, patch) {
+        return { id: tabId, ...patch }
+      },
+      async sendMessage(tabId, payload) {
+        calls.sendMessage += 1
+        if (payload.type === 'click_next_page') calls.click += 1
+        return sendMessage(tabId, payload)
+      },
+    },
+    storage: {
+      local: { async get(defaults) { return defaults } },
+      session: { async get() { return {} }, async set() {} },
+    },
+  }
+  return calls
+}
+
+test('fetch_detail rejects a stale document from the reused tab', async () => {
+  const oldUrl = 'https://item.jd.com/OLD.html'
+  installChrome({
+    getTab: () => ({ id: 1, url: 'https://item.jd.com/NEW.html', status: 'complete' }),
+    sendMessage: () => ({
+      ok: true,
+      document_url: oldUrl,
+      result: { status: 'ok', title: '旧商品', price: 1, attributes: {} },
+    }),
+  })
+  const { runBrowserJob } = await loadBrowserJobs()
+
+  const result = await runBrowserJob('fetch_detail', {
+    site: 'jd',
+    source_product_id: 'NEW',
+    url: 'https://item.jd.com/NEW.html',
+  })
+
+  assert.equal(result.status, 'parse_error')
+  assert.equal(result.error, 'stale_document')
+})
+
+test('click_next_page is not retried after a navigation closes the port', async () => {
+  let clickCalls = 0
+  installChrome({
+    getTab: () => ({ id: 1, url: 'https://search.jd.com/Search?keyword=x', status: 'complete' }),
+    sendMessage: (_tabId, payload) => {
+      if (payload.type === 'detect_block') return { ok: true, block: null }
+      if (payload.type === 'has_next_page') {
+        return { ok: true, hasNext: true, nextUrl: null }
+      }
+      if (payload.type === 'click_next_page') {
+        clickCalls += 1
+        throw new Error('message port closed')
+      }
+      return { ok: true, document_url: 'https://search.jd.com/Search?keyword=x' }
+    },
+  })
+  const { runBrowserJob } = await loadBrowserJobs()
+  await runBrowserJob('search', { site: 'jd', query: 'x' })
+
+  const result = await runBrowserJob('next_page', { site: 'jd' })
+
+  assert.equal(result.status, 'parse_error')
+  assert.equal(clickCalls, 1)
+})
+
+test('zero-item listing is a parse error, not a successful empty page', async () => {
+  installChrome({
+    getTab: () => ({ id: 1, url: 'https://search.jd.com/Search?keyword=x', status: 'complete' }),
+    sendMessage: (_tabId, payload) => {
+      if (payload.type === 'detect_block') return { ok: true, block: null }
+      return {
+        ok: true,
+        document_url: 'https://search.jd.com/Search?keyword=x',
+        result: { status: 'ok', items: [], result_count: 0 },
+      }
+    },
+  })
+  const { runBrowserJob } = await loadBrowserJobs()
+  await runBrowserJob('search', { site: 'jd', query: 'x' })
+
+  const result = await runBrowserJob('scrape_listing', { site: 'jd', page: 1 })
+
+  assert.equal(result.status, 'parse_error')
+  assert.equal(result.error, 'empty_listing')
+})
+
+test('job results carry job_id, document_url and page', async () => {
+  const documentUrl = 'https://search.jd.com/Search?keyword=x'
+  installChrome({
+    getTab: () => ({ id: 1, url: documentUrl, status: 'complete' }),
+    sendMessage: (_tabId, payload) => {
+      if (payload.type === 'detect_block') {
+        return { ok: true, block: null, document_url: documentUrl }
+      }
+      return {
+        ok: true,
+        document_url: documentUrl,
+        result: {
+          status: 'ok',
+          items: [{ source_product_id: '1', title: '商品', price: 10 }],
+          result_count: 1,
+        },
+      }
+    },
+  })
+  const { runBrowserJob } = await loadBrowserJobs()
+  await runBrowserJob('search', {
+    site: 'jd',
+    query: 'x',
+    job_id: 'job-search',
+  })
+
+  const result = await runBrowserJob('scrape_listing', {
+    site: 'jd',
+    page: 2,
+    job_id: 'job-scrape',
+  })
+
+  assert.equal(result.job_id, 'job-scrape')
+  assert.equal(result.document_url, documentUrl)
+  assert.equal(result.page, 2)
+})
+
+test('currency and price ranges are parsed explicitly', () => {
+  const parseUtils = require('../content/parse-utils.js')
+  assert.equal(parseUtils.parseCurrency('C $620.00', 'USD'), 'CAD')
+  assert.deepEqual(parseUtils.parsePriceRange('$620.00 to $850.00'), {
+    min: 620,
+    max: 850,
+  })
+})
+
+test('block detection ignores product-description words when title/price exist', () => {
+  const jd = require('../content/jd.js')
+  const html = `
+    <html><body>
+      <div class="sku-name">安全摄像头</div>
+      <div class="summary-price"><span class="price">¥199</span></div>
+      <div class="p-parameter">商品描述里提到验证码，但这不是验证页。</div>
+    </body></html>
+  `
+  const dom = new JSDOM(html, { url: 'https://item.jd.com/1001.html' })
+
+  assert.equal(
+    jd.detectBlock(dom.window.document, dom.window.location.href),
+    null,
+  )
+})

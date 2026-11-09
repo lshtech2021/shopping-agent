@@ -8,37 +8,40 @@
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || message.source !== 'shopping-agent') return false
 
+    const reply = (payload) =>
+      sendResponse({ ...payload, document_url: location.href })
+
     ;(async () => {
       try {
         const adapter = adapterForHost(location.hostname)
         if (!adapter) {
-          sendResponse({ ok: false, error: `no adapter for ${location.hostname}` })
+          reply({ ok: false, error: `no adapter for ${location.hostname}` })
           return
         }
 
         if (message.type === 'detect_block') {
-          sendResponse({
+          reply({
             ok: true,
             block: adapter.detectBlock(document, location.href),
           })
           return
         }
         if (message.type === 'parse_listing') {
-          sendResponse({
+          reply({
             ok: true,
             result: adapter.parseListing(document, location.href),
           })
           return
         }
         if (message.type === 'parse_detail') {
-          sendResponse({
+          reply({
             ok: true,
             result: adapter.parseDetail(document, location.href),
           })
           return
         }
         if (message.type === 'has_next_page') {
-          sendResponse({
+          reply({
             ok: true,
             hasNext: adapter.hasNextPage(document, location.href),
             nextUrl: adapter.nextPageUrl(document, location.href),
@@ -47,16 +50,16 @@
         }
         if (message.type === 'click_next_page') {
           const moved = await adapter.clickNextPage(document)
-          sendResponse({
+          reply({
             ok: true,
             moved,
             result: adapter.parseListing(document, location.href),
           })
           return
         }
-        sendResponse({ ok: false, error: `unknown type ${message.type}` })
+        reply({ ok: false, error: `unknown type ${message.type}` })
       } catch (error) {
-        sendResponse({ ok: false, error: String(error?.message || error) })
+        reply({ ok: false, error: String(error?.message || error) })
       }
     })()
 

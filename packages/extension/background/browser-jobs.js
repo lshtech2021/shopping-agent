@@ -1,10 +1,92 @@
-import { loadConfig } from '../shared/config.js'
 import { createJobLogger } from '../shared/logger.js'
 
 const SITE_TABS = new Map()
+const SITE_URLS = new Map()
+const SITE_TABS_KEY = 'siteTabs'
+const JOB_TIMEOUT_MS = 50000
+
+async function persistTabState() {
+  if (typeof chrome === 'undefined' || !chrome.storage?.session) return
+  try {
+    await chrome.storage.session.set({
+      [SITE_TABS_KEY]: Object.fromEntries(SITE_TABS),
+    })
+  } catch (_) {
+    /* session storage is best effort */
+  }
+}
+
+async function restoreTabState() {
+  if (typeof chrome === 'undefined' || !chrome.storage?.session) return
+  try {
+    const stored = await chrome.storage.session.get({ [SITE_TABS_KEY]: {} })
+    const entries = stored?.[SITE_TABS_KEY] || {}
+    for (const [site, tabId] of Object.entries(entries)) {
+      try {
+        const tab = await chrome.tabs.get(tabId)
+        SITE_TABS.set(site, tab.id)
+        if (tab.url) SITE_URLS.set(site, tab.url)
+      } catch (_) {
+        /* tab was closed while the worker slept */
+      }
+    }
+    await persistTabState()
+  } catch (_) {
+    /* session storage is best effort */
+  }
+}
+
+const tabStateReady = restoreTabState()
+
+if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved?.addListener) {
+  chrome.tabs.onRemoved.addListener(async (tabId) => {
+    let changed = false
+    for (const [site, id] of SITE_TABS.entries()) {
+      if (id === tabId) {
+        SITE_TABS.delete(site)
+        SITE_URLS.delete(site)
+        changed = true
+      }
+    }
+    if (changed) await persistTabState()
+  })
+}
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function samePage(actualUrl, expectedUrl) {
+  try {
+    const actual = new URL(actualUrl)
+    const expected = new URL(expectedUrl)
+    if (actual.hostname !== expected.hostname) return false
+    if (actual.pathname !== expected.pathname) return false
+    for (const key of ['_nkw', 'keyword', '_pgn']) {
+      const value = expected.searchParams.get(key)
+      if (value && actual.searchParams.get(key) !== value) return false
+    }
+    return true
+  } catch (_) {
+    return false
+  }
+}
+
+function isAllowedSiteUrl(site, url) {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:') return false
+    const host = parsed.hostname
+    if (site === 'jd') {
+      return host === 'jd.com' || host.endsWith('.jd.com')
+    }
+    if (site === 'ebay') {
+      return host === 'ebay.com' || host.endsWith('.ebay.com')
+    }
+    return false
+  } catch (_) {
+    return false
+  }
 }
 
 export function buildSearchUrl(site, query, options = {}) {
@@ -42,53 +124,84 @@ function detailUrl(site, sourceProductId, explicitUrl) {
   return null
 }
 
-async function ensureTab(site, url, log) {
-  const existingId = SITE_TABS.get(site)
+function timeoutError(code) {
+  const error = new Error(code)
+  error.code = code
+  return error
+}
+
+async function ensureTab(site, url, log, deadline, tabKey = site) {
+  if (!isAllowedSiteUrl(site, url)) {
+    throw new Error('invalid_site_url')
+  }
+  const existingId = SITE_TABS.get(tabKey)
   if (existingId) {
+    let tab = null
     try {
-      const tab = await chrome.tabs.get(existingId)
-      log.debug('extension.tab', `复用标签 ${site}`, { tabId: tab.id, url })
-      await chrome.tabs.update(tab.id, { url, active: false })
-      await waitComplete(tab.id)
-      return tab.id
+      tab = await chrome.tabs.get(existingId)
     } catch (_) {
-      SITE_TABS.delete(site)
-      log.warn('extension.tab', `旧标签失效，重建 ${site}`)
+      SITE_TABS.delete(tabKey)
+      SITE_URLS.delete(tabKey)
+      await persistTabState()
+      log.warn('extension.tab', `旧标签失效，重建 ${tabKey}`)
+    }
+    if (tab) {
+      log.debug('extension.tab', `复用标签 ${tabKey}`, { tabId: tab.id, url })
+      await chrome.tabs.update(tab.id, { url, active: false })
+      await waitComplete(tab.id, url, deadline)
+      SITE_URLS.set(tabKey, url)
+      return tab.id
     }
   }
   const tab = await chrome.tabs.create({ url, active: false })
-  SITE_TABS.set(site, tab.id)
-  log.info('extension.tab', `新建标签 ${site}`, { tabId: tab.id, url })
-  await waitComplete(tab.id)
+  SITE_TABS.set(tabKey, tab.id)
+  await persistTabState()
+  log.info('extension.tab', `新建标签 ${tabKey}`, { tabId: tab.id, url })
+  await waitComplete(tab.id, url, deadline)
+  SITE_URLS.set(tabKey, url)
   return tab.id
 }
 
-function waitComplete(tabId, timeoutMs = 30000) {
+function waitComplete(tabId, expectedUrl, deadline = Date.now() + 30000) {
   return new Promise((resolve, reject) => {
-    const started = Date.now()
-    const timer = setInterval(async () => {
+    let settled = false
+    const finish = (fn, value) => {
+      if (settled) return
+      settled = true
+      clearInterval(timer)
+      fn(value)
+    }
+    const check = async () => {
       try {
         const tab = await chrome.tabs.get(tabId)
-        if (tab.status === 'complete') {
-          clearInterval(timer)
-          resolve(tab)
+        if (Date.now() > deadline) {
+          finish(reject, timeoutError('tab_load_timeout'))
           return
         }
-        if (Date.now() - started > timeoutMs) {
-          clearInterval(timer)
-          reject(new Error('tab load timeout'))
+        if (tab.status === 'complete' && samePage(tab.url, expectedUrl)) {
+          finish(resolve, tab)
+          return
         }
       } catch (error) {
-        clearInterval(timer)
-        reject(error)
+        finish(reject, error)
       }
-    }, 250)
+    }
+    const timer = setInterval(check, 250)
+    check()
   })
 }
 
-async function sendToTab(tabId, payload, attempts = 8) {
+async function sendToTab(
+  tabId,
+  payload,
+  { attempts = 8, retry = true, deadline = Date.now() + 30000 } = {},
+) {
+  const maxAttempts = retry ? attempts : 1
   let lastError
-  for (let i = 0; i < attempts; i += 1) {
+  for (let i = 0; i < maxAttempts; i += 1) {
+    if (Date.now() > deadline) {
+      throw timeoutError('job_deadline_exceeded')
+    }
     try {
       return await chrome.tabs.sendMessage(tabId, {
         source: 'shopping-agent',
@@ -96,7 +209,7 @@ async function sendToTab(tabId, payload, attempts = 8) {
       })
     } catch (error) {
       lastError = error
-      await delay(400)
+      if (i + 1 < maxAttempts) await delay(400)
     }
   }
   throw lastError || new Error('content bridge unavailable')
@@ -108,16 +221,42 @@ function mapBlock(status) {
   return status
 }
 
-function withLogs(result, log) {
+function withLogs(result, log, jobId) {
   return {
     ...result,
+    job_id: jobId ?? result.job_id ?? null,
+    document_url: result.document_url ?? null,
+    page: result.page ?? null,
     extension_logs: log.entries(),
   }
 }
 
+function isStaleDocument(response, expectedUrl) {
+  return Boolean(
+    response?.document_url &&
+      expectedUrl &&
+      !samePage(response.document_url, expectedUrl),
+  )
+}
+
+function emptyListingError(result) {
+  const items = result?.items || []
+  if (result?.status !== 'ok' || items.length > 0) return null
+  if (result.no_more || result.no_results) return null
+  return 'empty_listing'
+}
+
 export async function runBrowserJob(tool, args = {}) {
+  await tabStateReady
   const log = createJobLogger(tool)
   const site = String(args.site || 'jd').toLowerCase()
+  const jobId = args.job_id ?? null
+  const requestedTimeout = Number(args.job_timeout_s)
+  const timeoutMs =
+    Number.isFinite(requestedTimeout) && requestedTimeout > 0
+      ? Math.min(requestedTimeout * 1000, JOB_TIMEOUT_MS)
+      : JOB_TIMEOUT_MS
+  const deadline = Date.now() + timeoutMs
   log.info('extension.job', `开始任务 ${tool}`, { site, args })
 
   if (site !== 'jd' && site !== 'ebay') {
@@ -129,24 +268,65 @@ export async function runBrowserJob(tool, args = {}) {
         site,
       },
       log,
+      jobId,
     )
   }
 
   try {
     if (tool === 'search') {
       const url = buildSearchUrl(site, args.query || '', args)
-      const tabId = await ensureTab(site, url, log)
+      const tabId = await ensureTab(site, url, log, deadline)
       await delay(800)
-      const probe = await sendToTab(tabId, { type: 'detect_block' })
+      const probe = await sendToTab(
+        tabId,
+        { type: 'detect_block' },
+        { deadline },
+      )
       const block = mapBlock(probe?.block)
       if (block) {
         log.warn('extension.search', `页面阻断 ${block}`, { url, probe })
-        return withLogs({ status: block, site, query: args.query, url, mode: 'live' }, log)
+        return withLogs(
+          {
+            status: block,
+            site,
+            query: args.query,
+            url,
+            document_url: probe?.document_url || url,
+            page: args.page || 1,
+            mode: 'live',
+          },
+          log,
+          jobId,
+        )
+      }
+      if (isStaleDocument(probe, url)) {
+        log.error('extension.search', '搜索页文档不匹配', { url, probe })
+        return withLogs(
+          {
+            status: 'parse_error',
+            error: 'stale_document',
+            site,
+            url,
+            document_url: probe?.document_url,
+          },
+          log,
+          jobId,
+        )
       }
       log.info('extension.search', '搜索页就绪', { url, tabId })
       return withLogs(
-        { status: 'ok', site, query: args.query, url, tab_id: tabId, mode: 'live' },
+        {
+          status: 'ok',
+          site,
+          query: args.query,
+          url,
+          document_url: probe?.document_url || url,
+          page: args.page || 1,
+          tab_id: tabId,
+          mode: 'live',
+        },
         log,
+        jobId,
       )
     }
 
@@ -154,81 +334,273 @@ export async function runBrowserJob(tool, args = {}) {
       const tabId = SITE_TABS.get(site)
       if (!tabId) {
         log.warn('extension.scrape', '没有活跃搜索标签')
-        return withLogs({ status: 'blocked', error: 'no_active_search_tab', site }, log)
+        return withLogs(
+          { status: 'blocked', error: 'no_active_search_tab', site },
+          log,
+          jobId,
+        )
       }
       await delay(500)
-      const response = await sendToTab(tabId, { type: 'parse_listing' })
+      const expectedUrl = SITE_URLS.get(site) || args.url || null
+      const response = await sendToTab(
+        tabId,
+        { type: 'parse_listing' },
+        { deadline },
+      )
       if (!response?.ok) {
         log.error('extension.scrape', '列表解析失败', response)
         return withLogs(
           { status: 'parse_error', error: response?.error || 'parse_failed' },
           log,
+          jobId,
         )
       }
-      const itemCount = (response.result?.items || []).length
+      if (isStaleDocument(response, expectedUrl)) {
+        log.error('extension.scrape', '列表页文档不匹配', {
+          expectedUrl,
+          documentUrl: response.document_url,
+        })
+        return withLogs(
+          { status: 'parse_error', error: 'stale_document' },
+          log,
+          jobId,
+        )
+      }
+      const result = response.result || {}
+      const itemCount = (result.items || []).length
+      const emptyError = emptyListingError(result)
+      if (emptyError) {
+        log.error('extension.scrape', '列表为空', { status: result.status })
+        return withLogs(
+          {
+            status: 'parse_error',
+            error: emptyError,
+            document_url: response.document_url,
+          },
+          log,
+          jobId,
+        )
+      }
       log.info('extension.scrape', `列表解析完成 items=${itemCount}`, {
-        status: response.result?.status,
+        status: result.status,
         itemCount,
       })
-      return withLogs({ ...response.result, mode: 'live' }, log)
+      return withLogs(
+        {
+          ...result,
+          document_url: response.document_url || expectedUrl,
+          page: result.page ?? args.page ?? 1,
+          mode: 'live',
+        },
+        log,
+        jobId,
+      )
     }
 
     if (tool === 'next_page') {
       const tabId = SITE_TABS.get(site)
       if (!tabId) {
-        return withLogs({ status: 'blocked', error: 'no_active_search_tab', site }, log)
+        return withLogs(
+          { status: 'blocked', error: 'no_active_search_tab', site },
+          log,
+          jobId,
+        )
       }
-      const meta = await sendToTab(tabId, { type: 'has_next_page' })
+      const meta = await sendToTab(
+        tabId,
+        { type: 'has_next_page' },
+        { deadline },
+      )
       if (!meta?.ok) {
         return withLogs(
           { status: 'parse_error', error: meta?.error || 'next_meta_failed' },
           log,
+          jobId,
         )
       }
       if (meta.nextUrl) {
+        if (!isAllowedSiteUrl(site, meta.nextUrl)) {
+          log.error('extension.next', '下一页 URL 不在允许站点', {
+            nextUrl: meta.nextUrl,
+          })
+          return withLogs(
+            { status: 'parse_error', error: 'invalid_next_url' },
+            log,
+            jobId,
+          )
+        }
         log.info('extension.next', '跳转下一页', { nextUrl: meta.nextUrl })
         await chrome.tabs.update(tabId, { url: meta.nextUrl })
-        await waitComplete(tabId)
+        await waitComplete(tabId, meta.nextUrl, deadline)
         await delay(800)
-        const response = await sendToTab(tabId, { type: 'parse_listing' })
+        const response = await sendToTab(
+          tabId,
+          { type: 'parse_listing' },
+          { deadline },
+        )
         if (!response?.ok) {
           return withLogs(
             { status: 'parse_error', error: response?.error || 'parse_failed' },
             log,
+            jobId,
           )
         }
-        return withLogs({ ...response.result, mode: 'live' }, log)
+        if (isStaleDocument(response, meta.nextUrl)) {
+          return withLogs(
+            { status: 'parse_error', error: 'stale_document' },
+            log,
+            jobId,
+          )
+        }
+        const result = response.result || {}
+        const emptyError = emptyListingError(result)
+        if (emptyError) {
+          return withLogs(
+            {
+              status: 'parse_error',
+              error: emptyError,
+              document_url: response.document_url,
+            },
+            log,
+            jobId,
+          )
+        }
+        SITE_URLS.set(site, response.document_url || meta.nextUrl)
+        return withLogs(
+          {
+            ...result,
+            document_url: response.document_url || meta.nextUrl,
+            page: result.page ?? args.page ?? null,
+            mode: 'live',
+          },
+          log,
+          jobId,
+        )
       }
       if (meta.hasNext) {
-        const clicked = await sendToTab(tabId, { type: 'click_next_page' })
+        let clicked
+        try {
+          clicked = await sendToTab(
+            tabId,
+            { type: 'click_next_page' },
+            { retry: false, deadline },
+          )
+        } catch (error) {
+          log.error('extension.next', '点击下一页失败（不重试）', {
+            error: String(error?.message || error),
+          })
+          return withLogs(
+            { status: 'parse_error', error: 'click_failed' },
+            log,
+            jobId,
+          )
+        }
         if (!clicked?.ok) {
           return withLogs(
             { status: 'parse_error', error: clicked?.error || 'click_failed' },
             log,
+            jobId,
           )
         }
         if (!clicked.moved) {
-          return withLogs({ status: 'ok', items: [], no_more: true, mode: 'live' }, log)
+          return withLogs(
+            {
+              status: 'ok',
+              items: [],
+              no_more: true,
+              document_url: clicked.document_url,
+              page: args.page ?? null,
+              mode: 'live',
+            },
+            log,
+            jobId,
+          )
         }
-        return withLogs({ ...clicked.result, mode: 'live' }, log)
+        const result = clicked.result || {}
+        const emptyError = emptyListingError(result)
+        if (emptyError) {
+          return withLogs(
+            {
+              status: 'parse_error',
+              error: emptyError,
+              document_url: clicked.document_url,
+            },
+            log,
+            jobId,
+          )
+        }
+        if (clicked.document_url) SITE_URLS.set(site, clicked.document_url)
+        return withLogs(
+          {
+            ...result,
+            document_url: clicked.document_url,
+            page: result.page ?? args.page ?? null,
+            mode: 'live',
+          },
+          log,
+          jobId,
+        )
       }
       log.info('extension.next', '没有更多页')
-      return withLogs({ status: 'ok', items: [], no_more: true, mode: 'live' }, log)
+      return withLogs(
+        {
+          status: 'ok',
+          items: [],
+          no_more: true,
+          document_url: SITE_URLS.get(site) || null,
+          page: args.page ?? null,
+          mode: 'live',
+        },
+        log,
+        jobId,
+      )
     }
 
     if (tool === 'fetch_detail') {
       const url = detailUrl(site, args.source_product_id, args.url)
       if (!url) {
-        return withLogs({ status: 'parse_error', error: 'missing_detail_url' }, log)
+        return withLogs(
+          { status: 'parse_error', error: 'missing_detail_url' },
+          log,
+          jobId,
+        )
       }
-      const tabId = await ensureTab(`${site}-detail`, url, log)
+      if (!isAllowedSiteUrl(site, url)) {
+        log.error('extension.detail', '详情 URL 不在允许站点', { url })
+        return withLogs(
+          { status: 'parse_error', error: 'invalid_detail_url' },
+          log,
+          jobId,
+        )
+      }
+      const tabId = await ensureTab(site, url, log, deadline, `${site}-detail`)
       await delay(800)
-      const response = await sendToTab(tabId, { type: 'parse_detail' })
+      const response = await sendToTab(
+        tabId,
+        { type: 'parse_detail' },
+        { deadline },
+      )
       if (!response?.ok) {
         log.error('extension.detail', '详情解析失败', response)
         return withLogs(
           { status: 'parse_error', error: response?.error || 'detail_failed' },
           log,
+          jobId,
+        )
+      }
+      if (isStaleDocument(response, url)) {
+        log.error('extension.detail', '详情页文档不匹配', {
+          url,
+          documentUrl: response.document_url,
+        })
+        return withLogs(
+          {
+            status: 'parse_error',
+            error: 'stale_document',
+            document_url: response.document_url,
+          },
+          log,
+          jobId,
         )
       }
       log.info('extension.detail', '详情解析完成', {
@@ -240,26 +612,34 @@ export async function runBrowserJob(tool, args = {}) {
           ...response.result,
           source_product_id: args.source_product_id,
           url,
+          document_url: response.document_url || url,
           mode: 'live',
         },
         log,
+        jobId,
       )
     }
 
-    return withLogs({ status: 'parse_error', error: `unknown tool ${tool}` }, log)
+    return withLogs(
+      { status: 'parse_error', error: `unknown tool ${tool}` },
+      log,
+      jobId,
+    )
   } catch (error) {
-    log.error('extension.job', `任务异常 ${tool}`, {
-      error: String(error?.message || error),
-    })
+    const code = String(error?.code || error?.message || error)
+    const errorCode =
+      code === 'tab_load_timeout' || code === 'job_deadline_exceeded'
+        ? code
+        : String(error?.message || error)
+    log.error('extension.job', `任务异常 ${tool}`, { error: code })
     return withLogs(
       {
         status: 'blocked',
-        error: String(error?.message || error),
+        error: errorCode,
         mode: 'live',
       },
       log,
+      jobId,
     )
-  } finally {
-    await loadConfig()
   }
 }

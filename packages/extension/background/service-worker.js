@@ -7,6 +7,50 @@ let socket = null
 let reconnectTimer = null
 let keepAliveTimer = null
 
+const PENDING_RESULTS_KEY = 'pendingJobResults'
+const MAX_PENDING_RESULTS = 50
+
+async function queueJobResult(envelope) {
+  try {
+    const stored = await chrome.storage.local.get({
+      [PENDING_RESULTS_KEY]: [],
+    })
+    const queue = Array.isArray(stored?.[PENDING_RESULTS_KEY])
+      ? stored[PENDING_RESULTS_KEY]
+      : []
+    queue.push(envelope)
+    await chrome.storage.local.set({
+      [PENDING_RESULTS_KEY]: queue.slice(-MAX_PENDING_RESULTS),
+    })
+  } catch (_) {
+    /* best effort: the backend will time out and retry the run */
+  }
+}
+
+async function flushPendingResults() {
+  if (socket?.readyState !== WebSocket.OPEN) return
+  try {
+    const stored = await chrome.storage.local.get({
+      [PENDING_RESULTS_KEY]: [],
+    })
+    const queue = Array.isArray(stored?.[PENDING_RESULTS_KEY])
+      ? stored[PENDING_RESULTS_KEY]
+      : []
+    if (!queue.length) return
+    let sent = 0
+    for (const envelope of queue) {
+      if (socket?.readyState !== WebSocket.OPEN) break
+      socket.send(JSON.stringify(envelope))
+      sent += 1
+    }
+    await chrome.storage.local.set({
+      [PENDING_RESULTS_KEY]: queue.slice(sent),
+    })
+  } catch (_) {
+    /* retry on the next reconnect */
+  }
+}
+
 // MV3 suspends an idle service worker after ~30s, which would silently drop the
 // WebSocket. Traffic on an open socket keeps the worker alive, so ping regularly.
 const KEEPALIVE_MS = 20000
@@ -58,10 +102,11 @@ async function connectWs() {
     }
   }
   socket = new WebSocket(wsUrl)
-  socket.addEventListener('open', () => {
+  socket.addEventListener('open', async () => {
     log.info('extension.ws', 'WebSocket 已连接', { wsUrl })
     socket.send(JSON.stringify({ type: 'ping', ts: Date.now() }))
     startKeepAlive()
+    await flushPendingResults()
   })
   socket.addEventListener('message', async (event) => {
     let data
@@ -80,20 +125,40 @@ async function connectWs() {
         job_id: data.job_id,
         args: data.args,
       })
-      const result = await handleJob(data.tool, data.args || {})
-      if (socket?.readyState === WebSocket.OPEN) {
-        socket.send(
-          JSON.stringify({
-            type: 'job_result',
-            job_id: data.job_id,
-            result,
-          }),
-        )
-        log.info('extension.ws', `回传任务结果 ${data.tool}=${result?.status}`, {
+      let result
+      try {
+        result = await handleJob(data.tool, {
+          ...(data.args || {}),
           job_id: data.job_id,
-          log_count: (result?.extension_logs || []).length,
+        })
+      } catch (error) {
+        result = {
+          status: 'blocked',
+          error: String(error?.message || error),
+          job_id: data.job_id ?? null,
+          extension_logs: [],
+        }
+      }
+      const envelope = {
+        type: 'job_result',
+        job_id: data.job_id,
+        result,
+      }
+      try {
+        if (socket?.readyState !== WebSocket.OPEN) {
+          throw new Error('socket_not_open')
+        }
+        socket.send(JSON.stringify(envelope))
+      } catch (_) {
+        await queueJobResult(envelope)
+        log.warn('extension.ws', 'WebSocket 未连接，任务结果已排队', {
+          job_id: data.job_id,
         })
       }
+      log.info('extension.ws', `回传任务结果 ${data.tool}=${result?.status}`, {
+        job_id: data.job_id,
+        log_count: (result?.extension_logs || []).length,
+      })
     }
   })
   socket.addEventListener('close', () => {

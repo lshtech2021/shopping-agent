@@ -58,6 +58,14 @@
     } catch (_) {
       /* ignore */
     }
+    const hasListing = Boolean(root.querySelector(ITEM_SELECTORS))
+    const hasDetail = Boolean(
+      root.querySelector(
+        'h1.x-item-title__mainTitle, .x-item-title__mainTitle, .x-price-primary',
+      ),
+    )
+    if (hasListing || hasDetail) return null
+
     const bodyText = root.body?.innerText || root.body?.textContent || ''
     if (!bodyText.trim()) return 'rate_limited'
     if (/pardon our interruption|verify you are a human|security measure/i.test(bodyText)) {
@@ -84,6 +92,7 @@
       ).replace(/\s*Opens in a new window.*$/i, '')
       if (!sourceProductId || !title || /^shop on ebay$/i.test(title)) continue
       const priceText = text(node, ['.s-item__price', '.s-card__price'])
+      const priceRange = parseUtils.parsePriceRange(priceText)
       const shopName = text(node, ['.s-item__seller-info-text'])
       const ratingText = text(node, [
         '.x-star-rating',
@@ -103,7 +112,9 @@
         source_product_id: String(sourceProductId),
         url: `${EBAY_ORIGIN}/itm/${sourceProductId}`,
         title,
-        price: parseUtils.parsePrice(priceText),
+        price: priceRange ? priceRange.min : parseUtils.parsePrice(priceText),
+        price_max: priceRange ? priceRange.max : null,
+        price_is_range: Boolean(priceRange),
         currency: parseUtils.parseCurrency(priceText, 'USD'),
         shop_name: shopName,
         sales: parseUtils.parseSales(salesText),
