@@ -26,39 +26,39 @@
 
 **Files:** `apps/api/app/store.py`, `apps/api/tests/test_store_conflict.py`
 
-- [ ] Failing test: stale `touch` after concurrent repo update leaves newer products intact and raises
-- [ ] `_persist`: on `VersionConflict`, refresh cache from repo and re-raise (no force-write)
-- [ ] Commit
+- [x] Failing test: stale `touch` after concurrent repo update leaves newer products intact and raises
+- [x] `_persist`: on `VersionConflict`, refresh cache from repo and re-raise (no force-write)
+- [x] Commit
 
 ### Task 2: Checkpoint resume turn matching
 
 **Files:** `apps/api/app/llm_agent.py`, `apps/api/tests/test_checkpoint_resume_turn.py`
 
-- [ ] Failing test: checkpoint saved at turn N loads after `run_agent` bumps to N+1
-- [ ] Accept `candidate.turn in {session.turn, session.turn - 1}`; set `state["turn"] = session.turn`
-- [ ] Commit
+- [x] Failing test: checkpoint saved at turn N loads after `run_agent` bumps to N+1
+- [x] Accept `candidate.turn in {session.turn, session.turn - 1}`; set `state["turn"] = session.turn`
+- [x] Commit
 
 ### Task 3: Optional fail-closed auth
 
 **Files:** `apps/api/app/config.py`, `apps/api/app/main.py`, `apps/api/app/api/actions.py`, tests, `.env.example`
 
-- [ ] Add `SA_AUTH_REQUIRED` (default False)
-- [ ] When required or token configured: reject missing/wrong token (incl. session GETs); constant-time compare
-- [ ] Commit
+- [x] Add `SA_AUTH_REQUIRED` (default False)
+- [x] When required or token configured: reject missing/wrong token (incl. session GETs); constant-time compare
+- [x] Commit
 
 ### Task 4: Cache shopping memory summarize
 
 **Files:** `apps/api/app/domains/shopping/memory.py`, tests
 
-- [ ] Cache `context_block` until requirements/products/quotas/sites/status fingerprint changes
-- [ ] Commit
+- [x] Cache `context_block` until requirements/products/quotas/sites/status fingerprint changes
+- [x] Commit
 
 ### Task 5: Batch session persists
 
 **Files:** `apps/api/app/store.py`, `apps/api/app/trace.py`, `apps/api/app/agent_runner.py`, tools touch sites, tests
 
-- [ ] `touch` updates memory + dirty; `flush` writes; force persist for interrupts/end-of-turn
-- [ ] Commit
+- [x] `touch` updates memory + dirty; `flush` writes; force persist for interrupts/end-of-turn
+- [x] Commit
 
 ### Deferred (not this plan)
 
