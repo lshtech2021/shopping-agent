@@ -26,6 +26,7 @@ uvicorn app.main:app --reload --port 8100
 
 默认数据库：`postgresql://shopping:shopping@localhost:5432/shopping_agent`  
 单测使用内存库；持久化测试需设置 `SA_TEST_DATABASE_URL`。
+没有 Postgres 时可临时 `SA_DATABASE_URL=memory` 启动（重启即丢会话）。
 
 加载扩展：Chrome → 开发者模式 → 加载 `packages/extension`。
 
@@ -38,6 +39,13 @@ uvicorn app.main:app --reload --port 8100
 | 2 京东真浏览 | 完成 |
 | 3 eBay / 多轮 | 完成 |
 | 4 控制台 / 评测 | 完成 |
+| 5 加固（LLM 工具循环、风控守卫、并发/安全） | 完成 |
+
+## Agent 策略
+
+- 未设置 `SA_LLM_API_KEY`：规则策略（确定性流水线，离线可跑、作评测基线）
+- 设置后：LangGraph 工具循环，模型决策、`ToolBox` 兜底（配额 / 风控锁定 / 推荐校验）
+- 两者共用同一套 9 个工具与同一份执行日志；`GET /health` 的 `llm_enabled` 可确认当前策略
 
 ## 测试
 

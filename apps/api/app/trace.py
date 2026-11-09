@@ -1,4 +1,9 @@
-"""Session execution trace helpers for optimization review."""
+"""Session execution trace helpers for optimization review.
+
+Events live on ``session.execution_logs`` (in-memory immediately, written to
+PostgreSQL at the next ``store.touch``). Each event carries the session ``turn``
+so clients can fetch only the logs of the turn that just ran.
+"""
 from __future__ import annotations
 
 import logging
@@ -24,14 +29,11 @@ def _trim(value: Any, limit: int = MAX_DATA_CHARS) -> Any:
         return None
     if isinstance(value, (str, int, float, bool)):
         text = str(value)
-        return text if len(text) <= limit else text[: limit - 3] + "..."
+        return value if not isinstance(value, str) or len(text) <= limit else text[: limit - 3] + "..."
     if isinstance(value, dict):
-        out: dict[str, Any] = {}
-        for key, item in list(value.items())[:40]:
-            out[str(key)] = _trim(item, limit // 2)
-        return out
+        return {str(k): _trim(v, limit // 2) for k, v in list(value.items())[:40]}
     if isinstance(value, (list, tuple)):
-        return [_trim(item, limit // 2) for item in list(value)[:30]]
+        return [_trim(v, limit // 2) for v in list(value)[:30]]
     text = repr(value)
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
@@ -45,10 +47,11 @@ def log_event(
     level: str = "info",
     duration_ms: Optional[float] = None,
     data: Optional[dict[str, Any]] = None,
-    persist: bool = True,
+    persist: bool = False,
 ) -> dict[str, Any]:
-    event = {
+    event: dict[str, Any] = {
         "ts": _now(),
+        "turn": session.turn,
         "level": level,
         "source": source,
         "stage": stage,
@@ -63,7 +66,7 @@ def log_event(
     if len(session.execution_logs) > MAX_LOGS:
         session.execution_logs = session.execution_logs[-MAX_LOGS:]
 
-    line = f"sid={session.id[:8]} stage={stage} {message}"
+    line = f"sid={session.id[:8]} turn={session.turn} stage={stage} {message}"
     if duration_ms is not None:
         line += f" ({duration_ms:.0f}ms)"
     log_fn = getattr(logger, level if level in {"debug", "info", "warning", "error"} else "info")
@@ -72,6 +75,11 @@ def log_event(
     if persist:
         store.touch(session)
     return event
+
+
+def turn_logs(session: Session, limit: int = 200) -> list[dict[str, Any]]:
+    """Events emitted during the session's current turn."""
+    return [e for e in session.execution_logs if e.get("turn") == session.turn][-limit:]
 
 
 @contextmanager
@@ -84,15 +92,7 @@ def timed_step(
     data: Optional[dict[str, Any]] = None,
 ) -> Iterator[dict[str, Any]]:
     started = time.perf_counter()
-    log_event(
-        session,
-        f"开始：{message}",
-        stage=stage,
-        source=source,
-        level="debug",
-        data=data,
-        persist=False,
-    )
+    log_event(session, f"开始：{message}", stage=stage, source=source, level="debug", data=data)
     meta: dict[str, Any] = {"ok": True}
     try:
         yield meta
@@ -110,14 +110,13 @@ def timed_step(
         )
         raise
     else:
-        level = "warning" if meta.get("warning") else "info"
-        suffix = meta.get("summary") or ("完成" if meta.get("ok", True) else "结束")
+        suffix = meta.get("summary") or "完成"
         log_event(
             session,
             f"{suffix}：{message}",
             stage=stage,
             source=source,
-            level=level,
+            level="warning" if meta.get("warning") else "info",
             duration_ms=(time.perf_counter() - started) * 1000,
             data={**(data or {}), **{k: v for k, v in meta.items() if k != "summary"}},
         )

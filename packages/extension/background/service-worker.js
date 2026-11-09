@@ -4,6 +4,25 @@ import { createJobLogger } from '../shared/logger.js'
 
 let socket = null
 let reconnectTimer = null
+let keepAliveTimer = null
+
+// MV3 suspends an idle service worker after ~30s, which would silently drop the
+// WebSocket. Traffic on an open socket keeps the worker alive, so ping regularly.
+const KEEPALIVE_MS = 20000
+
+function startKeepAlive() {
+  stopKeepAlive()
+  keepAliveTimer = setInterval(() => {
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'ping', ts: Date.now() }))
+    }
+  }, KEEPALIVE_MS)
+}
+
+function stopKeepAlive() {
+  clearInterval(keepAliveTimer)
+  keepAliveTimer = null
+}
 
 chrome.runtime.onInstalled.addListener(() => {
   if (chrome.sidePanel?.setPanelBehavior) {
@@ -41,6 +60,7 @@ async function connectWs() {
   socket.addEventListener('open', () => {
     log.info('extension.ws', 'WebSocket 已连接', { wsUrl })
     socket.send(JSON.stringify({ type: 'ping', ts: Date.now() }))
+    startKeepAlive()
   })
   socket.addEventListener('message', async (event) => {
     let data
@@ -77,6 +97,7 @@ async function connectWs() {
   })
   socket.addEventListener('close', () => {
     log.warn('extension.ws', 'WebSocket 断开，3s 后重连')
+    stopKeepAlive()
     clearTimeout(reconnectTimer)
     reconnectTimer = setTimeout(connectWs, 3000)
   })

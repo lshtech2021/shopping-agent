@@ -1,34 +1,114 @@
-"""Shopping agent: tool loop with multi-turn reanalyze / research."""
+"""Agent entrypoint: one turn per user message / resume.
+
+Two interchangeable policies drive the same nine tools (``ToolBox``):
+
+* ``llm_agent``  — LangGraph tool-calling loop (used when ``SA_LLM_API_KEY`` is set).
+* rule policy    — deterministic pipeline below (offline default, eval baseline, mock demos).
+
+All hard guarantees (quotas, risk-site lockout, recommend id validation) live in
+``ToolBox`` so they hold for both policies.
+"""
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
+from app import llm
+from app.config import settings
 from app.store import Session, store
 from app.tools import BLOCKING, ToolBox
-from app.trace import log_event, timed_step
+from app.trace import log_event, timed_step, turn_logs
+
+logger = logging.getLogger(__name__)
 
 
 async def run_agent(session: Session, content: str) -> dict[str, Any]:
-    tools = ToolBox(session)
+    session.turn += 1
     session.status = "running"
-    store.touch(session)
-
+    session.interrupt_reason = None
+    session.quotas = {}  # design §6: quotas are per turn, not per session
+    tools = ToolBox(session)
     text = (content or session.requirement or "").strip()
+    policy = "llm" if llm.llm_enabled() else "rule"
     log_event(
         session,
         "Agent 回合开始",
         stage="agent.run",
         source="agent",
         data={
+            "policy": policy,
             "content": text[:200],
             "sites": session.sites,
             "searched_sites": session.searched_sites,
             "product_count": len(session.products),
             "mock_browser": tools.mock_mode,
         },
+        persist=True,
     )
 
+    try:
+        if policy == "llm":
+            from app.llm_agent import run_llm_policy
+
+            result = await run_llm_policy(session, text, tools)
+        else:
+            result = await _run_rule_policy(session, text, tools)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("agent turn failed sid=%s", session.id[:8])
+        log_event(
+            session,
+            f"回合异常：{type(exc).__name__}: {exc}",
+            stage="agent.error",
+            source="agent",
+            level="error",
+            data={"policy": policy},
+        )
+        ask = tools.ask_user(f"执行出错（{type(exc).__name__}），可点「继续」重试。", "agent_error")
+        result = interrupt_response(session, ask["question"], ask["reason"])
+
+    store.touch(session)
+    result["execution_logs"] = turn_logs(session)
+    return result
+
+
+async def resume_agent(session: Session, note: str) -> dict[str, Any]:
+    cleared = dict(session.blocked_sites)
+    session.blocked_sites.clear()
+    log_event(
+        session,
+        "恢复中断回合（用户已处理风控）" if cleared else "恢复中断回合",
+        stage="agent.resume",
+        source="agent",
+        data={"note": note, "cleared_sites": cleared},
+    )
+    content = (
+        note.strip()
+        if note and note.strip() not in {"continue", "user continued"}
+        else session.requirement
+    )
+    return await run_agent(session, content)
+
+
+# --- rule policy -----------------------------------------------------------
+
+
+def blocked_text(site: str, result: dict[str, Any], what: str) -> str:
+    status = str(result.get("status"))
+    error = result.get("error")
+    if error == "no_extension_online":
+        return "没有检测到在线的浏览器插件。请打开 Chrome 并确认 Side Panel 显示 WS: connected 后点「继续」。"
+    if error == "extension_disconnected":
+        return "插件连接中断，请确认插件在线后点「继续」。"
+    if error == "job_timeout":
+        return f"{site} {what}超时（页面可能卡住或需要验证），处理后点「继续」。"
+    if status in {"rate_limited", "captcha", "login_required"}:
+        label = {"rate_limited": "访问过频", "captcha": "出现验证码", "login_required": "需要登录"}[status]
+        return f"{site} {what}受阻：{label}。请在浏览器中处理后点「继续」。"
+    return f"{site} {what}受阻（{error or status}），处理后点「继续」。"
+
+
+async def _run_rule_policy(session: Session, text: str, tools: ToolBox) -> dict[str, Any]:
     with timed_step(session, "解析需求", stage="agent.requirements", data={"text": text[:120]}):
         tools.update_requirements(text)
         _apply_site_directives(session, text)
@@ -40,21 +120,18 @@ async def run_agent(session: Session, content: str) -> dict[str, Any]:
         source="agent",
         level="debug",
         data={"requirements": session.requirements, "sites": session.sites},
-        persist=False,
     )
 
-    if _wants_rate_limit_probe(text):
+    # Test hook: only meaningful against the mock browser.
+    if settings.mock_browser and _wants_rate_limit_probe(text):
         site = session.sites[0]
         with timed_step(session, f"限流探针 search:{site}", stage="agent.rate_probe") as meta:
             result = await tools.search(site, "rate_limit_me")
             meta["summary"] = f"探针结果 {result.get('status')}"
             meta["status"] = result.get("status")
         if result.get("status") in BLOCKING:
-            ask = tools.ask_user(
-                f"{site} 访问过频或需验证，请稍后再点「继续」。",
-                reason=str(result.get("status")),
-            )
-            return _interrupt_response(session, ask["question"], ask["reason"])
+            ask = tools.ask_user(blocked_text(site, result, "搜索"), str(result.get("status")))
+            return interrupt_response(session, ask["question"], ask["reason"])
 
     inventory = tools.query_inventory()
     sites_needing_search = _sites_to_search(session, text, inventory["count"])
@@ -75,20 +152,16 @@ async def run_agent(session: Session, content: str) -> dict[str, Any]:
         for site in sites_needing_search:
             query = _build_query(session, site)
             with timed_step(
-                session,
-                f"搜索 {site}",
-                stage="agent.search",
-                data={"query": query},
+                session, f"搜索 {site}", stage="agent.search", data={"query": query}
             ) as meta:
                 searched = await tools.search(site, query)
                 meta["status"] = searched.get("status")
                 meta["summary"] = f"search={searched.get('status')}"
             if searched.get("status") in BLOCKING:
                 ask = tools.ask_user(
-                    f"{site} 暂时无法搜索（{searched.get('status')}），处理完成后点继续。",
-                    reason=str(searched.get("status")),
+                    blocked_text(site, searched, "搜索"), str(searched.get("status"))
                 )
-                return _interrupt_response(session, ask["question"], ask["reason"])
+                return interrupt_response(session, ask["question"], ask["reason"])
             with timed_step(session, f"抓列表 {site}", stage="agent.scrape") as meta:
                 scraped = await tools.scrape_listing(site=site, page=1)
                 meta["status"] = scraped.get("status")
@@ -98,10 +171,9 @@ async def run_agent(session: Session, content: str) -> dict[str, Any]:
                 )
             if scraped.get("status") in BLOCKING:
                 ask = tools.ask_user(
-                    f"{site} 列表抓取受阻（{scraped.get('status')}）。",
-                    reason=str(scraped.get("status")),
+                    blocked_text(site, scraped, "列表抓取"), str(scraped.get("status"))
                 )
-                return _interrupt_response(session, ask["question"], ask["reason"])
+                return interrupt_response(session, ask["question"], ask["reason"])
             if site not in session.searched_sites:
                 session.searched_sites.append(site)
         inventory = tools.query_inventory()
@@ -117,7 +189,7 @@ async def run_agent(session: Session, content: str) -> dict[str, Any]:
 
     if inventory["count"] == 0:
         ask = tools.ask_user("当前条件下没有商品，请调整预算或需求后再试。", "empty")
-        return _interrupt_response(session, ask["question"], ask["reason"])
+        return interrupt_response(session, ask["question"], ask["reason"])
 
     detail_targets = [
         item
@@ -144,12 +216,12 @@ async def run_agent(session: Session, content: str) -> dict[str, Any]:
             detail = await tools.fetch_detail(item["product_id"])
             meta["status"] = detail.get("status")
             meta["summary"] = f"detail={detail.get('status')}"
-        if detail.get("status") in BLOCKING:
+        if detail.get("status") in BLOCKING and detail.get("error") != "quota_exceeded":
             ask = tools.ask_user(
-                f"详情抓取受阻（{detail.get('status')}），处理后可继续。",
-                reason=str(detail.get("status")),
+                blocked_text(item.get("source") or "站点", detail, "详情抓取"),
+                str(detail.get("status")),
             )
-            return _interrupt_response(session, ask["question"], ask["reason"])
+            return interrupt_response(session, ask["question"], ask["reason"])
 
     with timed_step(session, "生成推荐", stage="agent.recommend") as meta:
         picks = _pick_recommendations(session)
@@ -157,13 +229,12 @@ async def run_agent(session: Session, content: str) -> dict[str, Any]:
         meta["summary"] = f"选出 {len(picks)} 条"
     if not picks:
         ask = tools.ask_user("硬约束过滤后没有合适商品，是否放宽预算或必须项？", "empty")
-        return _interrupt_response(session, ask["question"], ask["reason"])
+        return interrupt_response(session, ask["question"], ask["reason"])
 
     mode = "search" if sites_needing_search else "reanalyze"
     answer = _compose_answer(session, picks, mode=mode)
     result = tools.recommend(picks, answer)
     session.messages.append({"role": "assistant", "content": answer})
-    store.touch(session)
     log_event(
         session,
         "Agent 回合完成",
@@ -183,30 +254,10 @@ async def run_agent(session: Session, content: str) -> dict[str, Any]:
         "recommendations": result["recommendations"],
         "interrupted": False,
         "interrupt_reason": None,
-        "execution_logs": session.execution_logs[-80:],
     }
 
 
-async def resume_agent(session: Session, note: str) -> dict[str, Any]:
-    log_event(
-        session,
-        "恢复中断回合",
-        stage="agent.resume",
-        source="agent",
-        data={"note": note},
-    )
-    session.interrupt_reason = None
-    session.status = "running"
-    store.touch(session)
-    content = (
-        note.strip()
-        if note and note.strip() not in {"continue", "user continued"}
-        else session.requirement
-    )
-    return await run_agent(session, content)
-
-
-def _interrupt_response(session: Session, question: str, reason: str) -> dict[str, Any]:
+def interrupt_response(session: Session, question: str, reason: str) -> dict[str, Any]:
     log_event(
         session,
         f"中断：{reason}",
@@ -224,7 +275,6 @@ def _interrupt_response(session: Session, question: str, reason: str) -> dict[st
         "recommendations": session.recommendations,
         "interrupted": True,
         "interrupt_reason": reason,
-        "execution_logs": session.execution_logs[-80:],
     }
 
 
@@ -242,7 +292,6 @@ def _apply_site_directives(session: Session, text: str) -> None:
             session.sites.append("jd")
     elif "jd" in lower and "ebay" in lower and re.search(r"两站|都看|全部", text):
         session.sites = ["jd", "ebay"]
-    store.touch(session)
 
 
 def _sites_to_search(session: Session, text: str, inventory_count: int) -> list[str]:

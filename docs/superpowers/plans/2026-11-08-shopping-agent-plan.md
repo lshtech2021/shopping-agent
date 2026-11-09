@@ -33,7 +33,7 @@
 - Create: `README.md`, `docs/superpowers/specs/...`, `docs/superpowers/plans/...`, `.gitignore`
 
 - [x] Write design + plan
-- [ ] Commit: `docs: shopping-agent design and plan`
+- [x] Commit: `docs: shopping-agent design and plan`
 
 ---
 
@@ -49,10 +49,10 @@
 - `POST /api/v1/sessions/{id}/messages` → `{reply}` (echo in Phase 0)
 - `WS /ws/extension` → `{"type":"ping"}` / `{"type":"pong"}`
 
-- [ ] Implement API echo + WS
-- [ ] Implement extension panel + background
-- [ ] Smoke test: create session, send message, WS ping
-- [ ] Commit: `feat: phase0 api echo and extension websocket skeleton`
+- [x] Implement API echo + WS
+- [x] Implement extension panel + background
+- [x] Smoke test: create session, send message, WS ping
+- [x] Commit: `feat: phase0 api echo and extension websocket skeleton`
 
 ---
 
@@ -67,11 +67,11 @@
 - Tools: `get_session`, `update_requirements`, `query_inventory`, `search`, `scrape_listing`, `next_page`, `fetch_detail`, `recommend`, `ask_user`
 - Message endpoint runs graph until recommend / ask_user / interrupt
 
-- [ ] Domain models + SQLite
-- [ ] LangGraph agent with tools (mock browse)
-- [ ] Wire message API to agent
-- [ ] Tests for mock closed loop
-- [ ] Commit: `feat: phase1 agent tools and mock browse closed loop`
+- [x] Domain models + persistence (now PostgreSQL)
+- [x] Nine tools + mock browse (rule policy; LLM loop added in Phase 5)
+- [x] Wire message API to agent
+- [x] Tests for mock closed loop
+- [x] Commit: `feat: phase1 agent tools and mock browse closed loop`
 
 ---
 
@@ -94,3 +94,16 @@
 - [x] Read-only web console at `/console`
 - [x] Smoke eval runner
 - [x] Commit: `feat: phase4 console persistence and smoke evals`
+
+---
+
+### Task 7: Phase 5 - hardening
+
+- [x] LangGraph tool-loop policy (`llm_agent`) + rule policy fallback
+- [x] Risk-site lockout until resume; per-turn quotas; server-side throttle
+- [x] Budget/RAM parsing no longer reads spec numbers as price
+- [x] Per-session turn lock (409), WS Origin check, CORS tightened
+- [x] Disconnect fails in-flight jobs; MV3 keepalive
+- [x] Turn-scoped execution logs (no duplicates in Side Panel)
+- [ ] Evaluate LLM policy against rule baseline on real model (needs API key)
+- [ ] Split session JSONB into tables; connection pool

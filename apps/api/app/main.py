@@ -1,6 +1,7 @@
 """Shopping Agent API."""
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from app import llm
 from app.config import settings
 from app.logging_setup import setup_logging
 from app.schemas import (
@@ -23,7 +25,7 @@ from app.schemas import (
 )
 from app.store import store
 from app.trace import log_event
-from app.ws_hub import hub
+from app.ws_hub import hub, origin_allowed
 
 
 @asynccontextmanager
@@ -33,11 +35,12 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title=settings.app_name, version="0.4.1", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, version="0.5.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
-    allow_credentials=True,
+    allow_origin_regex=r"chrome-extension://.*",
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -45,6 +48,21 @@ app.add_middleware(
 WEB_DIR = Path(__file__).resolve().parents[2] / "web"
 if WEB_DIR.exists():
     app.mount("/console", StaticFiles(directory=str(WEB_DIR), html=True), name="console")
+
+# One agent turn at a time per session: concurrent turns would interleave tool
+# calls and overwrite each other's state.
+_session_locks: dict[str, asyncio.Lock] = {}
+
+
+def _lock_for(session_id: str) -> asyncio.Lock:
+    return _session_locks.setdefault(session_id, asyncio.Lock())
+
+
+def _require_session(session_id: str):
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return session
 
 
 @app.get("/")
@@ -58,7 +76,9 @@ def health() -> dict:
         "ok": True,
         "extension_online": hub.online_count,
         "mock_browser": settings.mock_browser,
-        "session_count": len(store.list_ids()),
+        "llm_enabled": llm.llm_enabled(),
+        "persistent": store.persistent,
+        "session_count": store.count(),
     }
 
 
@@ -78,6 +98,7 @@ def create_session(payload: CreateSessionRequest) -> CreateSessionResponse:
         stage="api.create_session",
         source="api",
         data={"requirement": payload.requirement, "sites": list(payload.sites)},
+        persist=True,
     )
     return CreateSessionResponse(
         session_id=session.id,
@@ -89,9 +110,7 @@ def create_session(payload: CreateSessionRequest) -> CreateSessionResponse:
 
 @app.get("/api/v1/sessions/{session_id}", response_model=SessionDetail)
 def get_session(session_id: str) -> SessionDetail:
-    session = store.get(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="session not found")
+    session = _require_session(session_id)
     return SessionDetail(
         session_id=session.id,
         status=session.status,
@@ -103,6 +122,7 @@ def get_session(session_id: str) -> SessionDetail:
         recommendations=session.recommendations,
         searched_sites=session.searched_sites,
         interrupt_reason=session.interrupt_reason,
+        blocked_sites=session.blocked_sites,
         execution_logs=session.execution_logs,
         created_at=session.created_at,
         updated_at=session.updated_at,
@@ -111,57 +131,44 @@ def get_session(session_id: str) -> SessionDetail:
 
 @app.post("/api/v1/sessions/{session_id}/messages", response_model=MessageResponse)
 async def post_message(session_id: str, payload: MessageRequest) -> MessageResponse:
-    session = store.get(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="session not found")
+    session = _require_session(session_id)
+    lock = _lock_for(session_id)
+    if lock.locked():
+        raise HTTPException(status_code=409, detail="上一轮仍在执行，请稍候")
+    async with lock:
+        from app.agent_runner import run_agent
 
-    content = payload.content.strip()
-    log_event(
-        session,
-        "收到用户消息",
-        stage="api.message",
-        source="api",
-        data={"content": content[:200]},
-        persist=False,
-    )
-    session.messages.append(
-        {
-            "role": "user",
-            "content": content,
-            "ts": datetime.now(timezone.utc).isoformat(),
-        }
-    )
-    store.touch(session)
-
-    from app.agent_runner import run_agent
-
-    result = await run_agent(session, content)
-    store.touch(session)
-    return MessageResponse(**result)
+        content = payload.content.strip()
+        session.messages.append(
+            {
+                "role": "user",
+                "content": content,
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        result = await run_agent(session, content)
+        return MessageResponse(**result)
 
 
 @app.post("/api/v1/sessions/{session_id}/resume", response_model=MessageResponse)
 async def resume_session(session_id: str, payload: ResumeRequest) -> MessageResponse:
-    session = store.get(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="session not found")
-    log_event(
-        session,
-        "API resume",
-        stage="api.resume",
-        source="api",
-        data={"note": payload.note},
-        persist=False,
-    )
-    from app.agent_runner import resume_agent
+    session = _require_session(session_id)
+    lock = _lock_for(session_id)
+    if lock.locked():
+        raise HTTPException(status_code=409, detail="上一轮仍在执行，请稍候")
+    async with lock:
+        from app.agent_runner import resume_agent
 
-    result = await resume_agent(session, payload.note or "continue")
-    store.touch(session)
-    return MessageResponse(**result)
+        result = await resume_agent(session, payload.note or "continue")
+        return MessageResponse(**result)
 
 
 @app.websocket("/ws/extension")
 async def extension_ws(websocket: WebSocket) -> None:
+    origin = websocket.headers.get("origin")
+    if not origin_allowed(origin):
+        await websocket.close(code=4403)
+        return
     conn_id = await hub.connect(websocket)
     try:
         while True:
@@ -173,7 +180,6 @@ async def extension_ws(websocket: WebSocket) -> None:
             if reply is not None:
                 await websocket.send_json(reply)
     except WebSocketDisconnect:
+        pass
+    finally:
         await hub.disconnect(conn_id)
-    except Exception:
-        await hub.disconnect(conn_id)
-        raise

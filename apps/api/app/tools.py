@@ -1,6 +1,8 @@
 """Nine shopping tools: memory + browse (+ mock) + recommend/ask_user."""
 from __future__ import annotations
 
+import asyncio
+import random
 import re
 import time
 import uuid
@@ -14,6 +16,23 @@ from app.ws_hub import hub
 
 QUOTA_LIMITS = {"search": 2, "next_page": 2, "fetch_detail": 5}
 BLOCKING = {"rate_limited", "captcha", "login_required", "blocked"}
+# Site-level risk states: once seen, the site stays closed until the user resumes.
+SITE_RISK = {"rate_limited", "captcha", "login_required"}
+
+_last_browse_at: dict[str, float] = {}
+
+
+async def _throttle(site: str) -> float:
+    """Keep >= browse_min_interval_s (+ jitter) between live calls to one site."""
+    wait = 0.0
+    last = _last_browse_at.get(site)
+    if last is not None:
+        gap = settings.browse_min_interval_s + random.uniform(0, settings.browse_jitter_s)
+        wait = max(0.0, gap - (time.monotonic() - last))
+    if wait > 0:
+        await asyncio.sleep(wait)
+    _last_browse_at[site] = time.monotonic()
+    return wait
 
 
 class ToolBox:
@@ -32,7 +51,32 @@ class ToolBox:
         site_q = self.session.quotas.setdefault(site, {})
         return site_q
 
+    def _guard(self, site: str, tool: str) -> Optional[dict[str, Any]]:
+        """Design §6: a site that showed risk signals stays closed until the user
+        resumes. Refusals are free — they must not consume quota."""
+        risk = self.session.blocked_sites.get(site)
+        if not risk:
+            return None
+        refused = {
+            "status": "blocked",
+            "error": "site_blocked_until_resume",
+            "site": site,
+            "reason": risk,
+        }
+        log_event(
+            self.session,
+            f"拒绝 browse:{tool}：{site} 处于 {risk}，等待用户处理后继续",
+            stage="tool.guard",
+            source="tool",
+            level="warning",
+            data=refused,
+        )
+        return refused
+
     def _check_quota(self, site: str, tool: str) -> Optional[dict[str, Any]]:
+        refused = self._guard(site, tool)
+        if refused:
+            return refused
         used = self._quota(site, tool).get(tool, 0)
         limit = QUOTA_LIMITS.get(tool, 99)
         if used >= limit:
@@ -61,6 +105,18 @@ class ToolBox:
 
     async def _browse(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
         mode = "mock" if settings.mock_browser else "live"
+        site = str(args.get("site") or "").lower()
+        if not settings.mock_browser and hub.online_count > 0:
+            waited = await _throttle(site)
+            if waited > 0:
+                log_event(
+                    self.session,
+                    f"节流等待 {waited:.1f}s ({site})",
+                    stage="tool.throttle",
+                    source="tool",
+                    level="debug",
+                    data={"site": site, "waited_s": round(waited, 2)},
+                )
         started = time.perf_counter()
         log_event(
             self.session,
@@ -89,7 +145,9 @@ class ToolBox:
                 else:
                     result = {"status": "parse_error", "error": f"unknown browse tool {tool}"}
             else:
-                result = await hub.dispatch_job(tool, args, session=self.session)
+                result = await hub.dispatch_job(
+                    tool, args, timeout=settings.job_timeout_s, session=self.session
+                )
         except Exception as exc:  # noqa: BLE001
             log_event(
                 self.session,
@@ -102,6 +160,8 @@ class ToolBox:
             )
             raise
 
+        if result.get("status") in SITE_RISK and site:
+            self.session.blocked_sites[site] = str(result["status"])
         summary: dict[str, Any] = {
             "status": result.get("status"),
             "mode": mode,
@@ -162,14 +222,22 @@ class ToolBox:
             req["category"] = req.get("category") or "笔记本"
         if re.search(r"笔记本|laptop|notebook", text, re.I):
             req["category"] = "笔记本"
-        if re.search(r"32\s*g|内存至少\s*32", text, re.I):
-            must = list(req.get("must_have") or [])
-            if "32G内存" not in must:
-                must.append("32G内存")
+        ram = _extract_min_ram_gb(text)
+        if ram is not None:
+            must = [m for m in (req.get("must_have") or []) if not _RAM_MUST.search(str(m))]
+            must.append(f"{ram}G内存")
             req["must_have"] = must
         if patch:
             for key, value in patch.items():
-                if value is not None:
+                if value is None:
+                    continue
+                if key in {"must_have", "preferences"}:
+                    merged = list(req.get(key) or [])
+                    for item in value if isinstance(value, list) else [value]:
+                        if item and item not in merged:
+                            merged.append(item)
+                    req[key] = merged
+                else:
                     req[key] = value
         self.session.requirements = req
         store.touch(self.session)
@@ -184,7 +252,10 @@ class ToolBox:
         products = list(self.session.products.values())
         budget = self.session.requirements.get("budget_cny")
         must = self.session.requirements.get("must_have") or []
-        need_32g = any("32" in str(m) for m in must)
+        min_ram = max(
+            (int(m.group(1)) for item in must if (m := _RAM_MUST.search(str(item)))),
+            default=None,
+        )
         category = str(self.session.requirements.get("category") or "")
         filtered = []
         for product in products:
@@ -198,9 +269,9 @@ class ToolBox:
             if budget is not None and product.get("price_cny") is not None:
                 if float(product["price_cny"]) > float(budget):
                     continue
-            if need_32g:
+            if min_ram is not None:
                 ram = _ram_gb(product)
-                if ram is None or ram < 32:
+                if ram is None or ram < min_ram:
                     continue
             if prefer_detail and not product.get("detail_fetched"):
                 continue
@@ -243,6 +314,9 @@ class ToolBox:
     async def scrape_listing(self, site: str | None = None, page: int | None = None) -> dict[str, Any]:
         site = (site or self.active_site or (self.session.sites[0] if self.session.sites else "")).lower()
         page = int(page or self.page or 1)
+        refused = self._guard(site, "scrape_listing")
+        if refused:
+            return refused
         result = await self._browse("scrape_listing", {"site": site, "page": page})
         if result.get("status") != "ok":
             return result
@@ -315,10 +389,12 @@ class ToolBox:
         answer: str,
     ) -> dict[str, Any]:
         recommendations = []
+        unknown: list[str] = []
         for pick in picks:
             pid = str(pick.get("product_id") or "")
             product = self.session.products.get(pid)
             if product is None:
+                unknown.append(pid)
                 continue
             recommendations.append(
                 {
@@ -330,6 +406,23 @@ class ToolBox:
                     "currency": product.get("currency"),
                 }
             )
+        if unknown:
+            log_event(
+                self.session,
+                f"recommend 引用了不存在的 product_id：{unknown}",
+                stage="tool.recommend",
+                source="tool",
+                level="warning",
+                data={"unknown": unknown},
+            )
+        if not recommendations:
+            # Never close a turn on an empty/invalid recommendation (design review focus).
+            return {
+                "ok": False,
+                "error": "no_valid_product_ids",
+                "unknown": unknown,
+                "hint": "recommend only product_ids returned by query_inventory",
+            }
         self.session.recommendations = recommendations
         self.session.status = "done"
         self.session.interrupt_reason = None
@@ -392,28 +485,55 @@ def _inventory_summary(products: list[dict[str, Any]]) -> str:
     return f"库存摘要：{site_part}；总计={len(products)}；{price_part}；样本：{sample}"
 
 
-def _extract_budget(text: str) -> float | None:
+_RAM_MUST = re.compile(r"(\d{1,3})\s*G内存", re.I)
+_CN_DIGITS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+_UNIT = {"万": 10000.0, "千": 1000.0, "k": 1000.0, "K": 1000.0, "": 1.0}
+
+
+def _extract_min_ram_gb(text: str) -> int | None:
+    """Only accept RAM written next to a RAM word (so '512G SSD' is never RAM)."""
     text = text or ""
-    patterns = [
-        r"预算\s*(\d+(?:\.\d+)?)\s*万",
-        r"(\d+(?:\.\d+)?)\s*万\s*以内",
-        r"(?:预算|价格|价位)?\s*(\d{3,6})\s*元?",
-        r"(\d)\s*千",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if not match:
-            continue
-        value = float(match.group(1))
-        if "万" in pattern:
-            return value * 10000
-        if "千" in pattern:
-            return value * 1000
-        if value < 100 and "千" not in text:
-            continue
-        return value
-    if re.search(r"5\s*千|五千", text):
-        return 5000.0
+    for pattern in (
+        r"(?:内存|ram|运存)\s*(?:至少|不低于|不少于|>=|≥)?\s*(\d{1,3})\s*g",
+        r"(?<![\d.])(\d{1,3})\s*g(?:b)?\s*(?:及以上|以上)?\s*(?:内存|ram|运存)",
+    ):
+        match = re.search(pattern, text, re.I)
+        if match and 2 <= int(match.group(1)) <= 256:
+            return int(match.group(1))
+    return None
+
+
+def _extract_budget(text: str) -> float | None:
+    """Budget in CNY. Requires a budget cue (预算/价位/元/块/¥/万/千) so spec
+    numbers like '512G SSD' or 'i5-13500H' are never read as a price."""
+    text = text or ""
+    num = r"(\d+(?:\.\d+)?)"
+
+    # 1) explicit cue: 预算 5000 / 预算 1.2万 / 预算五千
+    cue = re.search(rf"(?:预算|价位|价格|不超过|最多|控制在)\s*[:：]?\s*{num}\s*(万|千|k|K)?", text)
+    if cue:
+        return float(cue.group(1)) * _UNIT[cue.group(2) or ""]
+    cn = re.search(r"(?:预算|价位|价格|不超过|最多|控制在)?\s*([一二两三四五六七八九])\s*(千|万)", text)
+    if cn:
+        return _CN_DIGITS[cn.group(1)] * _UNIT[cn.group(2)]
+
+    # 2) range with a currency unit: 4000-6000元 -> upper bound
+    rng = re.search(rf"{num}\s*[-~到至]\s*{num}\s*(万|千|元|块)", text)
+    if rng:
+        return float(rng.group(2)) * _UNIT.get(rng.group(3), 1.0)
+
+    # 3) number + currency unit: 5000元 / 5000块 / ¥5000 / 1.2万 / 5千
+    unit = re.search(rf"(?:¥|￥)\s*{num}|{num}\s*(万|千|元|块)", text)
+    if unit:
+        if unit.group(1):
+            return float(unit.group(1))
+        return float(unit.group(2)) * _UNIT.get(unit.group(3), 1.0)
+
+    # 4) last resort: a standalone 4-6 digit number ('笔记本 5000'); never part of a
+    #    model/spec token (i5-13500H, 512G, 2024款 all have a word char or '-' attached).
+    bare = re.search(r"(?<![\w.\-])(\d{4,6})(?![\w.\-])", text)
+    if bare and 500 <= int(bare.group(1)) <= 200000:
+        return float(bare.group(1))
     return None
 
 

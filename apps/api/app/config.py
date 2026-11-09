@@ -6,12 +6,21 @@ class Settings(BaseSettings):
 
     app_name: str = "shopping-agent"
     database_url: str = "postgresql://shopping:shopping@localhost:5432/shopping_agent"
+    log_level: str = "INFO"
+
+    # LLM (OpenAI-compatible). Empty key => deterministic rule policy is used.
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4o-mini"
-    cors_origins: str = "*"
+    agent_max_steps: int = 14
+
+    cors_origins: str = "http://localhost:8100,http://127.0.0.1:8100"
     mock_browser: bool = True
-    log_level: str = "INFO"
+
+    # Live-browse pacing, enforced server-side per site (design §6).
+    browse_min_interval_s: float = 2.0
+    browse_jitter_s: float = 0.6
+    job_timeout_s: float = 60.0
 
 
 settings = Settings()

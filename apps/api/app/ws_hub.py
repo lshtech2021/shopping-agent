@@ -1,4 +1,9 @@
-"""Extension WebSocket hub: ping/pong and browser job dispatch."""
+"""Extension WebSocket hub: ping/pong and browser job dispatch.
+
+Single-user assumption: jobs go to the first connected extension. A dropped
+connection fails its in-flight jobs immediately instead of letting them hang
+until the timeout.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -15,10 +20,22 @@ from app.trace import log_event
 logger = logging.getLogger(__name__)
 
 
+def origin_allowed(origin: str | None) -> bool:
+    """Only the extension itself (or a non-browser client such as tests/curl).
+
+    Browsers always send Origin on WebSocket handshakes, so a random web page
+    cannot impersonate the extension host.
+    """
+    if not origin:
+        return True
+    return origin.startswith("chrome-extension://")
+
+
 class ExtensionHub:
     def __init__(self) -> None:
         self._connections: dict[str, WebSocket] = {}
         self._pending: dict[str, asyncio.Future] = {}
+        self._pending_conn: dict[str, str] = {}
         self._lock = asyncio.Lock()
 
     @property
@@ -30,13 +47,26 @@ class ExtensionHub:
         conn_id = uuid.uuid4().hex
         async with self._lock:
             self._connections[conn_id] = websocket
-        logger.info("extension connected %s (online=%s)", conn_id, self.online_count)
+        logger.info("extension connected %s (online=%s)", conn_id[:8], self.online_count)
         return conn_id
 
     async def disconnect(self, conn_id: str) -> None:
         async with self._lock:
             self._connections.pop(conn_id, None)
-        logger.info("extension disconnected %s (online=%s)", conn_id, self.online_count)
+        failed = 0
+        for job_id, owner in list(self._pending_conn.items()):
+            if owner != conn_id:
+                continue
+            fut = self._pending.get(job_id)
+            if fut and not fut.done():
+                fut.set_result({"status": "blocked", "error": "extension_disconnected"})
+                failed += 1
+        logger.info(
+            "extension disconnected %s (online=%s, failed_jobs=%s)",
+            conn_id[:8],
+            self.online_count,
+            failed,
+        )
 
     async def handle_message(self, conn_id: str, message: dict[str, Any]) -> Optional[dict]:
         msg_type = message.get("type")
@@ -49,8 +79,8 @@ class ExtensionHub:
             logger.info(
                 "job_result job_id=%s status=%s logs=%s",
                 job_id[:8],
-                (result or {}).get("status"),
-                len((result or {}).get("extension_logs") or []),
+                result.get("status"),
+                len(result.get("extension_logs") or []),
             )
             if fut and not fut.done():
                 fut.set_result(result)
@@ -75,30 +105,15 @@ class ExtensionHub:
                         level="warning",
                         data={"tool": tool_name, "args": args},
                     )
-                return {
-                    "status": "blocked",
-                    "error": "no_extension_online",
-                }
+                return {"status": "blocked", "error": "no_extension_online"}
             conn_id, websocket = next(iter(self._connections.items()))
 
         job_id = uuid.uuid4().hex
-        loop = asyncio.get_running_loop()
-        fut: asyncio.Future = loop.create_future()
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[job_id] = fut
-        payload = {
-            "type": "job",
-            "job_id": job_id,
-            "tool": tool_name,
-            "args": args,
-        }
+        self._pending_conn[job_id] = conn_id
         started = time.perf_counter()
-        logger.info(
-            "dispatch job=%s tool=%s conn=%s args=%s",
-            job_id[:8],
-            tool_name,
-            conn_id[:8],
-            args,
-        )
+        logger.info("dispatch job=%s tool=%s conn=%s", job_id[:8], tool_name, conn_id[:8])
         if session is not None:
             log_event(
                 session,
@@ -107,29 +122,29 @@ class ExtensionHub:
                 source="ws",
                 level="debug",
                 data={"job_id": job_id, "tool": tool_name, "args": args, "conn_id": conn_id},
-                persist=False,
             )
         try:
-            await websocket.send_json(payload)
+            await websocket.send_json(
+                {"type": "job", "job_id": job_id, "tool": tool_name, "args": args}
+            )
             result = await asyncio.wait_for(fut, timeout=timeout)
             if not isinstance(result, dict):
                 return {"status": "parse_error", "error": "invalid_result"}
             if session is not None:
+                items = result.get("items")
                 log_event(
                     session,
                     f"Extension 任务返回 {tool_name}={result.get('status')}",
                     stage="ws.result",
                     source="ws",
+                    level="warning" if result.get("error") else "info",
                     duration_ms=(time.perf_counter() - started) * 1000,
                     data={
                         "job_id": job_id,
                         "status": result.get("status"),
                         "error": result.get("error"),
-                        "item_count": len(result.get("items") or [])
-                        if isinstance(result.get("items"), list)
-                        else None,
+                        "item_count": len(items) if isinstance(items, list) else None,
                     },
-                    persist=False,
                 )
             return result
         except asyncio.TimeoutError:
@@ -158,6 +173,7 @@ class ExtensionHub:
             return {"status": "blocked", "error": str(exc)}
         finally:
             self._pending.pop(job_id, None)
+            self._pending_conn.pop(job_id, None)
 
 
 hub = ExtensionHub()

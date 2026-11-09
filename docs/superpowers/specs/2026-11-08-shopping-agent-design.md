@@ -36,7 +36,7 @@
 
 | 层 | 选择 |
 |----|------|
-| Agent | LangGraph（Python） |
+| Agent | LangGraph 工具循环（LLM）+ 规则策略（离线/基线） |
 | API | FastAPI + WebSocket |
 | DB | PostgreSQL（单测可用 memory；Docker Compose 提供本地实例） |
 | Extension | Chrome MV3 + Side Panel |
@@ -69,11 +69,36 @@
 8. `recommend` — 写入推荐快照与助手回复  
 9. `ask_user` — 提问或等待用户处理风控后继续  
 
-## 6. Browse 配额（默认）
+## 6. Browse 配额与风控（默认）
 
-- 每轮每站：`search ≤ 2`，`next_page ≤ 2`，`fetch_detail ≤ 5`  
-- 调用间隔 ≥ 2s（可抖动）  
-- 非 `ok`：中断，禁止自动连刷  
+- 每轮每站：`search ≤ 2`，`next_page ≤ 2`，`fetch_detail ≤ 5`；**每个 Agent 回合开始时重置**  
+- 同站调用间隔 ≥ 2s + 抖动（`SA_BROWSE_MIN_INTERVAL_S` / `SA_BROWSE_JITTER_S`，服务端节流，仅真实浏览模式）  
+- 站点出现 `rate_limited / captcha / login_required`：写入 `session.blocked_sites`，该站后续一切 browse 调用被**守卫拒绝且不消耗配额**，直到用户 resume（resume 清除）  
+- 任何非 `ok` 的浏览结果（含 Extension 离线、job 超时/断线）：本回合中断，禁止自动连刷  
+- `quota_exceeded` 不是风控：LLM 策略把它回传给模型，让其用已有数据收尾  
+
+这些约束全部在 `ToolBox`（Host 层），与具体策略（LLM / 规则）无关。
+
+## 6.1 Agent 策略
+
+同一套 9 个工具，两种可互换策略（`app/agent_runner.py` 分派）：
+
+| 策略 | 触发 | 说明 |
+|------|------|------|
+| `llm_agent`（LangGraph） | 设置了 `SA_LLM_API_KEY` | `model ⇄ tools` 循环；模型决定做什么，`ToolBox` 决定允许什么；风控结果确定性中断；`agent_max_steps` 封顶；纯文本回复视为澄清提问 |
+| 规则策略 | 默认（无 key） | 确定性流水线：作为离线演示、评测基线与 LLM 故障对照 |
+
+LLM 调用失败不会 500：回合以 `agent_error` 中断，用户可重试。
+
+`recommend` 只接受会话内已有的 `product_id`；全部无效时返回错误给模型，不结束回合。
+
+## 6.2 安全与并发
+
+- WebSocket `/ws/extension` 只接受无 Origin（非浏览器客户端）或 `chrome-extension://` Origin，防止任意网页冒充 Extension。  
+- CORS 仅允许控制台同源与 `chrome-extension://`，不带凭据。  
+- 同一会话同一时刻只允许一个回合；并发请求返回 `409`。  
+- Extension 断线时，其在途 job 立即以 `extension_disconnected` 失败，不再傻等超时。  
+- MV3 service worker 每 20s 发 ping 保活。  
 
 ## 7. 非目标
 
@@ -86,14 +111,17 @@
 
 ```
 shopping-agent/
-  apps/api/              FastAPI + LangGraph
-  apps/web/              可选只读控制台
-  packages/domain/       领域模型与规则
-  packages/agent/        Graph、prompts、tools
-  packages/extension/    Chrome MV3
+  apps/api/
+    app/                 main / agent_runner（分派+规则策略）/ llm_agent（LangGraph）
+                         tools（ToolBox：9 工具 + 守卫/配额/节流）/ store / ws_hub / trace
+    tests/  evals/       pytest 与冒烟评测
+  apps/web/              只读控制台（静态页）
+  packages/extension/    Chrome MV3（Side Panel / 后台 WS / JD·eBay 解析）
   docs/                  设计与计划
-  tests/
+  docker-compose.yml     本地 PostgreSQL
 ```
+
+> 早期规划里的 `packages/domain`、`packages/agent` 未单独拆包：领域规则与图都很小，放在 `apps/api/app` 内更直接。
 
 ## 9. 分阶段
 
@@ -103,7 +131,18 @@ shopping-agent/
 | 1 | 记忆工具 + mock 浏览闭环（fixture）+ recommend |
 | 2 | 京东真浏览 + 配额 + 风控 interrupt |
 | 3 | eBay + 多轮追问 |
-| 4 | Checkpointer、日志、只读 Web、评测集 |
+| 4 | 持久化（PostgreSQL JSONB）、日志、只读 Web、评测集 |
+| 5 | 加固：LangGraph 工具循环、风控守卫/节流、需求解析修正、并发/WS 安全 |
+
+## 9.1 已知限制 / 后续
+
+- 单 API 进程假设：会话读写走内存工作集，写穿 PostgreSQL；多进程需改为按行读取 + 行锁。  
+- 整会话 JSONB 整行重写：会话很大时应拆表（products / messages / logs）。  
+- 同步 psycopg 调用在事件循环内执行（本地毫秒级）；规模化需连接池 + 线程/异步驱动。  
+- Job 不跨 WS 重连重投递（断线即失败，由用户 resume 重试）。  
+- 未做 LangGraph checkpointer；中断恢复靠会话状态 + 重新规划。  
+- LLM 策略尚未用真实模型做过评测，仅有假模型回归测试；上线前需用 `evals/` 扩充真实用例对比两种策略。  
+- 控制台与 API 无鉴权，默认只监听本机。
 
 ## 10. Approaches（已选）
 
