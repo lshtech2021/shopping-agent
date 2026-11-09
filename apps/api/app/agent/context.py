@@ -12,7 +12,7 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
-from app.agent.state import AgentState
+from app.agent.state import AgentState, Plan
 from app.agent.tools import ToolSpec
 
 UNTRUSTED_PAGE_PREFIX = "[UNTRUSTED_PAGE_DATA]\n"
@@ -119,11 +119,11 @@ class ContextBuilder:
                 "run_id",
                 "phase",
                 "step",
-                "plan",
                 "pending_user",
                 "error",
             )
         }
+        summary["plan"] = self._safe_plan(state.get("plan"))
         parts = [system_prompt]
         if memory_summary:
             parts.append(f"## Memory Summary\n{memory_summary}")
@@ -137,6 +137,28 @@ class ContextBuilder:
             )
             parts.append(f"## Available Tools\n{tools}")
         return "\n\n".join(parts)
+
+    @staticmethod
+    def _safe_plan(raw: Any) -> dict[str, Any] | None:
+        if not raw:
+            return None
+        try:
+            plan = Plan.model_validate(raw)
+        except (TypeError, ValueError):
+            return None
+        return {
+            "goal": plan.goal,
+            "steps": [
+                {
+                    "id": step.id,
+                    "description": step.description,
+                    "status": step.status,
+                    "evidence_count": len(step.evidence),
+                }
+                for step in plan.steps
+            ],
+            "metadata": plan.metadata,
+        }
 
     def _units(self, state: AgentState) -> tuple[list[list[BaseMessage]], int]:
         messages = list(state.get("messages") or [])

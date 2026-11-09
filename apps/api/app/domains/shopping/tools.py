@@ -116,10 +116,13 @@ def _compact_browse(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _plan_meta(
-    context: Any, *evidence: str, done: bool = False
+    context: Any,
+    *evidence: str,
+    done: bool = False,
+    step_id: str | None = None,
 ) -> dict[str, Any]:
     resources = getattr(context, "resources", None) or {}
-    step_id = resources.get("plan_step_id")
+    step_id = step_id or resources.get("plan_step_id")
     if not step_id:
         return {}
     meta: dict[str, Any] = {
@@ -132,17 +135,25 @@ def _plan_meta(
 
 
 def _browse_result(
-    result: dict[str, Any], tool: str, context: Any = None
+    result: dict[str, Any],
+    tool: str,
+    context: Any = None,
+    *,
+    step_id: str | None = None,
+    done: bool = False,
 ) -> ToolResult:
     data = _compact_browse(result)
-    evidence = [f"{tool}:{result.get('status')}"]
+    ok = result.get("status") == "ok"
+    evidence = [f"{tool}:{result.get('status')}"] if ok else []
     if "result_count" in result:
         evidence.append(f"result_count={result.get('result_count')}")
     elif isinstance(result.get("items"), list):
         evidence.append(f"item_count={len(result['items'])}")
     if "accepted" in result:
         evidence.append(f"accepted={result.get('accepted')}")
-    meta = _plan_meta(context, *evidence)
+    meta = _plan_meta(
+        context, *evidence, done=done and ok, step_id=step_id
+    )
     status = str(result.get("status") or "")
     if status in BLOCKING and result.get("error") != "quota_exceeded":
         site = str(result.get("site") or "")
@@ -192,7 +203,28 @@ def _langchain_tool(spec: ToolSpec) -> StructuredTool:
 def build_shopping_tools(
     box: ToolBox, state: dict[str, Any]
 ) -> list[ToolSpec]:
-    _ = state
+    def step_for(tool: str) -> str | None:
+        role = {
+            "search": "search",
+            "scrape_listing": "search",
+            "next_page": "search",
+            "fetch_detail": "verify",
+            "query_inventory": "verify",
+            "recommend": "recommend",
+        }.get(tool)
+        if role is None:
+            return None
+        plan = state.get("plan")
+        if not isinstance(plan, dict):
+            return None
+        metadata = plan.get("metadata")
+        if not isinstance(metadata, dict):
+            return None
+        roles = metadata.get("step_roles")
+        if not isinstance(roles, dict):
+            return None
+        step_id = roles.get(role)
+        return str(step_id) if step_id else None
 
     async def get_session(_args: _NoArgs, _context: Any) -> ToolResult:
         info = box.get_session()
@@ -222,7 +254,11 @@ def build_shopping_tools(
             tool="query_inventory",
             ok=True,
             data=result,
-            meta=_plan_meta(_context, f"count={result.get('count')}"),
+            meta=_plan_meta(
+                _context,
+                f"count={result.get('count')}",
+                step_id=step_for("query_inventory"),
+            ),
         )
 
     async def search(args: _Search, _context: Any) -> ToolResult:
@@ -239,6 +275,7 @@ def build_shopping_tools(
             await box.search(args.site, args.query, **filters),
             "search",
             _context,
+            step_id=step_for("search"),
         )
 
     async def scrape_listing(
@@ -248,11 +285,16 @@ def build_shopping_tools(
             await box.scrape_listing(args.site, args.page),
             "scrape_listing",
             _context,
+            step_id=step_for("scrape_listing"),
+            done=True,
         )
 
     async def next_page(args: _NextPage, _context: Any) -> ToolResult:
         return _browse_result(
-            await box.next_page(args.site), "next_page", _context
+            await box.next_page(args.site),
+            "next_page",
+            _context,
+            step_id=step_for("next_page"),
         )
 
     async def fetch_detail(args: _Detail, _context: Any) -> ToolResult:
@@ -260,6 +302,8 @@ def build_shopping_tools(
             await box.fetch_detail(args.product_id),
             "fetch_detail",
             _context,
+            step_id=step_for("fetch_detail"),
+            done=True,
         )
 
     async def recommend(args: _Recommend, _context: Any) -> ToolResult:
@@ -279,6 +323,7 @@ def build_shopping_tools(
                     _context,
                     "recommended=" + ",".join(picks),
                     done=True,
+                    step_id=step_for("recommend"),
                 ),
                 control="finish",
                 output={

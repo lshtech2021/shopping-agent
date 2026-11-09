@@ -81,3 +81,62 @@ def test_shopping_planner_normalizes_missing_plan_metadata():
     assert plan.metadata["evidence_checklist"] == []
     assert plan.metadata["stop_conditions"] == []
     json.dumps(plan.model_dump())
+
+
+def test_shopping_planner_repairs_malformed_metadata_and_steps():
+    result = Plan(
+        goal="pick a camera",
+        steps=[
+            PlanStep(id="", description="search"),
+            PlanStep(id="search", description="search again"),
+        ],
+        metadata={
+            "search_queries": ["camera"],
+            "evidence_checklist": "price",
+            "stop_conditions": None,
+        },
+    )
+    planner = ShoppingPlanner(model=FakePlanModel(result))
+
+    plan = asyncio.run(planner.plan(goal="pick a camera", context={}))
+
+    assert isinstance(plan.metadata["search_queries"], dict)
+    assert isinstance(plan.metadata["evidence_checklist"], list)
+    assert isinstance(plan.metadata["stop_conditions"], list)
+    ids = [step.id for step in plan.steps]
+    assert ids and len(ids) == len(set(ids))
+    assert all(step.id for step in plan.steps)
+
+
+def test_shopping_planner_falls_back_when_model_raises():
+    class BrokenModel:
+        def with_structured_output(self, _schema):
+            raise RuntimeError("structured output unsupported")
+
+        async def ainvoke(self, _messages):
+            raise RuntimeError("model down")
+
+    planner = ShoppingPlanner(model=BrokenModel())
+
+    plan = asyncio.run(
+        planner.plan(
+            goal="pick a laptop",
+            context={"requirements": {"category": "笔记本"}, "sites": ["jd"]},
+        )
+    )
+
+    assert plan.goal == "pick a laptop"
+    assert plan.steps
+    assert plan.metadata["step_roles"]
+
+
+def test_coerce_plan_handles_fenced_json_content():
+    content = (
+        "```json\n"
+        '{"goal": "g", "steps": [{"id": "s", "description": "s"}], "metadata": {}}'
+        "\n```"
+    )
+    from langchain_core.messages import AIMessage
+
+    plan = ShoppingPlanner._coerce_plan(AIMessage(content=content))
+    assert plan.goal == "g"

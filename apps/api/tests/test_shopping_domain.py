@@ -4,8 +4,8 @@ import asyncio
 from pathlib import Path
 
 from app.agent.runtime import TurnResult
-from app.agent.state import PendingUser
-from app.domains.shopping.adapter import to_message_response
+from app.agent.state import PendingUser, Plan, PlanStep
+from app.domains.shopping.adapter import initial_state, to_message_response
 from app.domains.shopping.state import ShoppingOutput, ShoppingState
 from app.domains.shopping.tools import build_shopping_tools
 from app.store import store
@@ -175,3 +175,91 @@ def test_llm_agent_no_longer_contains_the_old_graph():
     assert "StateGraph" not in source
     assert "StructuredTool" not in source
     assert "AgentRuntime" in source
+
+
+def test_initial_state_rehydrates_a_persisted_plan():
+    session = seed_session()
+    plan = Plan(
+        goal="pick a laptop",
+        steps=[PlanStep(id="search", description="search")],
+        metadata={"search_queries": {"jd": ["笔记本"]}},
+    )
+    session.plan = plan.model_dump()
+
+    state = initial_state(session, "继续")
+
+    assert state["plan"] == session.plan
+
+
+def test_run_llm_policy_creates_and_persists_a_plan(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import llm
+    from app.main import app
+    from conftest import _call, _recommend_from_inventory
+
+    client = TestClient(app)
+    plan = Plan(
+        goal="pick a laptop",
+        steps=[
+            PlanStep(id="search", description="search"),
+            PlanStep(id="verify", description="verify"),
+            PlanStep(id="recommend", description="recommend"),
+        ],
+        metadata={
+            "search_queries": {"jd": ["笔记本"]},
+            "evidence_checklist": ["price", "ram"],
+            "stop_conditions": ["three candidates"],
+            "step_roles": {
+                "search": "search",
+                "verify": "verify",
+                "recommend": "recommend",
+            },
+        },
+    )
+
+    class PlanningModel:
+        def __init__(self):
+            self.calls = 0
+            self.plan_calls = 0
+
+        def with_structured_output(self, _schema):
+            outer = self
+
+            class StructuredPlan:
+                async def ainvoke(self, _messages):
+                    outer.plan_calls += 1
+                    return plan
+
+            return StructuredPlan()
+
+        def bind_tools(self, _tools):
+            return self
+
+        async def ainvoke(self, messages):
+            self.calls += 1
+            if self.calls == 1:
+                return _call("search", site="jd", query="笔记本")
+            if self.calls == 2:
+                return _call("scrape_listing", site="jd")
+            if self.calls == 3:
+                return _call("query_inventory", limit=10)
+            return _recommend_from_inventory(messages)
+
+    model = PlanningModel()
+    monkeypatch.setattr(llm, "llm_enabled", lambda: True)
+    monkeypatch.setattr(llm, "build_chat_model", lambda: model)
+
+    created = client.post(
+        "/api/v1/sessions",
+        json={"requirement": "笔记本 预算5000", "sites": ["jd"]},
+    ).json()
+    response = client.post(
+        f"/api/v1/sessions/{created['session_id']}/messages",
+        json={"content": "笔记本 预算5000"},
+    ).json()
+
+    assert model.plan_calls == 1
+    assert response["plan"]["goal"] == "pick a laptop"
+    detail = client.get(f"/api/v1/sessions/{created['session_id']}").json()
+    assert detail["plan"]["steps"][0]["id"] == "search"

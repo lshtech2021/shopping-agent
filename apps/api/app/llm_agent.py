@@ -5,6 +5,7 @@ from typing import Any
 
 from app import llm
 from app.agent.context import ContextBuilder
+from app.agent.policies.plan_execute import PlanExecutePolicy
 from app.agent.policies.react import ReActPolicy
 from app.agent.runtime import AgentRuntime, TurnResult
 from app.agent.state import PendingUser
@@ -17,6 +18,7 @@ from app.domains.shopping.adapter import (
     to_message_response,
 )
 from app.domains.shopping.memory import ShoppingMemory
+from app.domains.shopping.planner import ShoppingPlanner, ShoppingReplanner
 from app.domains.shopping.prompt import SYSTEM_PROMPT
 from app.domains.shopping.tools import (
     build_shopping_tools,
@@ -24,12 +26,15 @@ from app.domains.shopping.tools import (
 )
 from app.store import Session
 from app.tools import ToolBox
+from app.trace import log_event
 
 
 def _finish_response(session: Session, result: TurnResult) -> dict[str, Any]:
     response = to_message_response(result)
     session.messages.append({"role": "assistant", "content": response.reply})
-    return response.model_dump()
+    payload = response.model_dump()
+    payload["plan"] = session.plan
+    return payload
 
 
 async def run_llm_policy(
@@ -79,6 +84,27 @@ async def run_llm_policy(
             + text
         )
 
+    base_model = llm.build_chat_model()
+    if session.plan is None and hasattr(base_model, "with_structured_output"):
+        planner = ShoppingPlanner(model=base_model)
+        plan = await planner.plan(
+            goal=session.requirement or text,
+            context={
+                "requirements": dict(session.requirements or {}),
+                "sites": list(session.sites),
+                "searched_sites": list(session.searched_sites),
+                "product_count": len(session.products),
+            },
+        )
+        session.plan = plan.model_dump()
+        log_event(
+            session,
+            "生成执行计划",
+            stage="plan.created",
+            source="agent",
+            data={"plan": session.plan},
+        )
+
     state = initial_state(session, turn_text)
     memory = ShoppingMemory(session, box)
     specs = build_shopping_tools(box, state)
@@ -86,7 +112,7 @@ async def run_llm_policy(
     for spec in specs:
         registry.register(spec)
 
-    model = llm.build_chat_model().bind_tools(to_langchain_tools(specs))
+    model = base_model.bind_tools(to_langchain_tools(specs))
     context = ToolContext(
         run_id=session.id,
         memory=memory,
@@ -100,10 +126,14 @@ async def run_llm_policy(
         system_prompt=SYSTEM_PROMPT,
         memory=memory,
         tool_context=context,
+        replanner=ShoppingReplanner(),
+        max_replans=2,
     )
     result = await runtime.run_turn(
-        state=state, policy=ReActPolicy(model=model)
+        state=state,
+        policy=PlanExecutePolicy(delegate=ReActPolicy(model=model)),
     )
+    session.plan = state.get("plan") or session.plan
 
     response = to_message_response(result)
     if result.status == "waiting_user":
@@ -121,4 +151,6 @@ async def run_llm_policy(
         )
 
     session.messages.append({"role": "assistant", "content": response.reply})
-    return response.model_dump()
+    payload = response.model_dump()
+    payload["plan"] = session.plan
+    return payload

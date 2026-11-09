@@ -61,9 +61,32 @@ def test_shopping_replanner_changes_queries_on_poor_result():
 
     assert plan is not None
     assert plan.metadata["search_queries"]["jd"] != ["开发笔记本"]
-    assert "book" in plan.metadata["search_queries"]["jd"][0]
-    assert plan.steps[-1].id.startswith("replan-")
-    assert plan.steps[-1].status == "pending"
+    assert plan.metadata["search_queries"]["jd"][0] != "开发笔记本"
+    assert plan.metadata["replan_count"] == 1
+    assert [step.id for step in plan.steps] == ["search"]
+    assert plan.steps[0].status == "in_progress"
+
+
+def test_shopping_replanner_uses_site_appropriate_queries():
+    state = _state(poor=True)
+    plan = Plan.model_validate(state["plan"])
+    metadata = dict(plan.metadata)
+    metadata["search_queries"] = {
+        "jd": ["开发笔记本"],
+        "ebay": ["laptop"],
+    }
+    metadata["requirements"] = {"category": "笔记本"}
+    state["plan"] = plan.model_copy(update={"metadata": metadata}).model_dump()
+
+    adjusted = asyncio.run(
+        ShoppingReplanner().replan(
+            state=state, output={}, critique=Critique(ok=True)
+        )
+    )
+
+    assert adjusted is not None
+    assert "-book" not in adjusted.metadata["search_queries"]["jd"][0]
+    assert "-book" in adjusted.metadata["search_queries"]["ebay"][0]
 
 
 def test_shopping_replanner_returns_none_for_good_result():
@@ -77,22 +100,28 @@ def test_shopping_replanner_returns_none_for_good_result():
     assert plan is None
 
 
-def test_shopping_replanner_respects_max_two_replans():
+def test_shopping_replanner_respects_persisted_replan_count():
     state = _state(poor=True)
     replanner = ShoppingReplanner(max_replans=2)
 
     first = asyncio.run(
         replanner.replan(state=state, output={}, critique=Critique(ok=True))
     )
+    assert first is not None
+    state["plan"] = first.model_dump()
+    first_query = first.metadata["search_queries"]["jd"][0]
+
     second = asyncio.run(
         replanner.replan(state=state, output={}, critique=Critique(ok=True))
     )
+    assert second is not None
+    state["plan"] = second.model_dump()
+    assert second.metadata["search_queries"]["jd"][0] != first_query
+    assert second.metadata["replan_count"] == 2
+
     third = asyncio.run(
         replanner.replan(state=state, output={}, critique=Critique(ok=True))
     )
-
-    assert first is not None
-    assert second is not None
     assert third is None
 
 

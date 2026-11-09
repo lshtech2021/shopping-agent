@@ -135,6 +135,7 @@ def get_session(session_id: str) -> SessionDetail:
         requirement=session.requirement,
         sites=session.sites,
         requirements=session.requirements,
+        plan=session.plan,
         messages=session.messages,
         products=list(session.products.values()),
         recommendations=session.recommendations,

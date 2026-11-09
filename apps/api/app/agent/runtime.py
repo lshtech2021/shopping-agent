@@ -16,9 +16,10 @@ from app.agent.memory import Memory
 from app.agent.policies.plan_execute import (
     Replanner,
     first_open_step_id,
+    plan_from_state,
     record_plan_evidence,
 )
-from app.agent.state import AgentState, PendingUser
+from app.agent.state import AgentState, PendingUser, Plan
 from app.agent.tools import (
     BrowserClient,
     ToolContext,
@@ -176,6 +177,7 @@ class AgentRuntime:
             waiting: PendingUser | None = None
             failure: str | None = None
             terminal: str | None = None
+            batch_step_id = first_open_step_id(state.get("plan"))
             for call in tool_calls:
                 started = time.perf_counter()
                 if terminal is not None:
@@ -187,7 +189,9 @@ class AgentRuntime:
                         error="turn_already_finished",
                     )
                 else:
-                    result = await self._execute_tool(call, state, run_id)
+                    result = await self._execute_tool(
+                        call, state, run_id, batch_step_id
+                    )
                 self.tool_context.trace.event(
                     "llm.tool",
                     tool=result.tool,
@@ -200,6 +204,13 @@ class AgentRuntime:
                 )
                 state["tool_results"].append(result.model_dump())
                 record_plan_evidence(state, result)
+                if result.meta.get("plan_step_id"):
+                    self.tool_context.trace.event(
+                        "plan.step",
+                        plan=state.get("plan"),
+                        step_id=result.meta.get("plan_step_id"),
+                        tool=result.tool,
+                    )
                 payload = dict(result.data)
                 if result.error:
                     payload.setdefault("error", result.error)
@@ -231,19 +242,39 @@ class AgentRuntime:
                     failure = result.error or "tool_failed"
                     terminal = "fail"
 
+            current_plan = plan_from_state(state)
+            persisted_replans = (
+                int((current_plan.metadata or {}).get("replan_count") or 0)
+                if current_plan is not None
+                else 0
+            )
             if (
                 terminal is None
                 and self.replanner is not None
-                and replans < self.max_replans
+                and max(replans, persisted_replans) < self.max_replans
             ):
+                results = state.get("tool_results") or []
+                latest_output = (
+                    results[-1].get("data")
+                    if results and isinstance(results[-1], dict)
+                    else {}
+                ) or {}
                 new_plan = await self.replanner.replan(
                     state=state,
-                    output={},
+                    output=latest_output,
                     critique=Critique(ok=True),
                 )
-                if new_plan is not None:
+                if isinstance(new_plan, Plan):
                     state["plan"] = new_plan.model_dump()
-                    replans += 1
+                    replans = max(
+                        replans + 1,
+                        int((new_plan.metadata or {}).get("replan_count") or 0),
+                    )
+                    self.tool_context.trace.event(
+                        "plan.replanned",
+                        plan=new_plan.model_dump(),
+                        replan_count=replans,
+                    )
                     continue
 
             if waiting is not None:
@@ -302,7 +333,11 @@ class AgentRuntime:
         return await self.run_turn(state=state, policy=chosen)
 
     async def _execute_tool(
-        self, call: dict[str, Any], state: AgentState, run_id: str
+        self,
+        call: dict[str, Any],
+        state: AgentState,
+        run_id: str,
+        step_id: str | None = None,
     ) -> ToolResult:
         name = str(call.get("name") or "")
         call_id = str(call.get("id") or uuid.uuid4().hex)
@@ -315,7 +350,7 @@ class AgentRuntime:
                 error=f"unknown_tool:{name}",
             )
         resources = dict(self.tool_context.resources)
-        step_id = first_open_step_id(state.get("plan"))
+        resources.pop("plan_step_id", None)
         if step_id:
             resources["plan_step_id"] = step_id
         context = replace(

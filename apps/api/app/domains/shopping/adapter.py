@@ -34,7 +34,7 @@ def initial_state(session: Session, turn_text: str) -> AgentState:
     return {
         "run_id": session.id,
         "messages": messages,
-        "plan": None,
+        "plan": session.plan,
         "step": 0,
         "phase": "executing",
         "tool_results": [],
@@ -135,6 +135,15 @@ class ShoppingTrace:
                 source="llm",
                 level="warning" if status in {"error", "blocked"} else "info",
                 duration_ms=fields.get("duration_ms"),
+                data=fields,
+            )
+            return
+        if name.startswith("plan."):
+            log_event(
+                self.session,
+                f"计划事件：{name}",
+                stage=name,
+                source="agent",
                 data=fields,
             )
             return

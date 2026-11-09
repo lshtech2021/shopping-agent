@@ -30,6 +30,7 @@ class Session:
     sites: list[str]
     status: str = "idle"
     requirements: dict[str, Any] = field(default_factory=dict)
+    plan: Optional[dict[str, Any]] = None
     messages: list[dict[str, Any]] = field(default_factory=list)
     products: dict[str, dict[str, Any]] = field(default_factory=dict)
     recommendations: list[dict[str, Any]] = field(default_factory=list)
@@ -56,6 +57,7 @@ class Session:
             sites=list(data.get("sites") or []),
             status=str(data.get("status") or "idle"),
             requirements=dict(data.get("requirements") or {}),
+            plan=dict(data["plan"]) if data.get("plan") else None,
             messages=list(data.get("messages") or []),
             products=dict(data.get("products") or {}),
             recommendations=list(data.get("recommendations") or []),

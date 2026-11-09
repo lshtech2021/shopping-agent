@@ -61,6 +61,7 @@ class MessageResponse(BaseModel):
     interrupted: bool = False
     interrupt_reason: Optional[str] = None
     clarify: list[ClarifyQuestion] = Field(default_factory=list)
+    plan: Optional[dict[str, Any]] = None
     execution_logs: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -81,6 +82,7 @@ class SessionDetail(BaseModel):
     requirement: str
     sites: list[str]
     requirements: dict[str, Any] = Field(default_factory=dict)
+    plan: Optional[dict[str, Any]] = None
     messages: list[dict[str, Any]] = Field(default_factory=list)
     products: list[dict[str, Any]] = Field(default_factory=list)
     recommendations: list[RecommendationOut] = Field(default_factory=list)

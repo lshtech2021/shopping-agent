@@ -108,9 +108,11 @@ def record_plan_evidence(
     if isinstance(evidence, str):
         evidence = [evidence]
     for item in evidence:
-        text = str(item)
+        text = str(item)[:200]
         if text and text not in step.evidence:
             step.evidence.append(text)
     if meta.get("plan_step_done"):
-        step.status = "done"
+        index = plan.steps.index(step)
+        if all(previous.status == "done" for previous in plan.steps[:index]):
+            step.status = "done"
     state["plan"] = plan.model_dump()
