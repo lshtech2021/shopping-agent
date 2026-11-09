@@ -16,10 +16,10 @@
 - Modify: `apps/api/app/llm_agent.py`
 - Modify: `apps/api/tests/test_agent_budget.py`
 
-- [ ] Write failing test: low-confidence budget reaches the model and clarify comes from a tool call (`model.calls >= 1`)
-- [ ] Remove `needs_clarify → ask_clarify → return` short-circuit; keep host `update_requirements` parse; optionally hint the model when budget was ambiguous
-- [ ] Run `pytest tests/test_agent_budget.py tests/test_phase6_clarify.py -q` — pass
-- [ ] Commit
+- [x] Write failing test: low-confidence budget reaches the model and clarify comes from a tool call (`model.calls >= 1`)
+- [x] Remove `needs_clarify → ask_clarify → return` short-circuit; keep host `update_requirements` parse; optionally hint the model when budget was ambiguous
+- [x] Run `pytest tests/test_agent_budget.py tests/test_phase6_clarify.py -q` — pass
+- [x] Commit
 
 ### Task 2: Drop host re-clarify in `agent_runner`
 
@@ -27,10 +27,10 @@
 - Modify: `apps/api/app/agent_runner.py`
 - Modify: `apps/api/tests/test_agent_clarify_runtime.py`
 
-- [ ] Write failing test: unparseable clarify answer continues into the model (not host interrupt)
-- [ ] On `apply_clarify` `needs_clarify`, do not hardcode questions; enter LLM with `skip_parse=False` so the model can call `clarify` again
-- [ ] Run clarify + phase6 tests — pass
-- [ ] Commit
+- [x] Write failing test: unparseable clarify answer continues into the model (not host interrupt)
+- [x] On `apply_clarify` `needs_clarify`, do not hardcode questions; enter LLM with `skip_parse=False` so the model can call `clarify` again
+- [x] Run clarify + phase6 tests — pass
+- [x] Commit
 
 ### Task 3: Surface parse gaps to the model cleanly
 
@@ -39,9 +39,9 @@
 - Modify: `apps/api/tests/conftest.py` if MockShopper needs `field` on questions
 - Modify: tests as needed
 
-- [ ] Ensure ambiguous-budget / failed-answer hints are clear and do not reintroduce host interrupts
-- [ ] Run `pytest tests/ -q` (or targeted suite) — pass
-- [ ] Commit
+- [x] Ensure ambiguous-budget / failed-answer hints are clear and do not reintroduce host interrupts
+- [x] Run `pytest tests/ -q` (or targeted suite) — pass
+- [x] Commit
 
 ### Task 4: Remove dead clarify question duplicates
 
@@ -49,6 +49,6 @@
 - Modify: `apps/api/app/agent_runner.py`, `apps/api/app/llm_agent.py` (delete leftover hardcoded lists if any)
 - Modify: docs/prompt only if wording drifts
 
-- [ ] Confirm no host-owned clarify question lists remain outside tools/tests
-- [ ] Full API test pass
-- [ ] Commit
+- [x] Confirm no host-owned clarify question lists remain outside tools/tests
+- [x] Full API test pass
+- [x] Commit
