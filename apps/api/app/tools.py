@@ -1,16 +1,14 @@
 """Nine shopping tools: memory + browse (+ mock) + recommend/ask_user."""
 from __future__ import annotations
 
-import asyncio
-import random
 import re
-import time
 import uuid
 from typing import Any, Optional
 from urllib.parse import urlparse
 
+from app.browser.gateway import BLOCKING, SITE_RISK, BrowserGateway
+from app.browser.gateway import throttle as _throttle
 from app.config import settings
-from app import mock_browser
 from app.constraints import check_product
 from app.domains.shopping.requirements import (
     CATEGORIES,
@@ -32,26 +30,8 @@ from app.domains.shopping.requirements import (
 from app.inventory import select_diverse_products
 from app.store import Session, store
 from app.trace import log_event
-from app.ws_hub import hub
 
 QUOTA_LIMITS = {"search": 2, "next_page": 2, "fetch_detail": 5}
-BLOCKING = {"rate_limited", "captcha", "login_required", "blocked"}
-# Site-level risk states: once seen, the site stays closed until the user resumes.
-SITE_RISK = {"rate_limited", "captcha", "login_required"}
-_last_browse_at: dict[str, float] = {}
-
-
-async def _throttle(site: str) -> float:
-    """Keep >= browse_min_interval_s (+ jitter) between live calls to one site."""
-    wait = 0.0
-    last = _last_browse_at.get(site)
-    if last is not None:
-        gap = settings.browse_min_interval_s + random.uniform(0, settings.browse_jitter_s)
-        wait = max(0.0, gap - (time.monotonic() - last))
-    if wait > 0:
-        await asyncio.sleep(wait)
-    _last_browse_at[site] = time.monotonic()
-    return wait
 
 
 class ToolBox:
@@ -62,6 +42,7 @@ class ToolBox:
         self.page_by_site: dict[str, int] = {}
         self.last_ask: Optional[str] = None
         self._product_index: dict[tuple[str, str], str] = {}
+        self._browser = BrowserGateway(session)
         self._reindex_products()
 
     def _require_site(self, site: str) -> Optional[dict[str, Any]]:
@@ -84,7 +65,7 @@ class ToolBox:
 
     @property
     def mock_mode(self) -> bool:
-        return bool(settings.mock_browser)
+        return self._browser.mock_mode
 
     def _quota(self, site: str, tool: str) -> dict[str, int]:
         site_q = self.session.quotas.setdefault(site, {})
@@ -143,95 +124,7 @@ class ToolBox:
         q[tool] = q.get(tool, 0) + 1
 
     async def _browse(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
-        mode = "mock" if settings.mock_browser else "live"
-        site = str(args.get("site") or "").lower()
-        if not settings.mock_browser and hub.online_count > 0:
-            waited = await _throttle(site)
-            if waited > 0:
-                log_event(
-                    self.session,
-                    f"节流等待 {waited:.1f}s ({site})",
-                    stage="tool.throttle",
-                    source="tool",
-                    level="debug",
-                    data={"site": site, "waited_s": round(waited, 2)},
-                )
-        started = time.perf_counter()
-        log_event(
-            self.session,
-            f"调用 browse:{tool} ({mode})",
-            stage=f"tool.{tool}",
-            source="tool",
-            level="debug",
-            data={"args": args, "mode": mode},
-            persist=False,
-        )
-        try:
-            if settings.mock_browser:
-                if tool == "search":
-                    result = mock_browser.mock_search(args.get("site", ""), args.get("query", ""))
-                elif tool == "scrape_listing":
-                    result = mock_browser.mock_scrape_listing(
-                        args.get("site", ""), int(args.get("page") or 1)
-                    )
-                elif tool == "next_page":
-                    page = int(args.get("page") or 2)
-                    result = mock_browser.mock_scrape_listing(args.get("site", ""), page)
-                elif tool == "fetch_detail":
-                    result = mock_browser.mock_fetch_detail(
-                        args.get("site", ""), args.get("source_product_id", "")
-                    )
-                else:
-                    result = {"status": "parse_error", "error": f"unknown browse tool {tool}"}
-            else:
-                result = await hub.dispatch_job(
-                    tool, args, timeout=settings.job_timeout_s, session=self.session
-                )
-        except Exception as exc:  # noqa: BLE001
-            log_event(
-                self.session,
-                f"browse:{tool} 异常",
-                stage=f"tool.{tool}",
-                source="tool",
-                level="error",
-                duration_ms=(time.perf_counter() - started) * 1000,
-                data={"error": str(exc), "args": args},
-            )
-            raise
-
-        if result.get("status") in SITE_RISK and site:
-            self.session.blocked_sites[site] = str(result["status"])
-        summary: dict[str, Any] = {
-            "status": result.get("status"),
-            "mode": mode,
-            "error": result.get("error"),
-        }
-        if "items" in result:
-            summary["item_count"] = len(result.get("items") or [])
-        if result.get("extension_logs"):
-            for entry in result.get("extension_logs") or []:
-                if isinstance(entry, dict):
-                    log_event(
-                        self.session,
-                        str(entry.get("message") or "extension"),
-                        stage=str(entry.get("stage") or f"extension.{tool}"),
-                        source="extension",
-                        level=str(entry.get("level") or "info"),
-                        duration_ms=entry.get("duration_ms"),
-                        data=entry.get("data"),
-                        persist=False,
-                    )
-            summary["extension_log_count"] = len(result.get("extension_logs") or [])
-        log_event(
-            self.session,
-            f"browse:{tool} → {result.get('status')}",
-            stage=f"tool.{tool}",
-            source="tool",
-            level="warning" if result.get("status") in BLOCKING else "info",
-            duration_ms=(time.perf_counter() - started) * 1000,
-            data=summary,
-        )
-        return result
+        return await self._browser.execute(tool, args)
 
     # --- memory ---
 
