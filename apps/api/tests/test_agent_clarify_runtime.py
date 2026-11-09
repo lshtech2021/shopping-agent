@@ -142,13 +142,35 @@ def test_clarify_unparseable_budget_requests_another_answer():
     assert session.requirements["budget_cny"] is None
 
 
-def test_unparseable_clarify_answer_interrupts_before_model(monkeypatch):
+def test_unparseable_clarify_answer_is_reasked_via_model_tool(fake_llm):
+    """Failed answer merge stays host-side; re-asking is a model clarify call."""
     import asyncio
 
-    from app import llm
+    from conftest import _call
     from app.agent_runner import run_agent
 
-    monkeypatch.setattr(llm, "llm_enabled", lambda: True)
+    model = fake_llm(
+        [
+            _call(
+                "clarify",
+                questions=[
+                    {
+                        "id": "budget",
+                        "field": "budget",
+                        "question": "预算大概是多少？请给出一个上限，或选择「不限预算」。",
+                        "options": [
+                            "3000以内",
+                            "3000-5000",
+                            "5000-8000",
+                            "8000-15000",
+                            "1.5万以上",
+                            "不限预算",
+                        ],
+                    }
+                ],
+            )
+        ]
+    )
     session = seed_session()
     session.pending_questions = [
         {"id": "budget", "field": "budget", "question": "预算？", "options": []}
@@ -159,6 +181,7 @@ def test_unparseable_clarify_answer_interrupts_before_model(monkeypatch):
     assert result["interrupted"] is True
     assert result["interrupt_reason"] == "clarify"
     assert result["clarify"][0]["field"] == "budget"
+    assert model.calls == 1
     assert session.requirements["budget_cny"] is None
 
 

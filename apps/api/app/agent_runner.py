@@ -46,6 +46,16 @@ async def run_agent(
                 level="warning",
                 data={"answers": answers},
             )
+    clarify_failed = bool(
+        clarify_result and clarify_result.get("needs_clarify")
+    )
+    if clarify_failed:
+        # Host applied what it could; re-asking is a model tool decision.
+        text = (
+            f"{session.requirement or text}\n"
+            "（解析提示：上一轮澄清回答无法解析为有效条件，"
+            "请再次调用 clarify，不要自行编造预算或其他硬约束。）"
+        ).strip()
     log_event(
         session,
         "Agent 回合开始",
@@ -59,31 +69,10 @@ async def run_agent(
             "product_count": len(session.products),
             "mock_browser": tools.mock_mode,
             "llm_enabled": llm.llm_enabled(),
+            "clarify_failed": clarify_failed,
         },
         persist=True,
     )
-
-    if clarify_result and clarify_result.get("needs_clarify"):
-        questions = [
-            {
-                "id": "budget",
-                "field": "budget",
-                "question": "预算大概是多少？请给出一个上限，或选择「不限预算」。",
-                "options": [
-                    "3000以内",
-                    "3000-5000",
-                    "5000-8000",
-                    "8000-15000",
-                    "1.5万以上",
-                    "不限预算",
-                ],
-            }
-        ]
-        tools.ask_clarify(questions)
-        result = interrupt_response(session, "请先确认以下筛选条件。", "clarify")
-        result["clarify"] = questions
-        result["execution_logs"] = turn_logs(session)
-        return result
 
     if not llm.llm_enabled():
         ask = tools.ask_user(
@@ -98,12 +87,17 @@ async def run_agent(
     try:
         from app.llm_agent import run_llm_policy
 
+        # Successful clarify answers skip re-parse; failed ones must enter the
+        # tool loop so the model can call clarify again.
+        policy_skip_parse = (
+            False if clarify_failed else (skip_parse or clarified)
+        )
         result = await asyncio.wait_for(
             run_llm_policy(
                 session,
                 text,
                 tools,
-                skip_parse=skip_parse or clarified,
+                skip_parse=policy_skip_parse,
                 checkpoint_resume=checkpoint_resume,
             ),
             timeout=settings.agent_turn_timeout_s,
