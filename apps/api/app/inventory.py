@@ -1,9 +1,11 @@
-"""Deterministic inventory sampling: price bands + relevance, never cheapest-first."""
+"""Product inventory: upsert/index, summaries, and diverse sampling."""
 from __future__ import annotations
 
+import uuid
 from collections import defaultdict
 from typing import Any
 
+from app.config import settings
 from app.constraints import check_product, must_have_match_count
 
 
@@ -86,3 +88,114 @@ def _budget(requirements: dict[str, Any]) -> float | None:
     except (TypeError, ValueError):
         return None
     return budget if budget > 0 else None
+
+
+def inventory_summary(products: list[dict[str, Any]]) -> str:
+    if not products:
+        return "库存摘要：无已抓商品"
+    by_site: dict[str, int] = {}
+    for product in products:
+        by_site[product.get("source") or "?"] = (
+            by_site.get(product.get("source") or "?", 0) + 1
+        )
+    priced = [
+        product["price_cny"]
+        for product in products
+        if product.get("price_cny") is not None
+    ]
+    price_part = (
+        f"价区¥{min(priced):.0f}-¥{max(priced):.0f}" if priced else "价区未知"
+    )
+    site_part = "；".join(f"{key}={value}" for key, value in sorted(by_site.items()))
+    return (
+        f"库存摘要：商品数={len(products)}；总计={len(products)}；"
+        f"{site_part}；{price_part}"
+    )
+
+
+def to_cny(price: Any, currency: str | None) -> float | None:
+    if price is None:
+        return None
+    try:
+        value = float(price)
+    except (TypeError, ValueError):
+        return None
+    code = (currency or "CNY").upper()
+    rates = {
+        str(key).upper(): float(rate)
+        for key, rate in (settings.fx_rates or {}).items()
+    }
+    rate = rates.get(code)
+    if rate is None or rate <= 0:
+        return None
+    return round(value * rate, 2)
+
+
+def build_product_index(
+    products: dict[str, dict[str, Any]],
+) -> dict[tuple[str, str], str]:
+    index: dict[tuple[str, str], str] = {}
+    for product_id, product in products.items():
+        source = str(product.get("source") or "")
+        source_id = str(product.get("source_product_id") or "").strip()
+        if source and source_id:
+            index[(source, source_id)] = str(product_id)
+    return index
+
+
+def upsert_listing(
+    products: dict[str, dict[str, Any]],
+    index: dict[tuple[str, str], str],
+    *,
+    site: str,
+    item: dict[str, Any],
+) -> bool:
+    source_id = str(item.get("source_product_id") or "").strip()
+    if not source_id:
+        return False
+    key = index.get((site, source_id))
+    if key is None or key not in products:
+        key = uuid.uuid4().hex[:12]
+    price = item.get("price")
+    currency = item.get("currency") or ("CNY" if site == "jd" else "USD")
+    existing = products.get(key, {})
+    detail_owned = bool(existing.get("detail_fetched"))
+    price_is_range = bool(item.get("price_is_range"))
+    price_max = item.get("price_max") if price_is_range else None
+    listing_fields = {
+        "title": item.get("title") or source_id,
+        "price": price,
+        "currency": currency,
+        "price_cny": to_cny(price, currency),
+        "price_max_cny": to_cny(price_max, currency),
+        "price_is_range": price_is_range,
+    }
+    if detail_owned:
+        listing_fields = {
+            "title": existing.get("title") or source_id,
+            "price": existing.get("price"),
+            "currency": existing.get("currency") or currency,
+            "price_cny": existing.get("price_cny"),
+            "price_max_cny": existing.get("price_max_cny"),
+            "price_is_range": existing.get("price_is_range", False),
+        }
+    products[key] = {
+        **existing,
+        "product_id": key,
+        "source": site,
+        "source_product_id": source_id,
+        "url": item.get("url") or existing.get("url"),
+        "shop_name": item.get("shop_name") or existing.get("shop_name"),
+        "sales": item.get("sales", existing.get("sales")),
+        "rating": item.get("rating", existing.get("rating")),
+        "sponsored": item.get("sponsored", existing.get("sponsored", False)),
+        "shipping": item.get("shipping", existing.get("shipping")),
+        "condition": item.get("condition", existing.get("condition")),
+        "badges": item.get("badges", existing.get("badges") or []),
+        "category": item.get("category", existing.get("category")),
+        "detail_fetched": existing.get("detail_fetched", False),
+        "attributes": existing.get("attributes") or {},
+        **listing_fields,
+    }
+    index[(site, source_id)] = key
+    return True

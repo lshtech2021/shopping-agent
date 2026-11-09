@@ -26,8 +26,8 @@
 
 **Files:** `inventory.py`, `tools.py`, tests
 
-- [ ] Move `_inventory_summary`, upsert index helpers into inventory module
-- [ ] Commit
+- [x] Move `_inventory_summary`, upsert index helpers into inventory module
+- [x] Commit
 
 ### Task 4: Optional psycopg connection pool
 

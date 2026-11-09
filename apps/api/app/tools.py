@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import re
-import uuid
 from typing import Any, Optional
 from urllib.parse import urlparse
 
 from app.browser.gateway import BLOCKING, SITE_RISK, BrowserGateway
 from app.browser.gateway import throttle as _throttle
-from app.config import settings
 from app.constraints import check_product
 from app.domains.shopping.requirements import (
     CATEGORIES,
@@ -27,7 +25,13 @@ from app.domains.shopping.requirements import (
     _is_no_preference,
     parse_budget,
 )
-from app.inventory import select_diverse_products
+from app.inventory import (
+    build_product_index,
+    inventory_summary,
+    select_diverse_products,
+    to_cny,
+    upsert_listing,
+)
 from app.store import Session, store
 from app.trace import log_event
 
@@ -137,7 +141,7 @@ class ToolBox:
             "requirement": self.session.requirement,
             "requirements": self.session.requirements,
             "product_count": len(products),
-            "inventory_summary": _inventory_summary(products),
+            "inventory_summary": inventory_summary(products),
             "recommendations": self.session.recommendations,
             "interrupt_reason": self.session.interrupt_reason,
             "quotas": self.session.quotas,
@@ -407,7 +411,7 @@ class ToolBox:
         if result.get("price") is not None:
             product["price"] = result["price"]
             product["currency"] = result.get("currency") or product.get("currency")
-            product["price_cny"] = _to_cny(product["price"], product.get("currency"))
+            product["price_cny"] = to_cny(product["price"], product.get("currency"))
             product["price_max_cny"] = None
             product["price_is_range"] = False
         if result.get("attributes"):
@@ -644,81 +648,15 @@ class ToolBox:
         req["must_have"] = must
 
     def _reindex_products(self) -> None:
-        index: dict[tuple[str, str], str] = {}
-        for product_id, product in self.session.products.items():
-            source = str(product.get("source") or "")
-            source_id = str(product.get("source_product_id") or "").strip()
-            if source and source_id:
-                index[(source, source_id)] = str(product_id)
-        self._product_index = index
+        self._product_index = build_product_index(self.session.products)
 
     def _upsert_listing(self, site: str, item: dict[str, Any]) -> bool:
-        source_id = str(item.get("source_product_id") or "").strip()
-        if not source_id:
-            return False
-        key = self._product_index.get((site, source_id))
-        if key is None or key not in self.session.products:
-            key = uuid.uuid4().hex[:12]
-        price = item.get("price")
-        currency = item.get("currency") or ("CNY" if site == "jd" else "USD")
-        existing = self.session.products.get(key, {})
-        detail_owned = bool(existing.get("detail_fetched"))
-        price_is_range = bool(item.get("price_is_range"))
-        price_max = item.get("price_max") if price_is_range else None
-        listing_fields = {
-            "title": item.get("title") or source_id,
-            "price": price,
-            "currency": currency,
-            "price_cny": _to_cny(price, currency),
-            "price_max_cny": _to_cny(price_max, currency),
-            "price_is_range": price_is_range,
-        }
-        if detail_owned:
-            listing_fields = {
-                "title": existing.get("title") or source_id,
-                "price": existing.get("price"),
-                "currency": existing.get("currency") or currency,
-                "price_cny": existing.get("price_cny"),
-                "price_max_cny": existing.get("price_max_cny"),
-                "price_is_range": existing.get("price_is_range", False),
-            }
-        self.session.products[key] = {
-            **existing,
-            "product_id": key,
-            "source": site,
-            "source_product_id": source_id,
-            "url": item.get("url") or existing.get("url"),
-            "shop_name": item.get("shop_name") or existing.get("shop_name"),
-            "sales": item.get("sales", existing.get("sales")),
-            "rating": item.get("rating", existing.get("rating")),
-            "sponsored": item.get("sponsored", existing.get("sponsored", False)),
-            "shipping": item.get("shipping", existing.get("shipping")),
-            "condition": item.get("condition", existing.get("condition")),
-            "badges": item.get("badges", existing.get("badges") or []),
-            "category": item.get("category", existing.get("category")),
-            "detail_fetched": existing.get("detail_fetched", False),
-            "attributes": existing.get("attributes") or {},
-            **listing_fields,
-        }
-        self._product_index[(site, source_id)] = key
-        return True
-
-
-def _inventory_summary(products: list[dict[str, Any]]) -> str:
-    if not products:
-        return "库存摘要：无已抓商品"
-    by_site: dict[str, int] = {}
-    for p in products:
-        by_site[p.get("source") or "?"] = by_site.get(p.get("source") or "?", 0) + 1
-    priced = [p["price_cny"] for p in products if p.get("price_cny") is not None]
-    price_part = (
-        f"价区¥{min(priced):.0f}-¥{max(priced):.0f}" if priced else "价区未知"
-    )
-    site_part = "；".join(f"{k}={v}" for k, v in sorted(by_site.items()))
-    return (
-        f"库存摘要：商品数={len(products)}；总计={len(products)}；"
-        f"{site_part}；{price_part}"
-    )
+        return upsert_listing(
+            self.session.products,
+            self._product_index,
+            site=site,
+            item=item,
+        )
 
 
 def _safe_product_url(url: Any) -> str | None:
@@ -737,24 +675,6 @@ def _safe_product_url(url: Any) -> str | None:
     if host == "ebay.com" or host.endswith(".ebay.com"):
         return text
     return None
-
-
-def _to_cny(price: Any, currency: str | None) -> float | None:
-    if price is None:
-        return None
-    try:
-        value = float(price)
-    except (TypeError, ValueError):
-        return None
-    code = (currency or "CNY").upper()
-    rates = {
-        str(key).upper(): float(rate)
-        for key, rate in (settings.fx_rates or {}).items()
-    }
-    rate = rates.get(code)
-    if rate is None or rate <= 0:
-        return None
-    return round(value * rate, 2)
 
 
 def _public_product(product: dict[str, Any]) -> dict[str, Any]:
