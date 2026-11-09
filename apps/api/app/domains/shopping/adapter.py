@@ -147,12 +147,19 @@ class ShoppingTrace:
                 data=fields,
             )
             return
-        if name.startswith("plan."):
+        if name.startswith("plan.") or name.startswith("critic."):
             log_event(
                 self.session,
-                f"计划事件：{name}",
+                f"计划/评审事件：{name}",
                 stage=name,
                 source="agent",
+                level=(
+                    "error"
+                    if name == "critic.error"
+                    else "warning"
+                    if name == "critic.rejected"
+                    else "info"
+                ),
                 data=fields,
             )
             return

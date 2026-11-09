@@ -257,6 +257,7 @@ def build_shopping_tools(
             meta=_plan_meta(
                 _context,
                 f"count={result.get('count')}",
+                done=True,
                 step_id=step_for("query_inventory"),
             ),
         )

@@ -1,11 +1,11 @@
 """Deterministic shopping rubric behind the generic Critic protocol."""
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.agent.critic import Critique
 from app.agent.state import AgentState, Plan
-from app.config import settings
 from app.constraints import check_product
 from app.store import Session
 from app.tools import ToolBox
@@ -27,13 +27,24 @@ class ShoppingCritic:
                 reasons=["没有可提交的推荐"],
                 retry=True,
                 hints=["重新查询库存或放宽已确认的约束"],
-                scores={"hard_constraints": 0.0, "evidence": 0.0, "diversity": 0.0},
+                scores={
+                    "hard_constraints": 0.0,
+                    "evidence": 0.0,
+                    "diversity": 0.0,
+                    "risk": 0.0,
+                },
             )
 
         requirements = self.session.requirements or {}
         violations: list[str] = []
         hints: list[str] = []
         reasons: list[str] = []
+        reply = str(
+            output.get("reply") or output.get("text") or ""
+        ).strip()
+        if not reply:
+            violations.append("empty_reply")
+            hints.append("给用户写一句推荐说明")
         seen: set[str] = set()
         detail_count = 0
         sponsored_count = 0
@@ -45,6 +56,10 @@ class ShoppingCritic:
                 hints.append("每个商品最多推荐一次")
                 continue
             seen.add(product_id)
+            reason = str(item.get("reason") or "").strip()
+            if not reason or (not re.search(r"\d", reason) and len(reason) < 8):
+                violations.append(f"weak_evidence:{product_id}")
+                hints.append("推荐理由需引用价格或已验证规格")
             product = self.session.products.get(product_id)
             if product is None:
                 violations.append(f"unknown_product:{product_id}")

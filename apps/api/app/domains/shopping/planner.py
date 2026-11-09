@@ -125,13 +125,26 @@ class ShoppingPlanner:
         roles = metadata.get("step_roles")
         if not isinstance(roles, dict):
             roles = self._derive_roles(steps)
+        by_id = {step.id: step for step in steps}
+        executable: list[PlanStep] = []
+        used_ids: set[str] = set()
+        for role in ("search", "verify", "recommend"):
+            step_id = str(roles.get(role) or role)
+            step = by_id.get(step_id)
+            if step is None:
+                step = PlanStep(id=role, description=role)
+            if step.id in used_ids:
+                step = PlanStep(id=role, description=step.description)
+            used_ids.add(step.id)
+            roles[role] = step.id
+            executable.append(step)
         metadata["step_roles"] = {
-            str(role): str(step_id) for role, step_id in roles.items()
+            role: str(roles[role]) for role in ("search", "verify", "recommend")
         }
         metadata.setdefault("requirements", dict(context.get("requirements") or {}))
         return Plan(
             goal=plan.goal or goal,
-            steps=steps,
+            steps=executable,
             metadata=metadata,
         )
 

@@ -308,7 +308,20 @@ class AgentRuntime:
                         critique = await self.critic.evaluate(
                             state=state, output=finish_output
                         )
-                    except Exception:  # noqa: BLE001 — critic is advisory
+                        self.tool_context.trace.event(
+                            "critic.evaluated",
+                            step=int(state["step"]),
+                            okay=critique.ok,
+                            violations=critique.violations,
+                            scores=critique.scores,
+                        )
+                    except Exception as exc:  # noqa: BLE001 — advisory
+                        self.tool_context.trace.event(
+                            "critic.error",
+                            step=int(state["step"]),
+                            error=type(exc).__name__,
+                            detail=str(exc),
+                        )
                         critique = None
                 if critique is not None and not critique.ok:
                     if (
@@ -332,6 +345,12 @@ class AgentRuntime:
                             critique=critique.model_dump(),
                         )
                         continue
+                    self.tool_context.trace.event(
+                        "critic.rejected",
+                        step=int(state["step"]),
+                        violations=critique.violations,
+                        retry=critique.retry,
+                    )
                     state["phase"] = "failed"
                     state["error"] = "critic_rejected"
                     return TurnResult(

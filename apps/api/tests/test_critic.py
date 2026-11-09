@@ -98,6 +98,31 @@ def test_valid_candidate_passes_with_scores():
     assert critique.scores["evidence"] == 1.0
 
 
+def test_empty_reply_is_rejected():
+    session = seed_session()
+    critic = ShoppingCritic(session, ToolBox(session))
+    output = output_for("p1")
+    output["reply"] = ""
+
+    critique = asyncio.run(critic.evaluate(state=state(), output=output))
+
+    assert critique.ok is False
+    assert "empty_reply" in critique.violations
+    assert critique.retry is True
+
+
+def test_weak_recommendation_reason_is_rejected():
+    session = seed_session()
+    critic = ShoppingCritic(session, ToolBox(session))
+    output = output_for("p1")
+    output["recommendations"][0]["reason"] = ""
+
+    critique = asyncio.run(critic.evaluate(state=state(), output=output))
+
+    assert critique.ok is False
+    assert any(violation.startswith("weak_evidence") for violation in critique.violations)
+
+
 def test_duplicate_recommendations_are_rejected():
     session = seed_session()
     critic = ShoppingCritic(session, ToolBox(session))

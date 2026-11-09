@@ -197,6 +197,19 @@ def test_to_message_response_maps_finish_and_waiting():
     assert response.clarify[0].id == "budget"
 
 
+def test_critic_rejected_result_is_resumable_and_has_no_recommendations():
+    result = TurnResult(
+        run_id="run-1",
+        status="failed",
+        error="critic_rejected",
+        steps=4,
+    )
+    response = to_message_response(result)
+    assert response.interrupted is True
+    assert response.interrupt_reason == "critic_rejected"
+    assert response.recommendations == []
+
+
 def test_llm_agent_no_longer_contains_the_old_graph():
     path = Path(__file__).resolve().parents[1] / "app" / "llm_agent.py"
     source = path.read_text(encoding="utf-8")
@@ -230,6 +243,7 @@ def test_run_llm_policy_creates_and_persists_a_plan(monkeypatch):
     plan = Plan(
         goal="pick a laptop",
         steps=[
+            PlanStep(id="analyze", description="analyze requirements"),
             PlanStep(id="search", description="search"),
             PlanStep(id="verify", description="verify"),
             PlanStep(id="recommend", description="recommend"),
@@ -288,6 +302,15 @@ def test_run_llm_policy_creates_and_persists_a_plan(monkeypatch):
     ).json()
 
     assert model.plan_calls == 1
+    assert response["recommendations"]
+    assert response["status"] == "done"
     assert response["plan"]["goal"] == "pick a laptop"
+    assert [step["id"] for step in response["plan"]["steps"]] == [
+        "search",
+        "verify",
+        "recommend",
+    ]
+    assert response["plan"]["steps"][-1]["status"] == "done"
     detail = client.get(f"/api/v1/sessions/{created['session_id']}").json()
     assert detail["plan"]["steps"][0]["id"] == "search"
+    assert detail["recommendations"]

@@ -141,6 +141,24 @@ def test_critic_rejection_after_max_iterations_fails_without_finalize():
     assert finalized == []
 
 
+def test_finalize_failure_returns_failed_without_accepting_output():
+    class Critic:
+        async def evaluate(self, *, state, output):
+            return Critique(ok=True)
+
+    async def finalize(state, output):
+        raise RuntimeError("commit failed")
+
+    runtime, model, _attempts = _runtime(Critic(), finalize)
+    result = asyncio.run(
+        runtime.run_turn(state=_state(), policy=_policy(model))
+    )
+
+    assert result.status == "failed"
+    assert result.error.startswith("finalize_failed:")
+    assert model.calls == 1
+
+
 def test_critic_error_is_advisory_and_does_not_kill_the_turn():
     finalized = []
 
