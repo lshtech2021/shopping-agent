@@ -23,8 +23,15 @@
 - [x] Job `extension`: Node 20, `npm ci` in `packages/extension`, `npm test`
 - [x] Commit
 
+### Task 3: Postgres service for durable repo tests
+
+**Files:** `.github/workflows/ci.yml`
+
+- [x] Add Postgres 16 service; set `SA_TEST_DATABASE_URL` / `SA_DATABASE_URL`
+- [x] `alembic upgrade head` before pytest
+- [x] Commit
+
 ### Deferred
 
-- Postgres service + unskip `SA_TEST_DATABASE_URL` tests
 - Lint/typecheck once tooling is pinned
 - OTel / observability
