@@ -390,6 +390,7 @@ def build_shopping_tools(
             args_model=_NoArgs,
             handler=get_session,
             read_only=True,
+            parallel_safe=True,
         ),
         ToolSpec(
             name="update_requirements",
@@ -409,6 +410,7 @@ def build_shopping_tools(
             args_model=_QueryInv,
             handler=query_inventory,
             read_only=True,
+            parallel_safe=True,
         ),
         ToolSpec(
             name="search",
@@ -441,6 +443,7 @@ def build_shopping_tools(
             handler=fetch_detail,
             read_only=False,
             idempotent=True,
+            parallel_safe=True,
         ),
         ToolSpec(
             name="recommend",

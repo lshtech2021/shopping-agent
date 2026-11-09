@@ -360,6 +360,7 @@ def test_parallel_safe_tools_run_concurrently():
             description="fetch_detail",
             args_model=EmptyArgs,
             handler=handler,
+            parallel_safe=True,
         )
     )
     ai = AIMessage(

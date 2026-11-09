@@ -48,11 +48,6 @@ class Policy(Protocol):
 
 Finalizer = Callable[[AgentState, dict[str, Any]], Awaitable[None]]
 
-# Independent read/detail tools that do not share site-tab throttle state.
-PARALLEL_SAFE_TOOLS = frozenset(
-    {"fetch_detail", "query_inventory", "get_session"}
-)
-
 
 class _NullMemory:
     async def load(self, run_id: str) -> dict[str, Any]:
@@ -459,12 +454,15 @@ class AgentRuntime:
             )
         return await self.run_turn(state=state, policy=chosen)
 
-    @staticmethod
-    def _batch_is_parallel_safe(tool_calls: list[dict[str, Any]]) -> bool:
+    def _batch_is_parallel_safe(self, tool_calls: list[dict[str, Any]]) -> bool:
         if len(tool_calls) < 2:
             return False
-        names = [str(call.get("name") or "") for call in tool_calls]
-        return all(name in PARALLEL_SAFE_TOOLS for name in names)
+        for call in tool_calls:
+            name = str(call.get("name") or "")
+            spec = self.tools.get(name)
+            if spec is None or not spec.parallel_safe:
+                return False
+        return True
 
     async def _execute_tool_batch(
         self,

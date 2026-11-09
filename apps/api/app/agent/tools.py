@@ -48,6 +48,8 @@ class ToolSpec:
     handler: Callable[[BaseModel, ToolContext], Awaitable[ToolResult]]
     read_only: bool = False
     idempotent: bool = False
+    # When true, runtime may run a batch of these tools concurrently.
+    parallel_safe: bool = False
 
 
 class ToolRegistry:
