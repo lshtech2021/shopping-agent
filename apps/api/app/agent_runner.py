@@ -18,6 +18,11 @@ from app.trace import log_event, turn_logs
 logger = logging.getLogger(__name__)
 
 
+async def durable_touch(session: Session) -> None:
+    """Persist a session without blocking the agent event loop."""
+    await asyncio.to_thread(store.touch, session, durable=True)
+
+
 async def run_agent(
     session: Session,
     content: str,
@@ -79,7 +84,9 @@ async def run_agent(
             "未配置 SA_LLM_API_KEY，无法运行选品助手。请在 apps/api/.env 中设置后重试。",
             "llm_unavailable",
         )
-        result = interrupt_response(session, ask["question"], ask["reason"])
+        result = await interrupt_response_async(
+            session, ask["question"], ask["reason"]
+        )
         result["execution_logs"] = turn_logs(session)
         return result
 
@@ -114,7 +121,9 @@ async def run_agent(
             "这一轮执行时间过长，已中止。请缩小需求或点「继续」重试。",
             "turn_timeout",
         )
-        result = interrupt_response(session, ask["question"], ask["reason"])
+        result = await interrupt_response_async(
+            session, ask["question"], ask["reason"]
+        )
     except Exception as exc:  # noqa: BLE001
         logger.exception("agent turn failed sid=%s", session.id[:8])
         log_event(
@@ -126,9 +135,11 @@ async def run_agent(
             data={"policy": "llm"},
         )
         ask = tools.ask_user(f"执行出错（{type(exc).__name__}），可点「继续」重试。", "agent_error")
-        result = interrupt_response(session, ask["question"], ask["reason"])
+        result = await interrupt_response_async(
+            session, ask["question"], ask["reason"]
+        )
 
-    store.touch(session, durable=True)
+    await durable_touch(session)
     result["execution_logs"] = turn_logs(session)
     return result
 
@@ -164,6 +175,29 @@ def interrupt_response(session: Session, question: str, reason: str) -> dict[str
     )
     session.messages.append({"role": "assistant", "content": question})
     store.touch(session, durable=True)
+    return {
+        "session_id": session.id,
+        "status": session.status,
+        "reply": question,
+        "recommendations": session.recommendations,
+        "interrupted": True,
+        "interrupt_reason": reason,
+    }
+
+
+async def interrupt_response_async(
+    session: Session, question: str, reason: str
+) -> dict[str, Any]:
+    log_event(
+        session,
+        f"中断：{reason}",
+        stage="agent.interrupt",
+        source="agent",
+        level="warning",
+        data={"question": question, "reason": reason},
+    )
+    session.messages.append({"role": "assistant", "content": question})
+    await durable_touch(session)
     return {
         "session_id": session.id,
         "status": session.status,
