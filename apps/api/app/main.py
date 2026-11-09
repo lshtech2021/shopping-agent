@@ -128,7 +128,9 @@ def create_session(
 
 @app.get("/api/v1/sessions/{session_id}", response_model=SessionDetail)
 def get_session(session_id: str) -> SessionDetail:
-    session = _require_session(session_id)
+    session = store.snapshot(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
     return SessionDetail(
         session_id=session.id,
         status=session.status,
