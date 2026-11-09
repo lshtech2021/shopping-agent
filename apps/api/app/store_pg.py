@@ -111,7 +111,7 @@ class RunRepository:
             conn = self._connection()
             conn.execute(
                 "TRUNCATE runs, actions, observations, run_events, "
-                "products, candidates, messages, checkpoints, request_receipts"
+                "checkpoints, request_receipts"
             )
 
     def _conn_lock(self) -> threading.Lock:
@@ -192,16 +192,6 @@ class RunRepository:
             )
             conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS products (
-                    run_id TEXT NOT NULL,
-                    product_id TEXT NOT NULL,
-                    payload JSONB NOT NULL,
-                    PRIMARY KEY (run_id, product_id)
-                )
-                """
-            )
-            conn.execute(
-                """
                 CREATE TABLE IF NOT EXISTS request_receipts (
                     idempotency_key TEXT PRIMARY KEY,
                     run_id TEXT NOT NULL,
@@ -217,28 +207,6 @@ class RunRepository:
                     run_id TEXT PRIMARY KEY,
                     state JSONB NOT NULL,
                     updated_at TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS candidates (
-                    run_id TEXT NOT NULL,
-                    product_id TEXT NOT NULL,
-                    payload JSONB NOT NULL,
-                    PRIMARY KEY (run_id, product_id)
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS messages (
-                    id BIGSERIAL PRIMARY KEY,
-                    run_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    payload JSONB NOT NULL,
-                    created_at TEXT NOT NULL
                 )
                 """
             )
