@@ -30,7 +30,7 @@ def test_version_conflict_does_not_overwrite_newer_products():
     assert session.version == 1
 
     with pytest.raises(VersionConflict):
-        store.touch(session)
+        store.touch(session, durable=True)
 
     stored = store._repo.get(session.id)
     assert stored is not None

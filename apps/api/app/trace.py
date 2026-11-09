@@ -73,7 +73,7 @@ def log_event(
     log_fn("%s | %s", line, _trim(data) if data else "")
 
     if persist:
-        store.touch(session)
+        store.touch(session, durable=True)
     return event
 
 

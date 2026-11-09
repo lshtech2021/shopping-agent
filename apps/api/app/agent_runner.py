@@ -80,7 +80,6 @@ async def run_agent(
             "llm_unavailable",
         )
         result = interrupt_response(session, ask["question"], ask["reason"])
-        store.touch(session)
         result["execution_logs"] = turn_logs(session)
         return result
 
@@ -129,7 +128,7 @@ async def run_agent(
         ask = tools.ask_user(f"执行出错（{type(exc).__name__}），可点「继续」重试。", "agent_error")
         result = interrupt_response(session, ask["question"], ask["reason"])
 
-    store.touch(session)
+    store.touch(session, durable=True)
     result["execution_logs"] = turn_logs(session)
     return result
 
@@ -164,7 +163,7 @@ def interrupt_response(session: Session, question: str, reason: str) -> dict[str
         data={"question": question, "reason": reason},
     )
     session.messages.append({"role": "assistant", "content": question})
-    store.touch(session)
+    store.touch(session, durable=True)
     return {
         "session_id": session.id,
         "status": session.status,

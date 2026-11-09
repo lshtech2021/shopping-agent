@@ -95,6 +95,7 @@ class SessionStore:
         from app.store_pg import RunRepository
 
         self._sessions: dict[str, Session] = {}
+        self._dirty: set[str] = set()
         raw = database_url if database_url is not None else settings.database_url
         self._database_url = raw
         self._pg_url = _normalize_database_url(raw)
@@ -109,6 +110,7 @@ class SessionStore:
         from app.store_pg import RunRepository
 
         self._sessions.clear()
+        self._dirty.clear()
         if database_url is not None:
             self._database_url = database_url
             self._pg_url = _normalize_database_url(database_url)
@@ -208,7 +210,7 @@ class SessionStore:
             return
         session.lease_owner = None
         session.lease_expires_at = None
-        self.touch(session)
+        self.touch(session, durable=True)
 
     def try_turn_lock(self, run_id: str) -> bool:
         return self._repo.try_turn_lock(run_id)
@@ -230,10 +232,31 @@ class SessionStore:
             key, run_id, endpoint, response, _now()
         )
 
-    def touch(self, session: Session) -> None:
+    def touch(self, session: Session, *, durable: bool = False) -> None:
+        """Update the in-memory working set; persist only when durable/flushed."""
         session.updated_at = _now()
         self._sessions[session.id] = session
-        self._persist(session)
+        if durable:
+            self._persist(session)
+            self._dirty.discard(session.id)
+        else:
+            self._dirty.add(session.id)
+
+    def flush(self, session: Session | None = None) -> None:
+        if session is not None:
+            if session.id in self._dirty or session.id in self._sessions:
+                self._sessions[session.id] = session
+                if session.id in self._dirty:
+                    self._persist(session)
+                    self._dirty.discard(session.id)
+            return
+        for session_id in list(self._dirty):
+            current = self._sessions.get(session_id)
+            if current is None:
+                self._dirty.discard(session_id)
+                continue
+            self._persist(current)
+            self._dirty.discard(session_id)
 
     def _sorted(self) -> list[Session]:
         return sorted(self._sessions.values(), key=lambda s: s.updated_at, reverse=True)

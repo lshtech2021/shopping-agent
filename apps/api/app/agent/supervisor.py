@@ -18,7 +18,7 @@ class RunSupervisor:
 
     def _safe_touch(self, session: Session) -> bool:
         try:
-            self.store.touch(session)
+            self.store.touch(session, durable=True)
             return True
         except VersionConflict:
             return False
