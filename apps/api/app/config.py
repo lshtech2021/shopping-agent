@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     # When true, RunRepository creates tables on connect. Prefer Alembic
     # (`alembic upgrade head`) and leave this false outside quick local hacks.
     auto_create_schema: bool = False
+    # 0 = one shared psycopg connection; >0 opens psycopg_pool.ConnectionPool.
+    pg_pool_size: int = 0
     mock_browser: bool = True
 
     # Live-browse pacing, enforced server-side per site (design §6).

@@ -41,11 +41,20 @@ def test_pg_repository_runs_init_schema_when_enabled(monkeypatch):
             # Bypass real connect: emulate PG branch.
             self._url = "postgresql://example/db"
             self._conn = None
+            self._pool = None
+            self._held_locks = {}
             import threading
 
             self._lock = threading.Lock()
             if settings.auto_create_schema:
                 self._init_schema()
+
+        def _connection(self):
+            class _Conn:
+                def execute(self, *args, **kwargs):
+                    return self
+
+            return _Conn()
 
     FakeRepo("postgresql://example/db")
     assert called["n"] == 1

@@ -4,11 +4,13 @@ from __future__ import annotations
 import copy
 import json
 import threading
-from typing import Any, Optional
+from contextlib import contextmanager
+from typing import Any, Iterator, Optional
 
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
+from psycopg_pool import ConnectionPool
 
 
 class VersionConflict(RuntimeError):
@@ -90,7 +92,18 @@ class RunRepository:
         url = _pg_url(database_url)
         self._url = url
         self._conn: Optional[psycopg.Connection] = None
+        self._pool: ConnectionPool | None = None
+        self._held_locks: dict[str, psycopg.Connection] = {}
         self._lock = threading.Lock()
+        pool_size = max(0, int(settings.pg_pool_size or 0))
+        if url is not None and pool_size > 0:
+            self._pool = ConnectionPool(
+                url,
+                min_size=1,
+                max_size=pool_size,
+                kwargs={"row_factory": dict_row, "autocommit": True},
+                open=True,
+            )
         if url is not None and settings.auto_create_schema:
             self._init_schema()
 
@@ -107,15 +120,21 @@ class RunRepository:
             self._memory_receipts.clear()
             self._memory_locks.clear()
             return
-        with self._conn_lock():
-            conn = self._connection()
+        with self._db() as conn:
             conn.execute(
                 "TRUNCATE runs, actions, observations, run_events, "
                 "checkpoints, request_receipts"
             )
 
-    def _conn_lock(self) -> threading.Lock:
-        return self._lock
+    @contextmanager
+    def _db(self) -> Iterator[psycopg.Connection]:
+        assert self._url is not None
+        if self._pool is not None:
+            with self._pool.connection() as conn:
+                yield conn
+            return
+        with self._lock:
+            yield self._connection()
 
     def _connection(self) -> psycopg.Connection:
         assert self._url is not None
@@ -126,8 +145,7 @@ class RunRepository:
         return self._conn
 
     def _init_schema(self) -> None:
-        with self._lock:
-            conn = self._connection()
+        with self._db() as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS runs (
@@ -271,8 +289,8 @@ class RunRepository:
             return copy.deepcopy(record)
         columns = ", ".join(_ALL_COLUMNS)
         placeholders = ", ".join(f"%({column})s" for column in _ALL_COLUMNS)
-        with self._lock:
-            row = self._connection().execute(
+        with self._db() as conn:
+            row = conn.execute(
                 f"INSERT INTO runs ({columns}) VALUES ({placeholders}) RETURNING *",
                 self._params(record),
             ).fetchone()
@@ -282,8 +300,8 @@ class RunRepository:
         if self._url is None:
             record = self._memory_runs.get(run_id)
             return copy.deepcopy(record) if record else None
-        with self._lock:
-            row = self._connection().execute(
+        with self._db() as conn:
+            row = conn.execute(
                 "SELECT * FROM runs WHERE id = %s", (run_id,)
             ).fetchone()
         return self._decode(row) if row else None
@@ -330,8 +348,8 @@ class RunRepository:
         }
         params["id"] = run_id
         params["expected_version"] = expected_version
-        with self._lock:
-            row = self._connection().execute(
+        with self._db() as conn:
+            row = conn.execute(
                 f"UPDATE runs SET {assignments}, version = version + 1 "
                 "WHERE id = %(id)s AND version = %(expected_version)s "
                 "RETURNING *",
@@ -360,16 +378,16 @@ class RunRepository:
         if cap is not None:
             sql += " LIMIT %s"
             params = (cap,)
-        with self._lock:
-            rows = self._connection().execute(sql, params).fetchall()
+        with self._db() as conn:
+            rows = conn.execute(sql, params).fetchall()
         return [self._decode(row) for row in rows]
 
     def delete(self, run_id: str) -> None:
         if self._url is None:
             self._memory_runs.pop(run_id, None)
             return
-        with self._lock:
-            self._connection().execute(
+        with self._db() as conn:
+            conn.execute(
                 "DELETE FROM runs WHERE id = %s", (run_id,)
             )
 
@@ -382,8 +400,24 @@ class RunRepository:
                 return False
             locked.add(run_id)
             return True
-        with self._lock:
-            row = self._connection().execute(
+        # Session advisory locks must stay on the same connection until unlock.
+        if self._pool is not None:
+            conn = self._pool.getconn()
+            try:
+                row = conn.execute(
+                    "SELECT pg_try_advisory_lock(hashtext(%s)) AS locked",
+                    (run_id,),
+                ).fetchone()
+                if row and row["locked"]:
+                    self._held_locks[run_id] = conn
+                    return True
+            except Exception:
+                self._pool.putconn(conn)
+                raise
+            self._pool.putconn(conn)
+            return False
+        with self._db() as conn:
+            row = conn.execute(
                 "SELECT pg_try_advisory_lock(hashtext(%s)) AS locked",
                 (run_id,),
             ).fetchone()
@@ -393,8 +427,19 @@ class RunRepository:
         if self._url is None:
             self._memory_locks.discard(run_id)
             return
-        with self._lock:
-            self._connection().execute(
+        if self._pool is not None:
+            conn = self._held_locks.pop(run_id, None)
+            if conn is None:
+                return
+            try:
+                conn.execute(
+                    "SELECT pg_advisory_unlock(hashtext(%s))", (run_id,)
+                )
+            finally:
+                self._pool.putconn(conn)
+            return
+        with self._db() as conn:
+            conn.execute(
                 "SELECT pg_advisory_unlock(hashtext(%s))", (run_id,)
             )
 
@@ -404,8 +449,8 @@ class RunRepository:
         if self._url is None:
             receipt = self._memory_receipts.get(key)
             return copy.deepcopy(receipt) if receipt else None
-        with self._lock:
-            row = self._connection().execute(
+        with self._db() as conn:
+            row = conn.execute(
                 "SELECT * FROM request_receipts WHERE idempotency_key = %s",
                 (key,),
             ).fetchone()
@@ -430,8 +475,8 @@ class RunRepository:
                 "run_id": run_id,
             }
             return
-        with self._lock:
-            self._connection().execute(
+        with self._db() as conn:
+            conn.execute(
                 """
                 INSERT INTO request_receipts
                     (idempotency_key, run_id, endpoint, response, created_at)
@@ -460,8 +505,8 @@ class RunRepository:
             run["lease_expires_at"] = expires_at
             run["heartbeat_at"] = expires_at
             return True
-        with self._lock:
-            row = self._connection().execute(
+        with self._db() as conn:
+            row = conn.execute(
                 """
                 UPDATE runs
                 SET lease_owner = %s, lease_expires_at = %s,
@@ -489,8 +534,8 @@ class RunRepository:
                 for record in self._memory_runs.values()
                 if record.get("status") == "running"
             ]
-        with self._lock:
-            rows = self._connection().execute(
+        with self._db() as conn:
+            rows = conn.execute(
                 "SELECT * FROM runs WHERE status = 'running'"
             ).fetchall()
         return [self._decode(row) for row in rows]
@@ -503,8 +548,8 @@ class RunRepository:
                 if record.get("lease_expires_at")
                 and str(record["lease_expires_at"]) < now
             ]
-        with self._lock:
-            rows = self._connection().execute(
+        with self._db() as conn:
+            rows = conn.execute(
                 "SELECT * FROM runs WHERE lease_expires_at IS NOT NULL "
                 "AND lease_expires_at < %s",
                 (now,),
@@ -519,8 +564,8 @@ class RunRepository:
         if self._url is None:
             self._memory_checkpoints[run_id] = copy.deepcopy(state)
             return
-        with self._lock:
-            self._connection().execute(
+        with self._db() as conn:
+            conn.execute(
                 """
                 INSERT INTO checkpoints(run_id, state, updated_at)
                 VALUES (%s, %s, %s)
@@ -535,8 +580,8 @@ class RunRepository:
         if self._url is None:
             record = self._memory_checkpoints.get(run_id)
             return copy.deepcopy(record) if record else None
-        with self._lock:
-            row = self._connection().execute(
+        with self._db() as conn:
+            row = conn.execute(
                 "SELECT state FROM checkpoints WHERE run_id = %s", (run_id,)
             ).fetchone()
         if not row:
@@ -550,8 +595,8 @@ class RunRepository:
         if self._url is None:
             self._memory_checkpoints.pop(run_id, None)
             return
-        with self._lock:
-            self._connection().execute(
+        with self._db() as conn:
+            conn.execute(
                 "DELETE FROM checkpoints WHERE run_id = %s", (run_id,)
             )
 
@@ -565,8 +610,8 @@ class RunRepository:
                 return copy.deepcopy(existing)
             self._memory_actions[record["action_id"]] = record
             return copy.deepcopy(record)
-        with self._lock:
-            row = self._connection().execute(
+        with self._db() as conn:
+            row = conn.execute(
                 """
                 INSERT INTO actions
                     (action_id, run_id, tool, args, status, result,
@@ -585,7 +630,7 @@ class RunRepository:
                 },
             ).fetchone()
             if row is None:
-                row = self._connection().execute(
+                row = conn.execute(
                     "SELECT * FROM actions WHERE action_id = %s",
                     (record["action_id"],),
                 ).fetchone()
@@ -595,8 +640,8 @@ class RunRepository:
         if self._url is None:
             record = self._memory_actions.get(action_id)
             return copy.deepcopy(record) if record else None
-        with self._lock:
-            row = self._connection().execute(
+        with self._db() as conn:
+            row = conn.execute(
                 "SELECT * FROM actions WHERE action_id = %s", (action_id,)
             ).fetchone()
         return self._decode(row) if row else None
@@ -610,8 +655,8 @@ class RunRepository:
                 ):
                     return copy.deepcopy(record)
             return None
-        with self._lock:
-            row = self._connection().execute(
+        with self._db() as conn:
+            row = conn.execute(
                 "SELECT * FROM actions WHERE run_id = %s "
                 "AND status IN ('pending', 'running') "
                 "ORDER BY created_at ASC LIMIT 1",
@@ -635,8 +680,8 @@ class RunRepository:
                 action["result"] = payload
                 action["updated_at"] = record.get("created_at")
             return copy.deepcopy(payload)
-        with self._lock:
-            inserted = self._connection().execute(
+        with self._db() as conn:
+            inserted = conn.execute(
                 """
                 INSERT INTO observations(action_id, run_id, payload, created_at)
                 VALUES (%(action_id)s, %(run_id)s, %(payload)s, %(created_at)s)
@@ -650,12 +695,12 @@ class RunRepository:
             ).fetchone()
             row = inserted
             if row is None:
-                row = self._connection().execute(
+                row = conn.execute(
                     "SELECT payload FROM observations WHERE action_id = %s",
                     (action_id,),
                 ).fetchone()
             if inserted is not None:
-                self._connection().execute(
+                conn.execute(
                     "UPDATE actions SET status = 'done', result = %s, "
                     "updated_at = %s WHERE action_id = %s",
                     (Jsonb(payload), record.get("created_at"), action_id),

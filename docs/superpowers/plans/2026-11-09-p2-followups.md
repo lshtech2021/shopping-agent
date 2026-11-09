@@ -33,8 +33,8 @@
 
 **Files:** `config.py`, `store_pg.py`, tests
 
-- [ ] `SA_PG_POOL_SIZE` (0 = single conn); use `psycopg_pool.ConnectionPool` when > 0
-- [ ] Commit
+- [x] `SA_PG_POOL_SIZE` (0 = single conn); use `psycopg_pool.ConnectionPool` when > 0
+- [x] Commit
 
 ### Deferred
 
