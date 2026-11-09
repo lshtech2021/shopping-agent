@@ -135,6 +135,47 @@ def upgrade() -> None:
     op.execute(
         "CREATE INDEX IF NOT EXISTS actions_run_idx ON actions(run_id, status)"
     )
+    # One-time migration from the pre-Phase-4 JSONB session table.
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF to_regclass('public.sessions') IS NOT NULL THEN
+                INSERT INTO runs (
+                    id, requirement, sites, status, requirements, plan,
+                    messages, products, recommendations, quotas,
+                    searched_sites, interrupt_reason, pending_questions,
+                    blocked_sites, execution_logs, turn, version,
+                    created_at, updated_at
+                )
+                SELECT
+                    payload->>'id',
+                    COALESCE(payload->>'requirement', ''),
+                    COALESCE(payload->'sites', '[]'::jsonb),
+                    COALESCE(payload->>'status', 'idle'),
+                    COALESCE(payload->'requirements', '{}'::jsonb),
+                    payload->'plan',
+                    COALESCE(payload->'messages', '[]'::jsonb),
+                    COALESCE(payload->'products', '{}'::jsonb),
+                    COALESCE(payload->'recommendations', '[]'::jsonb),
+                    COALESCE(payload->'quotas', '{}'::jsonb),
+                    COALESCE(payload->'searched_sites', '[]'::jsonb),
+                    payload->>'interrupt_reason',
+                    COALESCE(payload->'pending_questions', '[]'::jsonb),
+                    COALESCE(payload->'blocked_sites', '{}'::jsonb),
+                    COALESCE(payload->'execution_logs', '[]'::jsonb),
+                    COALESCE((payload->>'turn')::int, 0),
+                    1,
+                    COALESCE(payload->>'created_at', now()::text),
+                    COALESCE(payload->>'updated_at', now()::text)
+                FROM sessions
+                WHERE payload->>'id' IS NOT NULL
+                ON CONFLICT (id) DO NOTHING;
+                DROP TABLE sessions;
+            END IF;
+        END $$;
+        """
+    )
 
 
 def downgrade() -> None:

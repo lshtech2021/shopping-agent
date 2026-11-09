@@ -44,6 +44,21 @@ def test_observation_is_idempotent_and_completes_action():
     assert asyncio.run(broker.next_action("run-1")) is None
 
 
+def test_same_action_in_a_new_turn_gets_a_new_id():
+    broker = ActionBroker("memory")
+    first = asyncio.run(
+        broker.create_action(
+            "run-1", "search", {"site": "jd", "query": "x"}, turn=1
+        )
+    )
+    second = asyncio.run(
+        broker.create_action(
+            "run-1", "search", {"site": "jd", "query": "x"}, turn=2
+        )
+    )
+    assert first.action_id != second.action_id
+
+
 def test_different_actions_have_different_ids():
     broker = ActionBroker("memory")
     first = asyncio.run(

@@ -10,6 +10,7 @@ let reconnectTimer = null
 let keepAliveTimer = null
 
 const PENDING_RESULTS_KEY = 'pendingJobResults'
+const inFlightJobs = new Map()
 
 async function queueJobResult(envelope) {
   try {
@@ -148,21 +149,36 @@ async function connectWs() {
           action_id: actionId,
         })
       } else {
-        try {
-          result = await handleJob(data.tool, {
-            ...(data.args || {}),
-            job_id: data.job_id,
-            action_id: actionId,
-          })
-        } catch (error) {
-          result = {
-            status: 'blocked',
-            error: String(error?.message || error),
-            job_id: data.job_id ?? null,
-            extension_logs: [],
+        let pending = actionId ? inFlightJobs.get(actionId) : null
+        if (!pending) {
+          pending = (async () => {
+            let jobResult
+            try {
+              jobResult = await handleJob(data.tool, {
+                ...(data.args || {}),
+                job_id: data.job_id,
+                action_id: actionId,
+                run_id: data.run_id,
+              })
+            } catch (error) {
+              jobResult = {
+                status: 'blocked',
+                error: String(error?.message || error),
+                job_id: data.job_id ?? null,
+                extension_logs: [],
+              }
+            }
+            if (actionId && jobResult?.status === 'ok') {
+              await setCachedResult(actionId, jobResult)
+            }
+            return jobResult
+          })()
+          if (actionId) {
+            inFlightJobs.set(actionId, pending)
+            pending.finally(() => inFlightJobs.delete(actionId))
           }
         }
-        if (actionId) await setCachedResult(actionId, result)
+        result = await pending
       }
       const envelope = {
         type: 'job_result',

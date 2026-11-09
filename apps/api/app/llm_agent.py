@@ -113,13 +113,20 @@ async def run_llm_policy(
 
     checkpoint_store = PgCheckpointStore(settings.database_url)
     state = initial_state(session, turn_text)
-    saved = (
-        await checkpoint_store.load(session.id)
-        if checkpoint_resume
-        else None
-    )
-    if saved is not None and saved.get("phase") in {"waiting_user", "failed"}:
-        state = saved
+    state["turn"] = session.turn
+    saved = None
+    if checkpoint_resume:
+        candidate = await checkpoint_store.load(session.id)
+        if (
+            candidate is not None
+            and int(candidate.get("turn") or 0) == session.turn
+            and candidate.get("phase")
+            in {"executing", "waiting_user", "failed"}
+        ):
+            saved = candidate
+            state = saved
+    else:
+        await checkpoint_store.delete(session.id)
     memory = ShoppingMemory(session, box)
     specs = build_shopping_tools(box, state)
     registry = ToolRegistry()
@@ -188,7 +195,11 @@ async def run_llm_policy(
         checkpoint_store=checkpoint_store,
     )
     policy = PlanExecutePolicy(delegate=ReActPolicy(model=model))
-    if saved is not None and saved.get("phase") in {"waiting_user", "failed"}:
+    if saved is not None and saved.get("phase") in {
+        "executing",
+        "waiting_user",
+        "failed",
+    }:
         result = await runtime.resume_from_checkpoint(
             run_id=session.id,
             policy=policy,

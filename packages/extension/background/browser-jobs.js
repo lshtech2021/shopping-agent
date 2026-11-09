@@ -39,8 +39,18 @@ async function restoreTabState() {
         if (!tab.url || !isAllowedSiteUrl(allowedSite, tab.url)) {
           continue
         }
+        let restoredUrl = tab.url
+        if (
+          typeof value === 'object' &&
+          value.url &&
+          !samePage(tab.url, value.url)
+        ) {
+          await chrome.tabs.update(tab.id, { url: value.url })
+          await waitComplete(tab.id, value.url, Date.now() + 5000)
+          restoredUrl = value.url
+        }
         SITE_TABS.set(site, tab.id)
-        SITE_URLS.set(site, tab.url)
+        SITE_URLS.set(site, restoredUrl)
         if (typeof value === 'object') {
           if (value.query) SITE_QUERIES.set(site, String(value.query))
           if (value.page) SITE_PAGES.set(site, Number(value.page))
@@ -103,9 +113,14 @@ function samePage(actualUrl, expectedUrl) {
 }
 
 function siteForTabKey(tabKey) {
-  if (tabKey.startsWith('jd')) return 'jd'
-  if (tabKey.startsWith('ebay')) return 'ebay'
-  return tabKey
+  const value = String(tabKey || '').split(':').pop()
+  if (value.startsWith('jd')) return 'jd'
+  if (value.startsWith('ebay')) return 'ebay'
+  return value
+}
+
+function scopeKey(site, args = {}) {
+  return args.run_id ? `${args.run_id}:${site}` : site
 }
 
 function isAllowedSiteUrl(site, url) {
@@ -283,7 +298,7 @@ function emptyListingError(result) {
   return 'empty_listing'
 }
 
-export async function runBrowserJob(tool, args = {}) {
+async function _runBrowserJob(tool, args = {}) {
   await tabStateReady
   const log = createJobLogger(tool)
   const site = String(args.site || 'jd').toLowerCase()
@@ -312,7 +327,14 @@ export async function runBrowserJob(tool, args = {}) {
   try {
     if (tool === 'search') {
       const url = buildSearchUrl(site, args.query || '', args)
-      const tabId = await ensureTab(site, url, log, deadline)
+      const siteKey = scopeKey(site, args)
+      const tabId = await ensureTab(
+        site,
+        url,
+        log,
+        deadline,
+        siteKey,
+      )
       await delay(800)
       const probe = await sendToTab(
         tabId,
@@ -350,8 +372,8 @@ export async function runBrowserJob(tool, args = {}) {
           jobId,
         )
       }
-      SITE_QUERIES.set(site, String(args.query || ''))
-      SITE_PAGES.set(site, Number(args.page || 1))
+      SITE_QUERIES.set(siteKey, String(args.query || ''))
+      SITE_PAGES.set(siteKey, Number(args.page || 1))
       await persistTabState()
       log.info('extension.search', '搜索页就绪', { url, tabId })
       return withLogs(
@@ -371,7 +393,8 @@ export async function runBrowserJob(tool, args = {}) {
     }
 
     if (tool === 'scrape_listing') {
-      const tabId = SITE_TABS.get(site)
+      const siteKey = scopeKey(site, args)
+      const tabId = SITE_TABS.get(siteKey)
       if (!tabId) {
         log.warn('extension.scrape', '没有活跃搜索标签')
         return withLogs(
@@ -381,7 +404,7 @@ export async function runBrowserJob(tool, args = {}) {
         )
       }
       await delay(500)
-      const expectedUrl = SITE_URLS.get(site) || args.url || null
+      const expectedUrl = SITE_URLS.get(siteKey) || args.url || null
       const response = await sendToTab(
         tabId,
         { type: 'parse_listing' },
@@ -421,7 +444,7 @@ export async function runBrowserJob(tool, args = {}) {
           jobId,
         )
       }
-      SITE_PAGES.set(site, Number(result.page || args.page || 1))
+      SITE_PAGES.set(siteKey, Number(result.page || args.page || 1))
       await persistTabState()
       log.info('extension.scrape', `列表解析完成 items=${itemCount}`, {
         status: result.status,
@@ -440,7 +463,8 @@ export async function runBrowserJob(tool, args = {}) {
     }
 
     if (tool === 'next_page') {
-      const tabId = SITE_TABS.get(site)
+      const siteKey = scopeKey(site, args)
+      const tabId = SITE_TABS.get(siteKey)
       if (!tabId) {
         return withLogs(
           { status: 'blocked', error: 'no_active_search_tab', site },
@@ -507,9 +531,9 @@ export async function runBrowserJob(tool, args = {}) {
             jobId,
           )
         }
-        SITE_URLS.set(site, response.document_url || meta.nextUrl)
+        SITE_URLS.set(siteKey, response.document_url || meta.nextUrl)
         SITE_PAGES.set(
-          site,
+          siteKey,
           Number(result.page || args.page || 1),
         )
         await persistTabState()
@@ -576,8 +600,10 @@ export async function runBrowserJob(tool, args = {}) {
             jobId,
           )
         }
-        if (clicked.document_url) SITE_URLS.set(site, clicked.document_url)
-        SITE_PAGES.set(site, Number(result.page || args.page || 1))
+        if (clicked.document_url) {
+          SITE_URLS.set(siteKey, clicked.document_url)
+        }
+        SITE_PAGES.set(siteKey, Number(result.page || args.page || 1))
         await persistTabState()
         return withLogs(
           {
@@ -596,7 +622,7 @@ export async function runBrowserJob(tool, args = {}) {
           status: 'ok',
           items: [],
           no_more: true,
-          document_url: SITE_URLS.get(site) || null,
+          document_url: SITE_URLS.get(siteKey) || null,
           page: args.page ?? null,
           mode: 'live',
         },
@@ -622,7 +648,13 @@ export async function runBrowserJob(tool, args = {}) {
           jobId,
         )
       }
-      const tabId = await ensureTab(site, url, log, deadline, `${site}-detail`)
+      const tabId = await ensureTab(
+        site,
+        url,
+        log,
+        deadline,
+        scopeKey(`${site}-detail`, args),
+      )
       await delay(800)
       const response = await sendToTab(
         tabId,
@@ -690,5 +722,22 @@ export async function runBrowserJob(tool, args = {}) {
       log,
       jobId,
     )
+  }
+}
+
+const jobQueues = new Map()
+
+export async function runBrowserJob(tool, args = {}) {
+  const key = `${args.run_id || 'default'}:${args.site || 'jd'}`
+  const previous = jobQueues.get(key) || Promise.resolve()
+  const run = previous
+    .catch(() => {})
+    .then(() => _runBrowserJob(tool, args))
+  const tail = run.catch(() => {})
+  jobQueues.set(key, tail)
+  try {
+    return await run
+  } finally {
+    if (jobQueues.get(key) === tail) jobQueues.delete(key)
   }
 }

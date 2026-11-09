@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 from fastapi import WebSocket
 
+from app.config import settings
 from app.store import Session
 from app.trace import log_event
 
@@ -41,6 +42,7 @@ class ExtensionHub:
         self._last_seen: dict[str, float] = {}
         self._disconnect_tasks: dict[str, asyncio.Task] = {}
         self._lock = asyncio.Lock()
+        self.disconnect_grace = 5.0
 
     @property
     def online_count(self) -> int:
@@ -69,7 +71,9 @@ class ExtensionHub:
             if task is not None:
                 task.cancel()
             self._disconnect_tasks[job_id] = asyncio.create_task(
-                self._fail_after_reconnect_grace(job_id, conn_id)
+                self._fail_after_reconnect_grace(
+                    job_id, conn_id, self.disconnect_grace
+                )
             )
         logger.info(
             "extension disconnected %s (online=%s, pending_jobs=%s)",
@@ -167,11 +171,16 @@ class ExtensionHub:
         job_id = uuid.uuid4().hex
         from app.browser.action_broker import ActionBroker
 
-        action_id = ActionBroker.deterministic_id(
+        broker = ActionBroker(settings.database_url or "memory")
+        action = await broker.create_action(
             session.id if session is not None else "anonymous",
             tool_name,
             args,
+            turn=session.turn if session is not None else None,
         )
+        if action.status == "done" and action.result is not None:
+            return action.result
+        action_id = action.action_id
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[job_id] = fut
         self._pending_conn[job_id] = conn_id
@@ -193,6 +202,7 @@ class ExtensionHub:
                         "type": "job",
                         "job_id": job_id,
                         "action_id": action_id,
+                        "run_id": session.id if session is not None else None,
                         "tool": tool_name,
                         "args": args,
                     }
@@ -208,6 +218,11 @@ class ExtensionHub:
             result = await asyncio.wait_for(fut, timeout=timeout)
             if not isinstance(result, dict):
                 return {"status": "parse_error", "error": "invalid_result"}
+            if result.get("status") == "ok":
+                try:
+                    await broker.submit_observation(action_id, result)
+                except Exception:  # noqa: BLE001 — result still returns
+                    logger.warning("failed to persist observation %s", action_id[:8])
             if session is not None:
                 items = result.get("items")
                 log_event(

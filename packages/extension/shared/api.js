@@ -24,10 +24,19 @@ export function createSession(requirement, sites) {
   })
 }
 
-export function sendMessage(sessionId, content, answers) {
+export function sendMessage(
+  sessionId,
+  content,
+  answers,
+  clientMessageId,
+) {
   return request(`/api/v1/sessions/${sessionId}/messages`, {
     method: 'POST',
-    body: JSON.stringify({ content, answers }),
+    body: JSON.stringify({
+      content,
+      answers,
+      client_message_id: clientMessageId,
+    }),
   })
 }
 
@@ -35,9 +44,16 @@ export function getSession(sessionId) {
   return request(`/api/v1/sessions/${sessionId}`)
 }
 
-export function resumeSession(sessionId, note = 'continue') {
+export function resumeSession(
+  sessionId,
+  note = 'continue',
+  clientMessageId,
+) {
   return request(`/api/v1/sessions/${sessionId}/resume`, {
     method: 'POST',
-    body: JSON.stringify({ note }),
+    body: JSON.stringify({
+      note,
+      client_message_id: clientMessageId,
+    }),
   })
 }

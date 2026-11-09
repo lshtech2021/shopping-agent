@@ -200,6 +200,7 @@ def test_disconnect_fails_inflight_job_immediately():
 
     async def scenario():
         hub = ExtensionHub()
+        hub.disconnect_grace = 0.1
         hub._connections["c1"] = FakeWS()
         job = asyncio.create_task(hub.dispatch_job("search", {"site": "jd"}, timeout=30))
         await asyncio.sleep(0.05)

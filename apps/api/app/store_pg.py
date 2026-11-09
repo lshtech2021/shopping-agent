@@ -240,6 +240,46 @@ class RunRepository:
                 )
                 """
             )
+            conn.execute(
+                """
+                DO $$
+                BEGIN
+                    IF to_regclass('public.sessions') IS NOT NULL THEN
+                        INSERT INTO runs (
+                            id, requirement, sites, status, requirements, plan,
+                            messages, products, recommendations, quotas,
+                            searched_sites, interrupt_reason, pending_questions,
+                            blocked_sites, execution_logs, turn, version,
+                            created_at, updated_at
+                        )
+                        SELECT
+                            payload->>'id',
+                            COALESCE(payload->>'requirement', ''),
+                            COALESCE(payload->'sites', '[]'::jsonb),
+                            COALESCE(payload->>'status', 'idle'),
+                            COALESCE(payload->'requirements', '{}'::jsonb),
+                            payload->'plan',
+                            COALESCE(payload->'messages', '[]'::jsonb),
+                            COALESCE(payload->'products', '{}'::jsonb),
+                            COALESCE(payload->'recommendations', '[]'::jsonb),
+                            COALESCE(payload->'quotas', '{}'::jsonb),
+                            COALESCE(payload->'searched_sites', '[]'::jsonb),
+                            payload->>'interrupt_reason',
+                            COALESCE(payload->'pending_questions', '[]'::jsonb),
+                            COALESCE(payload->'blocked_sites', '{}'::jsonb),
+                            COALESCE(payload->'execution_logs', '[]'::jsonb),
+                            COALESCE((payload->>'turn')::int, 0),
+                            1,
+                            COALESCE(payload->>'created_at', now()::text),
+                            COALESCE(payload->>'updated_at', now()::text)
+                        FROM sessions
+                        WHERE payload->>'id' IS NOT NULL
+                        ON CONFLICT (id) DO NOTHING;
+                        DROP TABLE sessions;
+                    END IF;
+                END $$;
+                """
+            )
 
     def _params(self, record: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -302,15 +342,21 @@ class RunRepository:
             self._memory_runs[run_id] = next_record
             return copy.deepcopy(next_record)
 
-        assignments = ", ".join(
-            f"{column} = %({column})s"
-            for column in _UPDATE_COLUMNS
-            if column != "version"
-        )
-        params = {
-            column: Jsonb(patch[column]) if column in _JSON_COLUMNS else patch[column]
+        columns = [
+            column
             for column in _UPDATE_COLUMNS
             if column in patch and column != "version"
+        ]
+        assignments = ", ".join(
+            f"{column} = %({column})s" for column in columns
+        )
+        if not assignments:
+            assignments = "updated_at = updated_at"
+        params = {
+            column: Jsonb(patch[column])
+            if column in _JSON_COLUMNS
+            else patch[column]
+            for column in columns
         }
         params["id"] = run_id
         params["expected_version"] = expected_version
@@ -615,7 +661,7 @@ class RunRepository:
                 action["updated_at"] = record.get("created_at")
             return copy.deepcopy(payload)
         with self._lock:
-            row = self._connection().execute(
+            inserted = self._connection().execute(
                 """
                 INSERT INTO observations(action_id, run_id, payload, created_at)
                 VALUES (%(action_id)s, %(run_id)s, %(payload)s, %(created_at)s)
@@ -627,16 +673,18 @@ class RunRepository:
                     "payload": Jsonb(payload),
                 },
             ).fetchone()
+            row = inserted
             if row is None:
                 row = self._connection().execute(
                     "SELECT payload FROM observations WHERE action_id = %s",
                     (action_id,),
                 ).fetchone()
-            self._connection().execute(
-                "UPDATE actions SET status = 'done', result = %s, "
-                "updated_at = %s WHERE action_id = %s",
-                (Jsonb(payload), record.get("created_at"), action_id),
-            )
+            if inserted is not None:
+                self._connection().execute(
+                    "UPDATE actions SET status = 'done', result = %s, "
+                    "updated_at = %s WHERE action_id = %s",
+                    (Jsonb(payload), record.get("created_at"), action_id),
+                )
         stored = row.get("payload") if row else payload
         if isinstance(stored, str):
             stored = json.loads(stored)

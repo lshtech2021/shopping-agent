@@ -30,10 +30,14 @@ class ActionBroker:
 
     @staticmethod
     def deterministic_id(
-        run_id: str, tool: str, args: dict[str, Any]
+        run_id: str,
+        tool: str,
+        args: dict[str, Any],
+        *,
+        turn: int | None = None,
     ) -> str:
         payload = json.dumps(
-            {"run_id": run_id, "tool": tool, "args": args},
+            {"run_id": run_id, "turn": turn, "tool": tool, "args": args},
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
@@ -42,10 +46,17 @@ class ActionBroker:
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     async def create_action(
-        self, run_id: str, tool: str, args: dict[str, Any] | None = None
+        self,
+        run_id: str,
+        tool: str,
+        args: dict[str, Any] | None = None,
+        *,
+        turn: int | None = None,
     ) -> Action:
         args = dict(args or {})
-        action_id = self.deterministic_id(run_id, tool, args)
+        action_id = self.deterministic_id(
+            run_id, tool, args, turn=turn
+        )
         now = _now()
         record = self.repo.create_action(
             {

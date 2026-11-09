@@ -21,6 +21,12 @@ class RunSupervisor:
             session = self.store.get(session_id)
             if session is None or session.status != "running":
                 continue
+            if (
+                session.lease_owner
+                and session.lease_expires_at
+                and session.lease_expires_at > _now().isoformat()
+            ):
+                continue
             session.status = "interrupted"
             session.interrupt_reason = "server_restart"
             session.lease_owner = None
@@ -50,14 +56,26 @@ class RunSupervisor:
         return changed
 
     def acquire(self, run_id: str, ttl_seconds: int = 120) -> str | None:
-        session = self.store.get(run_id)
+        session = self.store.refresh(run_id)
         if session is None:
             return None
+        now = _now()
+        if (
+            session.lease_owner
+            and session.lease_expires_at
+            and session.lease_expires_at > now.isoformat()
+        ):
+            return None
         owner = uuid.uuid4().hex
-        expires = (_now() + timedelta(seconds=ttl_seconds)).isoformat()
+        expires = (now + timedelta(seconds=ttl_seconds)).isoformat()
+        if self.store.persistent:
+            if not self.store.acquire_lease(run_id, owner, expires):
+                return None
+            session = self.store.refresh(run_id)
+            return owner if session and session.lease_owner == owner else None
         session.lease_owner = owner
         session.lease_expires_at = expires
-        session.heartbeat_at = _now().isoformat()
+        session.heartbeat_at = now.isoformat()
         self.store.touch(session)
         return owner
 

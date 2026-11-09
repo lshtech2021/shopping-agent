@@ -175,6 +175,7 @@ class AgentRuntime:
             )
             if not tool_calls:
                 state["phase"] = "done"
+                await self._clear_checkpoint(run_id)
                 return TurnResult(
                     run_id=run_id,
                     status="done",
@@ -381,6 +382,7 @@ class AgentRuntime:
                             steps=int(state["step"]),
                         )
                 state["phase"] = "done"
+                await self._clear_checkpoint(run_id)
                 return TurnResult(
                     run_id=run_id,
                     status="done",
@@ -389,6 +391,7 @@ class AgentRuntime:
                 )
 
         state["phase"] = "done"
+        await self._clear_checkpoint(run_id)
         return TurnResult(
             run_id=run_id,
             status="max_steps",
@@ -404,6 +407,14 @@ class AgentRuntime:
         try:
             await self.checkpoint_store.save(run_id, state)  # type: ignore[arg-type]
         except Exception:  # noqa: BLE001 — checkpointing is best effort
+            return None
+
+    async def _clear_checkpoint(self, run_id: str) -> None:
+        if self.checkpoint_store is None or not run_id:
+            return
+        try:
+            await self.checkpoint_store.delete(run_id)
+        except Exception:  # noqa: BLE001
             return None
 
     async def resume_from_checkpoint(

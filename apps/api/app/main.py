@@ -44,8 +44,22 @@ async def lifespan(_app: FastAPI):
     store.reset(settings.database_url)
     from app.agent.supervisor import RunSupervisor
 
-    RunSupervisor(store).reconcile_startup()
-    yield
+    supervisor = RunSupervisor(store)
+    supervisor.reconcile_startup()
+    sweep = asyncio.create_task(_sweep_loop(supervisor))
+    try:
+        yield
+    finally:
+        sweep.cancel()
+
+
+async def _sweep_loop(supervisor) -> None:
+    try:
+        while True:
+            await asyncio.sleep(30)
+            supervisor.sweep_expired()
+    except asyncio.CancelledError:
+        return
 
 
 app = FastAPI(title=settings.app_name, version="0.5.0", lifespan=lifespan)
@@ -74,16 +88,36 @@ def _lock_for(session_id: str) -> asyncio.Lock:
 
 @asynccontextmanager
 async def _turn_slot(session_id: str):
+    from app.agent.supervisor import RunSupervisor
+
+    supervisor = RunSupervisor(store)
+    owner = supervisor.acquire(session_id, ttl_seconds=120)
+    if owner is None:
+        raise HTTPException(status_code=409, detail="上一轮仍在执行，请稍候")
     lock = _lock_for(session_id)
     if lock.locked():
+        supervisor.release(session_id, owner)
         raise HTTPException(status_code=409, detail="上一轮仍在执行，请稍候")
     if not store.try_turn_lock(session_id):
+        supervisor.release(session_id, owner)
         raise HTTPException(status_code=409, detail="上一轮仍在执行，请稍候")
+    heartbeat = asyncio.create_task(_heartbeat_loop(session_id, owner, supervisor))
     try:
         async with lock:
             yield
     finally:
+        heartbeat.cancel()
         store.release_turn_lock(session_id)
+        supervisor.release(session_id, owner)
+
+
+async def _heartbeat_loop(session_id: str, owner: str, supervisor) -> None:
+    try:
+        while True:
+            await asyncio.sleep(30)
+            supervisor.heartbeat(session_id, owner)
+    except asyncio.CancelledError:
+        return
 
 
 def _receipt_key(
@@ -97,7 +131,7 @@ def _receipt_key(
 
 
 def _require_session(session_id: str):
-    session = store.get(session_id)
+    session = store.refresh(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
     return session
@@ -157,7 +191,7 @@ def create_session(
 
 
 @app.get("/api/v1/sessions/{session_id}", response_model=SessionDetail)
-def get_session(session_id: str) -> SessionDetail:
+async def get_session(session_id: str) -> SessionDetail:
     session = store.snapshot(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -201,6 +235,7 @@ async def post_message(
     async with _turn_slot(session_id):
         from app.agent_runner import run_agent
 
+        session = _require_session(session_id)
         content = payload.content.strip()
         log_event(
             session,
@@ -249,6 +284,7 @@ async def resume_session(
     async with _turn_slot(session_id):
         from app.agent_runner import resume_agent
 
+        session = _require_session(session_id)
         result = await resume_agent(session, payload.note or "continue")
         if key:
             store.save_receipt(key, session_id, "resume", result)

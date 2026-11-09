@@ -147,15 +147,29 @@ function appendClarify(questions = []) {
       alert('请至少回答一个问题，或点「跳过」')
       return
     }
+    const generation = beginRequest()
     submit.disabled = true
     appendLocal('ui.clarify', '提交澄清回答', answers)
     try {
-      handleResult(await sendMessage(state.sessionId, '', answers))
+      startPolling(state.sessionId, generation)
+      handleResult(
+        await sendMessage(
+          state.sessionId,
+          '',
+          answers,
+          state.clientId,
+        ),
+        generation,
+      )
       card.remove()
     } catch (error) {
-      appendLocal('ui.error', String(error.message || error))
+      if (isCurrentGeneration(generation, state.requestGeneration)) {
+        appendLocal('ui.error', String(error.message || error))
+      }
     } finally {
-      submit.disabled = false
+      if (isCurrentGeneration(generation, state.requestGeneration)) {
+        setBusy(false)
+      }
     }
   })
   const skip = document.createElement('button')
@@ -163,14 +177,28 @@ function appendClarify(questions = []) {
   skip.className = 'linkish'
   skip.textContent = '跳过，直接开始'
   skip.addEventListener('click', async () => {
+    const generation = beginRequest()
     skip.disabled = true
     try {
-      handleResult(await sendMessage(state.sessionId, '跳过澄清，直接开始'))
+      startPolling(state.sessionId, generation)
+      handleResult(
+        await sendMessage(
+          state.sessionId,
+          '跳过澄清，直接开始',
+          undefined,
+          state.clientId,
+        ),
+        generation,
+      )
       card.remove()
     } catch (error) {
-      appendLocal('ui.error', String(error.message || error))
+      if (isCurrentGeneration(generation, state.requestGeneration)) {
+        appendLocal('ui.error', String(error.message || error))
+      }
     } finally {
-      skip.disabled = false
+      if (isCurrentGeneration(generation, state.requestGeneration)) {
+        setBusy(false)
+      }
     }
   })
   actions.appendChild(submit)
@@ -258,6 +286,8 @@ function renderHistory(detail) {
 }
 
 async function restoreSession() {
+  const generation = state.requestGeneration + 1
+  state.requestGeneration = generation
   let sessionId = null
   try {
     const stored = await chrome.storage.local.get({ sessionId: null })
@@ -268,11 +298,17 @@ async function restoreSession() {
   if (!sessionId) return
   try {
     const detail = await getSession(sessionId)
+    if (!isCurrentGeneration(generation, state.requestGeneration)) return
     state.sessionId = sessionId
     showChat()
     renderHistory(detail)
+    if (detail.status === 'running') {
+      setBusy(true)
+      startPolling(sessionId, generation)
+    }
     appendLocal('ui.restore', '恢复上次会话', { session_id: sessionId })
   } catch (error) {
+    if (!isCurrentGeneration(generation, state.requestGeneration)) return
     appendLocal('ui.error', `恢复会话失败：${error.message || error}`)
     await clearPersistedSession()
   }
@@ -307,8 +343,14 @@ function showNew() {
   appendLocal('ui.reset', '开始新会话视图')
 }
 
+function newClientId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+  return `cm-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
 function beginRequest() {
   state.requestGeneration += 1
+  state.clientId = newClientId()
   clearClarifyCards()
   setBusy(true)
   return state.requestGeneration
@@ -338,13 +380,19 @@ els.startBtn.addEventListener('click', async () => {
   appendLocal('ui.start', '创建会话并开始选品', { requirement, sites })
   try {
     const created = await createSession(requirement, sites)
+    if (!isCurrentGeneration(generation, state.requestGeneration)) return
     state.sessionId = created.session_id
     await persistSession(state.sessionId)
     showChat()
     appendBubble('user', requirement)
     appendLocal('ui.message', '发送首轮消息', { session_id: state.sessionId })
     startPolling(state.sessionId, generation)
-    const result = await sendMessage(state.sessionId, requirement)
+    const result = await sendMessage(
+      state.sessionId,
+      requirement,
+      undefined,
+      state.clientId,
+    )
     handleResult(result, generation)
   } catch (error) {
     if (generation === state.requestGeneration) {
@@ -366,7 +414,12 @@ els.sendBtn.addEventListener('click', async () => {
   try {
     startPolling(state.sessionId, generation)
     handleResult(
-      await sendMessage(state.sessionId, content),
+      await sendMessage(
+        state.sessionId,
+        content,
+        undefined,
+        state.clientId,
+      ),
       generation,
     )
   } catch (error) {
@@ -386,7 +439,11 @@ els.resumeBtn.addEventListener('click', async () => {
   try {
     startPolling(state.sessionId, generation)
     handleResult(
-      await resumeSession(state.sessionId, 'user continued'),
+      await resumeSession(
+        state.sessionId,
+        'user continued',
+        state.clientId,
+      ),
       generation,
     )
   } catch (error) {

@@ -128,11 +128,26 @@ class SessionStore:
         if session.version <= 0:
             record = self._repo.create(session.to_dict())
         else:
-            record = self._repo.update(
-                session.id,
-                session.to_dict(),
-                expected_version=session.version,
-            )
+            try:
+                record = self._repo.update(
+                    session.id,
+                    session.to_dict(),
+                    expected_version=session.version,
+                )
+            except Exception as exc:
+                from app.store_pg import VersionConflict
+
+                if not isinstance(exc, VersionConflict):
+                    raise
+                latest = self._repo.get(session.id)
+                if latest is None:
+                    raise
+                session.version = int(latest.get("version") or 0)
+                record = self._repo.update(
+                    session.id,
+                    session.to_dict(),
+                    expected_version=session.version,
+                )
         session.version = int(record.get("version") or session.version)
 
     # --- public API ----------------------------------------------------------
@@ -160,13 +175,43 @@ class SessionStore:
         return session
 
     def get(self, session_id: str) -> Optional[Session]:
-        return self._sessions.get(session_id)
+        session = self._sessions.get(session_id)
+        if session is None and self.persistent:
+            record = self._repo.get(session_id)
+            if record is not None:
+                session = Session.from_dict(record)
+                self._sessions[session_id] = session
+        return session
+
+    def refresh(self, session_id: str) -> Optional[Session]:
+        if not self.persistent:
+            return self.get(session_id)
+        record = self._repo.get(session_id)
+        if record is None:
+            self._sessions.pop(session_id, None)
+            return None
+        session = Session.from_dict(record)
+        self._sessions[session_id] = session
+        return session
 
     def snapshot(self, session_id: str) -> Optional[Session]:
-        session = self._sessions.get(session_id)
+        session = self.refresh(session_id)
         if session is None:
             return None
         return Session.from_dict(copy.deepcopy(session.to_dict()))
+
+    def acquire_lease(
+        self, run_id: str, owner: str, expires_at: str
+    ) -> bool:
+        return self._repo.acquire_lease(run_id, owner, expires_at)
+
+    def release_lease(self, run_id: str) -> None:
+        session = self.get(run_id)
+        if session is None:
+            return
+        session.lease_owner = None
+        session.lease_expires_at = None
+        self.touch(session)
 
     def try_turn_lock(self, run_id: str) -> bool:
         return self._repo.try_turn_lock(run_id)
