@@ -90,6 +90,15 @@ def to_message_response(result: TurnResult) -> MessageResponse:
             interrupt_reason="step_limit",
         )
 
+    if result.error == "critic_rejected":
+        return MessageResponse(
+            session_id=result.run_id,
+            status="interrupted",
+            reply="候选没有通过质量校验，请调整需求或点「继续」让我重新选品。",
+            interrupted=True,
+            interrupt_reason="critic_rejected",
+        )
+
     return MessageResponse(
         session_id=result.run_id,
         status="interrupted",

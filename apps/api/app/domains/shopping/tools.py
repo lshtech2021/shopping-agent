@@ -308,9 +308,9 @@ def build_shopping_tools(
 
     async def recommend(args: _Recommend, _context: Any) -> ToolResult:
         picks = [pick.model_dump() for pick in args.picks]
-        result = box.recommend(picks, args.answer)
+        result = box.recommend(picks, args.answer, commit=False)
         if result.get("ok"):
-            picks = [
+            recommended_ids = [
                 str(item.get("product_id") or "")
                 for item in result.get("recommendations") or []
             ]
@@ -321,14 +321,14 @@ def build_shopping_tools(
                 data=result,
                 meta=_plan_meta(
                     _context,
-                    "recommended=" + ",".join(picks),
-                    done=True,
+                    "recommended=" + ",".join(recommended_ids),
                     step_id=step_for("recommend"),
                 ),
                 control="finish",
                 output={
                     "reply": result.get("answer") or args.answer,
                     "recommendations": result.get("recommendations") or [],
+                    "picks": picks,
                 },
             )
         return ToolResult(

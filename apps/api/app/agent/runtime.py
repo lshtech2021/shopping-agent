@@ -5,7 +5,7 @@ import json
 import time
 import uuid
 from dataclasses import replace
-from typing import Any, Literal, Protocol
+from typing import Any, Awaitable, Callable, Literal, Protocol
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from pydantic import BaseModel
@@ -42,6 +42,9 @@ class Policy(Protocol):
     async def next_action(
         self, state: AgentState, context: list[BaseMessage]
     ) -> AIMessage: ...
+
+
+Finalizer = Callable[[AgentState, dict[str, Any]], Awaitable[None]]
 
 
 class _NullMemory:
@@ -104,6 +107,7 @@ class AgentRuntime:
         max_critic_iterations: int = 2,
         replanner: Replanner | None = None,
         max_replans: int = 2,
+        finalize: Finalizer | None = None,
         system_prompt: str = "",
         memory: Memory | None = None,
         tool_context: ToolContext | None = None,
@@ -116,6 +120,7 @@ class AgentRuntime:
         self.max_critic_iterations = max_critic_iterations
         self.replanner = replanner
         self.max_replans = max_replans
+        self.finalize = finalize
         self.system_prompt = system_prompt
         self.memory = memory or _NullMemory()
         self.tool_context = tool_context or ToolContext(
@@ -141,6 +146,7 @@ class AgentRuntime:
         state.setdefault("error", None)
 
         replans = 0
+        critic_iterations = 0
         while int(state["step"]) < self.max_steps:
             memory_summary = self.memory_summary
             if self.memory is not None:
@@ -296,6 +302,58 @@ class AgentRuntime:
                     steps=int(state["step"]),
                 )
             if finish_output is not None:
+                critique: Critique | None = None
+                if self.critic is not None:
+                    try:
+                        critique = await self.critic.evaluate(
+                            state=state, output=finish_output
+                        )
+                    except Exception:  # noqa: BLE001 — critic is advisory
+                        critique = None
+                if critique is not None and not critique.ok:
+                    if (
+                        critique.retry
+                        and critic_iterations < self.max_critic_iterations
+                    ):
+                        critic_iterations += 1
+                        state["messages"].append(
+                            HumanMessage(
+                                content="[CRITIC_FEEDBACK]\n"
+                                + json.dumps(
+                                    critique.model_dump(),
+                                    ensure_ascii=False,
+                                    default=str,
+                                )
+                            )
+                        )
+                        self.tool_context.trace.event(
+                            "critic.retry",
+                            step=int(state["step"]),
+                            critique=critique.model_dump(),
+                        )
+                        continue
+                    state["phase"] = "failed"
+                    state["error"] = "critic_rejected"
+                    return TurnResult(
+                        run_id=run_id,
+                        status="failed",
+                        output=finish_output,
+                        error="critic_rejected",
+                        steps=int(state["step"]),
+                    )
+                if self.finalize is not None:
+                    try:
+                        await self.finalize(state, finish_output)
+                    except Exception as exc:  # noqa: BLE001
+                        state["phase"] = "failed"
+                        state["error"] = f"finalize_failed: {exc}"
+                        return TurnResult(
+                            run_id=run_id,
+                            status="failed",
+                            output=finish_output,
+                            error=f"finalize_failed: {exc}",
+                            steps=int(state["step"]),
+                        )
                 state["phase"] = "done"
                 return TurnResult(
                     run_id=run_id,

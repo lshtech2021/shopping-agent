@@ -5,11 +5,14 @@ from typing import Any
 
 from app import llm
 from app.agent.context import ContextBuilder
-from app.agent.policies.plan_execute import PlanExecutePolicy
+from app.agent.policies.plan_execute import (
+    PlanExecutePolicy,
+    record_plan_evidence,
+)
 from app.agent.policies.react import ReActPolicy
 from app.agent.runtime import AgentRuntime, TurnResult
-from app.agent.state import PendingUser
-from app.agent.tools import ToolContext, ToolRegistry
+from app.agent.state import PendingUser, Plan
+from app.agent.tools import ToolContext, ToolRegistry, ToolResult
 from app.config import settings
 from app.domains.shopping.adapter import (
     ShoppingBrowser,
@@ -17,6 +20,7 @@ from app.domains.shopping.adapter import (
     initial_state,
     to_message_response,
 )
+from app.domains.shopping.critic import ShoppingCritic
 from app.domains.shopping.memory import ShoppingMemory
 from app.domains.shopping.planner import ShoppingPlanner, ShoppingReplanner
 from app.domains.shopping.prompt import SYSTEM_PROMPT
@@ -119,6 +123,47 @@ async def run_llm_policy(
         browser=ShoppingBrowser(box),
         trace=ShoppingTrace(session),
     )
+    async def finalize(state, output):
+        picks = list(output.get("picks") or [])
+        committed = box.recommend(
+            picks, str(output.get("reply") or "")
+        )
+        if not committed.get("ok"):
+            raise RuntimeError(committed.get("error") or "recommend_failed")
+        raw_plan = state.get("plan")
+        if raw_plan:
+            try:
+                plan = Plan.model_validate(raw_plan)
+            except (TypeError, ValueError):
+                plan = None
+            if plan is not None:
+                roles = plan.metadata.get("step_roles") or {}
+                step_id = (
+                    roles.get("recommend")
+                    if isinstance(roles, dict)
+                    else None
+                )
+                if step_id:
+                    record_plan_evidence(
+                        state,
+                        ToolResult(
+                            call_id="finalize",
+                            tool="recommend",
+                            ok=True,
+                            meta={
+                                "plan_step_id": str(step_id),
+                                "plan_step_done": True,
+                                "evidence": [
+                                    "recommended="
+                                    + ",".join(
+                                        str(item.get("product_id") or "")
+                                        for item in picks
+                                    )
+                                ],
+                            },
+                        ),
+                    )
+
     runtime = AgentRuntime(
         tools=registry,
         context_builder=ContextBuilder(),
@@ -126,8 +171,10 @@ async def run_llm_policy(
         system_prompt=SYSTEM_PROMPT,
         memory=memory,
         tool_context=context,
+        critic=ShoppingCritic(session, box),
         replanner=ShoppingReplanner(),
         max_replans=2,
+        finalize=finalize,
     )
     result = await runtime.run_turn(
         state=state,

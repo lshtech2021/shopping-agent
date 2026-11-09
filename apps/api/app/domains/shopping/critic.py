@@ -128,6 +128,11 @@ class ShoppingCritic:
         step = next(
             (item for item in plan.steps if item.id == recommend_id), None
         )
-        if step is not None and step.status == "pending":
+        if step is None:
+            return None
+        index = plan.steps.index(step)
+        if step.status == "pending":
+            return "plan_step_incomplete"
+        if any(previous.status != "done" for previous in plan.steps[:index]):
             return "plan_step_incomplete"
         return None

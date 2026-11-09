@@ -325,6 +325,23 @@ def test_real_shopping_tools_progress_through_all_plan_steps(monkeypatch):
         )
     )
     assert recommend_result.meta["plan_step_id"] == "recommend"
+    assert recommend_result.meta.get("plan_step_done") is not True
+
+    from app.agent.tools import ToolResult
+
+    record_plan_evidence(
+        state,
+        ToolResult(
+            call_id="finalize",
+            tool="recommend",
+            ok=True,
+            meta={
+                "plan_step_id": "recommend",
+                "plan_step_done": True,
+                "evidence": ["committed=p1"],
+            },
+        ),
+    )
 
     final = Plan.model_validate(state["plan"])
     assert [step.status for step in final.steps] == [

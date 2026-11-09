@@ -99,6 +99,34 @@ def test_recommend_sets_finish_control_and_output():
     assert result.output["recommendations"][0]["product_id"] == "p1"
 
 
+def test_recommend_proposal_does_not_commit_until_finalize():
+    session = seed_session()
+    spec = next(
+        item
+        for item in build_shopping_tools(ToolBox(session), {})
+        if item.name == "recommend"
+    )
+    args = spec.args_model.model_validate(
+        {
+            "picks": [{"product_id": "p1", "reason": "4800 元 32G"}],
+            "answer": "推荐 ThinkPad",
+        }
+    )
+
+    result = asyncio.run(spec.handler(args, Context()))
+
+    assert result.control == "finish"
+    assert session.recommendations == []
+    assert session.status != "done"
+
+    committed = ToolBox(session).recommend(
+        result.output["picks"], result.output["reply"]
+    )
+    assert committed["ok"] is True
+    assert session.recommendations[0]["product_id"] == "p1"
+    assert session.status == "done"
+
+
 def test_ask_user_and_clarify_set_wait_user_control():
     session = seed_session()
     specs = {

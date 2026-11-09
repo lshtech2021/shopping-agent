@@ -496,6 +496,8 @@ class ToolBox:
         self,
         picks: list[dict[str, Any]],
         answer: str,
+        *,
+        commit: bool = True,
     ) -> dict[str, Any]:
         requirements = self.session.requirements or {}
         recommendations = []
@@ -568,15 +570,18 @@ class ToolBox:
                 "unknown": unknown,
                 "hint": "recommend only product_ids returned by query_inventory",
             }
-        self.session.recommendations = recommendations
-        self.session.status = "done"
-        self.session.interrupt_reason = None
-        store.touch(self.session)
-        return {
+        proposal = {
             "ok": True,
             "answer": str(answer or "")[:2000],
             "recommendations": recommendations,
         }
+        if not commit:
+            return proposal
+        self.session.recommendations = recommendations
+        self.session.status = "done"
+        self.session.interrupt_reason = None
+        store.touch(self.session)
+        return proposal
 
     def ask_user(self, question: str, reason: str = "clarify") -> dict[str, Any]:
         self.session.status = "interrupted"
