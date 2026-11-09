@@ -71,7 +71,7 @@ def to_message_response(result: TurnResult) -> MessageResponse:
 
     pending = result.pending_user
     if result.status == "waiting_user" and pending is not None:
-        clarify = pending.metadata.get("clarify") or []
+        clarify = pending.metadata.get("questions") or []
         return MessageResponse(
             session_id=result.run_id,
             status="interrupted",

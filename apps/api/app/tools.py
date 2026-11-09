@@ -562,21 +562,17 @@ class ToolBox:
         store.touch(self.session)
         return proposal
 
-    def ask_user(self, question: str, reason: str = "clarify") -> dict[str, Any]:
+    def ask_user(
+        self,
+        questions: list[dict[str, Any]],
+        reason: str = "need_user",
+    ) -> dict[str, Any]:
         self.session.status = "interrupted"
         self.session.interrupt_reason = reason
-        self.last_ask = question
-        store.touch(self.session)
-        return {"ok": True, "question": question, "reason": reason}
-
-    def ask_clarify(self, questions: list[dict[str, Any]]) -> dict[str, Any]:
-        """Interrupt with a structured questionnaire (each item: id/question/options)."""
-        self.session.status = "interrupted"
-        self.session.interrupt_reason = "clarify"
         self.session.pending_questions = questions
-        self.last_ask = "请确认筛选条件"
+        self.last_ask = str(questions[0].get("question") or "")
         store.touch(self.session)
-        return {"ok": True, "questions": questions}
+        return {"ok": True, "questions": questions, "reason": reason}
 
     def apply_clarify(self, answers: dict[str, str]) -> dict[str, Any]:
         """Merge answered clarify questions into requirements by semantic field."""

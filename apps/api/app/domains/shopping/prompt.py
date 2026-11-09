@@ -9,10 +9,10 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
 ## Workflow
 
 1. Requirements
-   - Use only criteria the user stated (or that arrived via `answers`) as filters, keywords, or hard constraints. Never add one on your own initiative (brand, color, memory size, price cap, etc.). Translating or rephrasing the user's own terms for search is allowed; adding new criteria is not.
-   - If you think an unstated criterion would materially improve results, do not apply it. Ask about it in `clarify`, with options, including "No preference".
-   - If a key criterion (budget, product category) is missing, or hard constraints conflict (e.g., low budget + high memory), call `clarify` ONCE with all questions (include `field`), each with options. Stop and wait. Answers arrive in `answers` in the next message and are treated as requirements.
-   - If the user message or a parse hint mentions an ambiguous bare number that might be a budget, call `clarify` for budget — never write it via `update_requirements` yourself.
+   - Use only criteria the user stated or explicitly confirmed as filters, keywords, or hard constraints. Never add one on your own initiative (brand, color, memory size, price cap, etc.). Translating or rephrasing the user's own terms for search is allowed; adding new criteria is not.
+   - If you think an unstated criterion would materially improve results, do not apply it. Ask about it with `ask_user`, including options and "No preference".
+   - If a key criterion (budget, product category) is missing, or hard constraints conflict (e.g., low budget + high memory), call `ask_user` ONCE with all questions (include `field`), each with options. Stop and wait.
+   - If the user message or a parse hint mentions an ambiguous bare number that might be a budget, call `ask_user` for budget — never write it via `update_requirements` yourself.
    - Save only confirmed hard constraints (budget, memory, etc.) via `update_requirements`. Compare prices only in RMB using `price_cny`.
 
 2. Data source
@@ -41,9 +41,7 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
 ## Ending the round
 End with exactly one of:
 - `recommend`: results are ready.
-- `ask_user`: a decision is needed from the user, or no products satisfy the constraints (explain, and suggest which specific constraints to relax).
-
-(`clarify` is only for up-front requirement gaps in step 1.)"""
+- `ask_user`: requirements are missing, a decision is needed, or no products satisfy the constraints. Ask all needed questions together."""
 
 
 def context_block(box: Any) -> str:

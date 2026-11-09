@@ -127,7 +127,9 @@ class MockShopper:
             if not re.search(r"跳过澄清|不用问|别问了|直接搜|直接开始", text):
                 gaps = _requirement_gaps(status["requirements"])
                 if gaps:
-                    return _call("clarify", questions=gaps)
+                    return _call(
+                        "ask_user", questions=gaps, reason="clarify"
+                    )
             force = bool(re.search(r"重新搜索|再搜|换一批|重搜|research|search again", text, re.I))
             return self._start_collect(status, force_search=force)
 

@@ -72,12 +72,7 @@ class _Recommend(BaseModel):
     answer: str = Field(description="给用户的最终回复（中文，简洁）")
 
 
-class _Ask(BaseModel):
-    question: str
-    reason: str = Field("clarify", description="clarify | empty | other")
-
-
-class _ClarifyQ(BaseModel):
+class _AskQuestion(BaseModel):
     id: str = Field(
         description="问题标识，如 budget / category / budget_ram_conflict"
     )
@@ -95,8 +90,9 @@ class _ClarifyQ(BaseModel):
     )
 
 
-class _Clarify(BaseModel):
-    questions: list[_ClarifyQ] = Field(min_length=1, max_length=5)
+class _AskUser(BaseModel):
+    questions: list[_AskQuestion] = Field(min_length=1, max_length=5)
+    reason: str = "need_user"
 
 
 def _compact_browse(result: dict[str, Any]) -> dict[str, Any]:
@@ -360,13 +356,15 @@ def build_shopping_tools(
             error=result.get("error"),
         )
 
-    async def ask_user(args: _Ask, _context: Any) -> ToolResult:
-        result = box.ask_user(args.question, args.reason)
+    async def ask_user(args: _AskUser, _context: Any) -> ToolResult:
+        questions = [question.model_dump() for question in args.questions]
+        result = box.ask_user(questions, args.reason)
+        question = questions[0]["question"]
         pending = {
-            "question": result["question"],
+            "question": question,
             "reason": result["reason"],
             "options": [],
-            "metadata": {},
+            "metadata": {"questions": questions},
         }
         return ToolResult(
             call_id="",
@@ -375,30 +373,8 @@ def build_shopping_tools(
             data=result,
             control="wait_user",
             output={
-                "question": result["question"],
+                "question": question,
                 "reason": result["reason"],
-                "pending_user": pending,
-            },
-        )
-
-    async def clarify(args: _Clarify, _context: Any) -> ToolResult:
-        questions = [question.model_dump() for question in args.questions]
-        result = box.ask_clarify(questions)
-        pending = {
-            "question": "请先确认以下筛选条件。",
-            "reason": "clarify",
-            "options": [],
-            "metadata": {"clarify": questions},
-        }
-        return ToolResult(
-            call_id="",
-            tool="clarify",
-            ok=True,
-            data=result,
-            control="wait_user",
-            output={
-                "question": "请先确认以下筛选条件。",
-                "reason": "clarify",
                 "pending_user": pending,
             },
         )
@@ -474,21 +450,11 @@ def build_shopping_tools(
         ToolSpec(
             name="ask_user",
             description=(
-                "需要用户做决定、或没有商品满足约束时使用（说明原因并建议放宽哪些具体约束），并结束本轮。"
-                "需求缺口请用 clarify，不要用它。"
+                "需要补充需求、由用户做决定、或没有商品满足约束时使用。"
+                "一次性列出全部结构化问题；每题可给候选项，用户也可自由输入。调用后结束本轮。"
             ),
-            args_model=_Ask,
+            args_model=_AskUser,
             handler=ask_user,
-        ),
-        ToolSpec(
-            name="clarify",
-            description=(
-                "关键过滤条件（预算/品类）缺失或硬约束冲突时，只调用一次，一次性列出全部结构化问题"
-                "（每题给候选项；询问未陈述的可选条件时候选须含「无偏好」）。"
-                "调用后本轮结束，用户的回答会在下一条消息的 answers 中并入需求。"
-            ),
-            args_model=_Clarify,
-            handler=clarify,
         ),
     ]
 

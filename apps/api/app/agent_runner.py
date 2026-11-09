@@ -59,7 +59,7 @@ async def run_agent(
         text = (
             f"{session.requirement or text}\n"
             "（解析提示：上一轮澄清回答无法解析为有效条件，"
-            "请再次调用 clarify，不要自行编造预算或其他硬约束。）"
+            "请再次调用 ask_user，不要自行编造预算或其他硬约束。）"
         ).strip()
     log_event(
         session,
@@ -80,12 +80,12 @@ async def run_agent(
     )
 
     if not llm.llm_enabled():
-        ask = tools.ask_user(
+        session.status = "interrupted"
+        session.interrupt_reason = "llm_unavailable"
+        result = await interrupt_response_async(
+            session,
             "未配置 SA_LLM_API_KEY，无法运行选品助手。请在 apps/api/.env 中设置后重试。",
             "llm_unavailable",
-        )
-        result = await interrupt_response_async(
-            session, ask["question"], ask["reason"]
         )
         result["execution_logs"] = turn_logs(session)
         return result
@@ -117,12 +117,12 @@ async def run_agent(
             level="error",
             data={"timeout_s": settings.agent_turn_timeout_s},
         )
-        ask = tools.ask_user(
+        session.status = "interrupted"
+        session.interrupt_reason = "turn_timeout"
+        result = await interrupt_response_async(
+            session,
             "这一轮执行时间过长，已中止。请缩小需求或点「继续」重试。",
             "turn_timeout",
-        )
-        result = await interrupt_response_async(
-            session, ask["question"], ask["reason"]
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("agent turn failed sid=%s", session.id[:8])
@@ -134,9 +134,12 @@ async def run_agent(
             level="error",
             data={"policy": "llm"},
         )
-        ask = tools.ask_user(f"执行出错（{type(exc).__name__}），可点「继续」重试。", "agent_error")
+        session.status = "interrupted"
+        session.interrupt_reason = "agent_error"
         result = await interrupt_response_async(
-            session, ask["question"], ask["reason"]
+            session,
+            f"执行出错（{type(exc).__name__}），可点「继续」重试。",
+            "agent_error",
         )
 
     await durable_touch(session)

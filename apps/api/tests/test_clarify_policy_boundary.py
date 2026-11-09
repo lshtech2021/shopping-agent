@@ -34,13 +34,13 @@ def test_orchestrators_do_not_hardcode_clarify_question_lists():
                 )
 
 
-def test_clarify_tool_is_registered_in_shopping_domain():
+def test_ask_user_is_the_only_wait_tool_registered_in_shopping_domain():
     from app.domains.shopping.tools import build_shopping_tools
     from app.store import store
     from app.tools import ToolBox
 
     session = store.create("笔记本", ["jd"])
     names = {spec.name for spec in build_shopping_tools(ToolBox(session), {})}
-    assert "clarify" in names
+    assert "clarify" not in names
     assert "ask_user" in names
     assert "update_requirements" in names

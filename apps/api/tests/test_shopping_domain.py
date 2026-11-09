@@ -45,7 +45,7 @@ def test_shopping_state_and_output_are_domain_models():
     assert output.recommendations[0]["product_id"] == "p1"
 
 
-def test_build_shopping_tools_exposes_ten_typed_tools():
+def test_build_shopping_tools_exposes_one_ask_user_wait_tool():
     session = seed_session()
     specs = build_shopping_tools(ToolBox(session), {})
 
@@ -60,8 +60,8 @@ def test_build_shopping_tools_exposes_ten_typed_tools():
         "fetch_detail",
         "recommend",
         "ask_user",
-        "clarify",
     ]
+    assert "clarify" not in names
     assert all(spec.args_model is not None for spec in specs)
 
 
@@ -72,7 +72,7 @@ def test_state_mutating_shopping_tools_are_not_marked_read_only():
         for spec in build_shopping_tools(ToolBox(session), {})
     }
 
-    for name in ("update_requirements", "recommend", "ask_user", "clarify"):
+    for name in ("update_requirements", "recommend", "ask_user"):
         assert specs[name].read_only is False
     assert specs["get_session"].read_only is True
     assert specs["query_inventory"].read_only is True
@@ -127,7 +127,7 @@ def test_recommend_proposal_does_not_commit_until_finalize():
     assert session.status == "done"
 
 
-def test_ask_user_and_clarify_set_wait_user_control():
+def test_ask_user_with_empty_options_sets_wait_user_control():
     session = seed_session()
     specs = {
         item.name: item
@@ -135,30 +135,24 @@ def test_ask_user_and_clarify_set_wait_user_control():
     }
 
     ask_args = specs["ask_user"].args_model.model_validate(
-        {"question": "预算多少？", "reason": "clarify"}
-    )
-    ask_result = asyncio.run(specs["ask_user"].handler(ask_args, Context()))
-    assert ask_result.control == "wait_user"
-    assert ask_result.output["pending_user"]["question"] == "预算多少？"
-
-    clarify_args = specs["clarify"].args_model.model_validate(
         {
             "questions": [
                 {
                     "id": "budget",
                     "field": "budget",
-                    "question": "预算？",
-                    "options": ["5000"],
+                    "question": "预算多少？",
+                    "options": [],
                 }
-            ]
+            ],
+            "reason": "need_user",
         }
     )
-    clarify_result = asyncio.run(
-        specs["clarify"].handler(clarify_args, Context())
-    )
-    assert clarify_result.control == "wait_user"
-    questions = clarify_result.output["pending_user"]["metadata"]["clarify"]
+    ask_result = asyncio.run(specs["ask_user"].handler(ask_args, Context()))
+    assert ask_result.control == "wait_user"
+    assert ask_result.output["pending_user"]["question"] == "预算多少？"
+    questions = ask_result.output["pending_user"]["metadata"]["questions"]
     assert questions[0]["id"] == "budget"
+    assert session.pending_questions == questions
 
 
 def test_to_message_response_maps_finish_and_waiting():
@@ -182,10 +176,11 @@ def test_to_message_response_maps_finish_and_waiting():
         status="waiting_user",
         pending_user=PendingUser(
             question="请确认预算",
-            reason="clarify",
+            reason="need_user",
             metadata={
-                "clarify": [
-                    {"id": "budget", "field": "budget", "question": "预算？"}
+                "questions": [
+                    {"id": "budget", "field": "budget", "question": "预算？"},
+                    {"id": "category", "field": "category", "question": "品类？"},
                 ]
             },
         ),
@@ -193,8 +188,9 @@ def test_to_message_response_maps_finish_and_waiting():
     )
     response = to_message_response(waiting)
     assert response.interrupted is True
-    assert response.interrupt_reason == "clarify"
+    assert response.interrupt_reason == "need_user"
     assert response.clarify[0].id == "budget"
+    assert response.clarify[1].id == "category"
 
 
 def test_critic_rejected_result_is_resumable_and_has_no_recommendations():

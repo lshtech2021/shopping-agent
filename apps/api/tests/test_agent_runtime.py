@@ -181,21 +181,21 @@ def test_wait_user_control_returns_pending_user():
     registry = ToolRegistry()
     registry.register(
         spec(
-            "clarify",
+            "ask_user",
             ToolResult(
                 call_id="ignored",
-                tool="clarify",
+                tool="ask_user",
                 ok=True,
                 control="wait_user",
                 output={
                     "question": "Which budget?",
-                    "reason": "clarify",
+                    "reason": "need_user",
                     "options": ["3000", "5000"],
                 },
             ),
         )
     )
-    model = FakeModel([call("clarify")])
+    model = FakeModel([call("ask_user")])
 
     runtime, policy, _ = runtime_for(registry, model)
     state = make_state()
@@ -204,7 +204,7 @@ def test_wait_user_control_returns_pending_user():
     assert result.status == "waiting_user"
     assert result.pending_user == PendingUser(
         question="Which budget?",
-        reason="clarify",
+        reason="need_user",
         options=["3000", "5000"],
     )
     assert state["phase"] == "waiting_user"
@@ -397,17 +397,17 @@ def test_resume_appends_user_input_and_continues():
     registry = ToolRegistry()
     registry.register(
         spec(
-            "clarify",
+            "ask_user",
             ToolResult(
                 call_id="ignored",
-                tool="clarify",
+                tool="ask_user",
                 ok=True,
                 control="wait_user",
-                output={"question": "budget?", "reason": "clarify"},
+                output={"question": "budget?", "reason": "need_user"},
             ),
         )
     )
-    model = FakeModel([call("clarify"), AIMessage(content="after resume")])
+    model = FakeModel([call("ask_user"), AIMessage(content="after resume")])
     runtime, policy, _ = runtime_for(registry, model)
     state = make_state()
 

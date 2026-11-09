@@ -91,7 +91,7 @@ def test_budget_unlimited_requires_budget_context():
 
 
 def test_low_confidence_budget_is_clarified_via_model_tool(fake_llm):
-    """Ambiguous bare numbers stay unset; the model must call clarify."""
+    """Ambiguous bare numbers stay unset; the model must ask the user."""
     import asyncio
 
     from conftest import _call
@@ -102,7 +102,7 @@ def test_low_confidence_budget_is_clarified_via_model_tool(fake_llm):
     model = fake_llm(
         [
             _call(
-                "clarify",
+                "ask_user",
                 questions=[
                     {
                         "id": "budget",
@@ -118,6 +118,7 @@ def test_low_confidence_budget_is_clarified_via_model_tool(fake_llm):
                         ],
                     }
                 ],
+                reason="clarify",
             )
         ]
     )

@@ -29,7 +29,7 @@ from app.domains.shopping.tools import (
     build_shopping_tools,
     to_langchain_tools,
 )
-from app.store import Session
+from app.store import Session, store
 from app.tools import ToolBox
 from app.trace import log_event
 
@@ -191,16 +191,15 @@ async def run_llm_policy(
     if result.status == "waiting_user":
         session.status = "interrupted"
         session.interrupt_reason = (
-            result.pending_user.reason if result.pending_user else "clarify"
+            result.pending_user.reason if result.pending_user else "need_user"
         )
     elif result.status == "done":
         session.status = "interrupted" if response.interrupted else "done"
         session.interrupt_reason = response.interrupt_reason
     elif result.status in {"max_steps", "failed"}:
-        box.ask_user(
-            response.reply,
-            response.interrupt_reason or "agent_error",
-        )
+        session.status = "interrupted"
+        session.interrupt_reason = response.interrupt_reason or "agent_error"
+        store.touch(session)
 
     session.messages.append({"role": "assistant", "content": response.reply})
     payload = response.model_dump()

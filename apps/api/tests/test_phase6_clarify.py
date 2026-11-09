@@ -113,7 +113,7 @@ def test_llm_policy_can_clarify(fake_llm):
     model = fake_llm(
         [
             _call(
-                "clarify",
+                "ask_user",
                 questions=[
                     {
                         "id": "budget",
@@ -121,6 +121,7 @@ def test_llm_policy_can_clarify(fake_llm):
                         "options": ["3000-5000", "5000-8000"],
                     }
                 ],
+                reason="clarify",
             )
         ]
     )

@@ -143,7 +143,7 @@ def test_clarify_unparseable_budget_requests_another_answer():
 
 
 def test_unparseable_clarify_answer_is_reasked_via_model_tool(fake_llm):
-    """Failed answer merge stays host-side; re-asking is a model clarify call."""
+    """Failed answer merge stays host-side; the model asks again."""
     import asyncio
 
     from conftest import _call
@@ -152,7 +152,7 @@ def test_unparseable_clarify_answer_is_reasked_via_model_tool(fake_llm):
     model = fake_llm(
         [
             _call(
-                "clarify",
+                "ask_user",
                 questions=[
                     {
                         "id": "budget",
@@ -168,6 +168,7 @@ def test_unparseable_clarify_answer_is_reasked_via_model_tool(fake_llm):
                         ],
                     }
                 ],
+                reason="clarify",
             )
         ]
     )
