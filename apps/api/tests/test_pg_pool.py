@@ -75,3 +75,53 @@ def test_pg_repo_uses_single_conn_when_pool_size_zero(monkeypatch):
 
     repo = FakeRepo("postgresql://example/db")
     assert repo._pool is None
+
+
+def test_pool_pins_connection_for_session_advisory_lock(monkeypatch):
+    class FakeConn:
+        def __init__(self):
+            self.ops: list[str] = []
+
+        def execute(self, sql, params=None):
+            self.ops.append(sql.strip().split()[1])  # try_advisory / advisory_unlock
+            class Row:
+                def fetchone(self_inner):
+                    return {"locked": True}
+
+            return Row()
+
+    held: list[FakeConn] = []
+    returned: list[FakeConn] = []
+
+    class FakePool:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def getconn(self):
+            conn = FakeConn()
+            held.append(conn)
+            return conn
+
+        def putconn(self, conn):
+            returned.append(conn)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(settings, "pg_pool_size", 2)
+    monkeypatch.setattr(settings, "auto_create_schema", False)
+    monkeypatch.setattr("app.store_pg.ConnectionPool", FakePool)
+
+    class FakeRepo(RunRepository):
+        _memory_instance = None
+
+        def __new__(cls, database_url: str | None = "memory"):
+            return object.__new__(cls)
+
+    repo = FakeRepo("postgresql://example/db")
+    assert repo.try_turn_lock("run-a") is True
+    assert list(repo._held_locks) == ["run-a"]
+    assert returned == []
+    repo.release_turn_lock("run-a")
+    assert repo._held_locks == {}
+    assert returned == held
