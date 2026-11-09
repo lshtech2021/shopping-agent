@@ -392,6 +392,43 @@ class ToolBox:
 
     # --- browse ---
 
+    async def dispatch_browse(
+        self, tool: str, args: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Public browse entry used by adapters; applies quotas/site guards."""
+        payload = dict(args or {})
+        name = str(tool or "").strip()
+        if name == "search":
+            filters = {
+                key: value
+                for key, value in payload.items()
+                if key not in {"site", "query"}
+            }
+            return await self.search(
+                str(payload.get("site") or ""),
+                str(payload.get("query") or ""),
+                **filters,
+            )
+        if name == "scrape_listing":
+            page = payload.get("page")
+            return await self.scrape_listing(
+                payload.get("site"),
+                int(page) if page is not None else None,
+            )
+        if name == "next_page":
+            return await self.next_page(payload.get("site"))
+        if name == "fetch_detail":
+            product_id = str(
+                payload.get("product_id")
+                or payload.get("source_product_id")
+                or ""
+            )
+            return await self.fetch_detail(product_id)
+        return {
+            "status": "parse_error",
+            "error": f"unknown_browse_tool:{name}",
+        }
+
     async def search(
         self, site: str, query: str, **filters: Any
     ) -> dict[str, Any]:

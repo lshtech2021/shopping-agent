@@ -113,7 +113,7 @@ class ShoppingBrowser:
         self.box = box
 
     async def execute(self, action: dict[str, Any]) -> dict[str, Any]:
-        return await self.box._browse(
+        return await self.box.dispatch_browse(
             str(action.get("tool") or "search"),
             dict(action.get("args") or {}),
         )
