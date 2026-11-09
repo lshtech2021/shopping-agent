@@ -12,24 +12,25 @@
 
 **Files:** `apps/api/.env.example`
 
-- [ ] Add `SA_PG_POOL_SIZE=0` with one-line comment (0 = single conn)
-- [ ] Fix stale “empty key → rule policy” wording if still present
-- [ ] Commit
+- [x] Add `SA_PG_POOL_SIZE=0` with one-line comment (0 = single conn)
+- [x] Fix stale “empty key → rule policy” wording if still present
+- [x] Commit
 
 ### Task 2: Architecture test — `app.agent` stays domain-free
 
 **Files:** `apps/api/tests/test_agent_architecture.py`
 
-- [ ] Assert no `app.domains` imports under `app/agent`
-- [ ] Assert agent package source has no shopping business identifiers (`requirements`, `inventory`, `recommend`, `clarify` as symbols — allow comments only if needed; prefer zero matches in `.py` excluding tests)
-- [ ] Commit
+- [x] Assert no `app.domains` imports under `app/agent`
+- [x] Assert agent package source has no shopping business identifiers (`requirements`, `inventory`, `recommend`, `clarify` as symbols — allow comments only if needed; prefer zero matches in `.py` excluding tests)
+- [x] Drive parallel batches via `ToolSpec.parallel_safe` (remove hardcoded shopping tool names from runtime)
+- [x] Commit
 
 ### Task 3: Escape web console `data-id`
 
 **Files:** `apps/web/app.js`, test if present
 
-- [ ] Escape `data-id` / HTML attribute injection for session ids
-- [ ] Commit
+- [x] Escape `data-id` / HTML attribute injection for session ids
+- [x] Commit
 
 ### Deferred
 
