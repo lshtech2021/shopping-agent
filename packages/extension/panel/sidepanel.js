@@ -1,6 +1,7 @@
 import {
   createSession,
   getSession,
+  getSessionEvents,
   sendMessage,
   resumeSession,
 } from '../shared/api.js'
@@ -17,6 +18,8 @@ const state = {
   clarifyCards: [],
   pollTimer: null,
   busy: false,
+  eventAfter: 0,
+  recentEvents: [],
 }
 
 const els = {
@@ -234,6 +237,8 @@ function stopPolling() {
 function startPolling(sessionId, generation) {
   stopPolling()
   if (!sessionId) return
+  state.eventAfter = 0
+  state.recentEvents = []
   state.pollTimer = setInterval(async () => {
     if (
       !isCurrentGeneration(generation, state.requestGeneration) ||
@@ -243,13 +248,18 @@ function startPolling(sessionId, generation) {
       return
     }
     try {
+      const batch = await getSessionEvents(sessionId, state.eventAfter)
+      if (batch?.events?.length) {
+        state.recentEvents = state.recentEvents.concat(batch.events).slice(-40)
+        state.eventAfter = batch.next_after
+      }
       const detail = await getSession(sessionId)
       els.turnStatus.hidden = false
-      els.turnStatus.textContent = progressText(detail)
+      els.turnStatus.textContent = progressText(detail, state.recentEvents)
     } catch (_) {
       /* keep the current status */
     }
-  }, 2000)
+  }, 1500)
 }
 
 async function persistSession(sessionId) {

@@ -44,6 +44,14 @@ export function getSession(sessionId) {
   return request(`/api/v1/sessions/${sessionId}`)
 }
 
+export function getSessionEvents(sessionId, after = 0, limit = 100) {
+  const params = new URLSearchParams({
+    after: String(after || 0),
+    limit: String(limit || 100),
+  })
+  return request(`/api/v1/sessions/${sessionId}/events?${params}`)
+}
+
 export function resumeSession(
   sessionId,
   note = 'continue',

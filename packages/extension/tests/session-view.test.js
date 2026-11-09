@@ -40,4 +40,11 @@ test('progress text includes product count and current stage', async () => {
     }),
     /商品 2.*llm\.tool\.search/,
   )
+  assert.match(
+    view.progressText(
+      { products: [1] },
+      [{ event: { stage: 'tool.end', message: 'scrape ok' } }],
+    ),
+    /商品 1.*tool\.end.*scrape ok/,
+  )
 })

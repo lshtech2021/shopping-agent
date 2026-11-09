@@ -14,34 +14,34 @@
 
 **Files:** `store_pg.py`, `store.py`, tests
 
-- [ ] `append_run_event(run_id, event)` inserts into `run_events`
-- [ ] `list_run_events(run_id, *, after_id=0, limit=100)` returns ordered rows with ids
-- [ ] Memory mode mirrors with an in-process list
-- [ ] Commit
+- [x] `append_run_event(run_id, event)` inserts into `run_events`
+- [x] `list_run_events(run_id, *, after_id=0, limit=100)` returns ordered rows with ids
+- [x] Memory mode mirrors with an in-process list
+- [x] Commit
 
 ### Task 2: Trace writes events
 
 **Files:** `trace.py`, tests
 
-- [ ] `log_event` also appends via store when session is known
-- [ ] Failures to append must not break the tool path
-- [ ] Commit
+- [x] `log_event` also appends via store when session is known
+- [x] Failures to append must not break the tool path
+- [x] Commit
 
 ### Task 3: HTTP cursor endpoint
 
 **Files:** `main.py`, schemas, tests
 
-- [ ] `GET /api/v1/sessions/{id}/events?after=&limit=`
-- [ ] Auth same as session GET
-- [ ] Commit
+- [x] `GET /api/v1/sessions/{id}/events?after=&limit=`
+- [x] Auth same as session GET
+- [x] Commit
 
 ### Task 4: Side Panel polls events
 
 **Files:** `packages/extension/panel/*`, tests
 
-- [ ] During busy turn, poll events cursor; update progress text from latest stage/message
-- [ ] Fall back to session GET if events empty
-- [ ] Commit
+- [x] During busy turn, poll events cursor; update progress text from latest stage/message
+- [x] Fall back to session GET if events empty
+- [x] Commit
 
 ### Deferred
 

@@ -9,8 +9,13 @@ export function shouldShowResume(detail) {
   )
 }
 
-export function progressText(detail) {
-  const logs = detail?.execution_logs || []
+export function progressText(detail, events = []) {
+  const fromEvents = events.map((row) => row?.event).filter(Boolean)
+  const logs = fromEvents.length
+    ? fromEvents
+    : detail?.execution_logs || []
   const last = logs[logs.length - 1]
-  return `执行中… 商品 ${detail?.products?.length || 0}，阶段 ${last?.stage || '准备中'}`
+  const stage = last?.stage || '准备中'
+  const message = last?.message ? ` · ${last.message}` : ''
+  return `执行中… 商品 ${detail?.products?.length || 0}，阶段 ${stage}${message}`
 }
