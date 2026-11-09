@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Annotated, Any, Optional, TypedDict
+from typing import Annotated, Any, Literal, Optional, TypedDict
 
 from langchain_core.messages import (
     AIMessage,
@@ -134,6 +134,14 @@ class _Ask(BaseModel):
 
 class _ClarifyQ(BaseModel):
     id: str = Field(description="问题标识，如 budget / category / budget_ram_conflict")
+    field: Literal[
+        "budget",
+        "category",
+        "use_case",
+        "must_have",
+        "preferences",
+        "other",
+    ] = "other"
     question: str
     options: list[str] = Field(default_factory=list, description="候选项；用户也可自由输入")
 

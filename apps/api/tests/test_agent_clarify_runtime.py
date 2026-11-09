@@ -1,0 +1,107 @@
+from fastapi.testclient import TestClient
+
+from app.main import app
+from app.store import store
+from app.tools import ToolBox
+
+client = TestClient(app)
+
+
+def seed_session(**overrides):
+    session = store.create("测试需求", overrides.pop("sites", ["jd"]))
+    requirements = {
+        "budget_cny": None,
+        "must_have": [],
+        "preferences": [],
+        "category": None,
+        "use_case": None,
+    }
+    requirements.update(overrides)
+    session.requirements = requirements
+    return session
+
+
+def test_clarify_use_case_answer_is_merged():
+    session = seed_session()
+    session.pending_questions = [
+        {
+            "id": "usage",
+            "field": "use_case",
+            "question": "用途？",
+            "options": ["办公", "开发"],
+        }
+    ]
+
+    ToolBox(session).apply_clarify({"usage": "办公"})
+
+    assert session.requirements["use_case"] == "办公"
+    assert session.pending_questions == []
+
+
+def test_clarify_must_have_answer_preserves_other_must_haves():
+    session = seed_session(must_have=["防水", "32G内存"])
+    session.pending_questions = [
+        {
+            "id": "ram",
+            "field": "must_have",
+            "question": "内存？",
+            "options": ["16G", "32G"],
+        }
+    ]
+
+    ToolBox(session).apply_clarify({"ram": "16G"})
+
+    assert "防水" in session.requirements["must_have"]
+    assert "16G内存" in session.requirements["must_have"]
+    assert "32G内存" not in session.requirements["must_have"]
+
+
+def test_clarify_preference_answer_is_merged():
+    session = seed_session()
+    session.pending_questions = [
+        {
+            "id": "brand",
+            "field": "preferences",
+            "question": "品牌偏好？",
+            "options": ["Apple", "No preference"],
+        }
+    ]
+
+    ToolBox(session).apply_clarify({"brand": "Apple"})
+
+    assert "Apple" in session.requirements["preferences"]
+
+
+def test_unlimited_budget_is_not_treated_as_missing():
+    session = seed_session()
+    session.pending_questions = [
+        {
+            "id": "budget",
+            "field": "budget",
+            "question": "预算？",
+            "options": ["不限预算", "5000"],
+        }
+    ]
+
+    ToolBox(session).apply_clarify({"budget": "不限预算"})
+
+    assert session.requirements["budget_unlimited"] is True
+    assert session.requirements["budget_cny"] is None
+
+
+def test_resume_does_not_override_confirmed_budget(mock_shopper):
+    session = seed_session()
+    session.requirement = "预算5000的笔记本"
+    session.requirements.update(
+        {"budget_cny": 8000, "category": "笔记本"}
+    )
+    session.status = "interrupted"
+    session.turn = 1
+
+    body = client.post(
+        f"/api/v1/sessions/{session.id}/resume", json={"note": "continue"}
+    ).json()
+
+    assert body["session_id"] == session.id
+    detail = client.get(f"/api/v1/sessions/{session.id}").json()
+    assert detail["requirements"]["budget_cny"] == 8000

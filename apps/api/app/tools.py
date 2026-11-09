@@ -20,6 +20,11 @@ QUOTA_LIMITS = {"search": 2, "next_page": 2, "fetch_detail": 5}
 BLOCKING = {"rate_limited", "captcha", "login_required", "blocked"}
 # Site-level risk states: once seen, the site stays closed until the user resumes.
 SITE_RISK = {"rate_limited", "captcha", "login_required"}
+_BUDGET_UPDATE = re.compile(
+    r"预算|价格|价位|改成|改为|调整|不超过|最多|以上|以内|元|块|¥|￥|不限|取消"
+)
+_CATEGORY_UPDATE = re.compile(r"改成|改为|换成|只看|只要|品类|类别|换购")
+_RAM_UPDATE = re.compile(r"内存|ram|运存|改成|改为", re.I)
 
 _last_browse_at: dict[str, float] = {}
 
@@ -217,15 +222,26 @@ class ToolBox:
         req = dict(self.session.requirements or {})
         req["raw"] = text or req.get("raw") or self.session.requirement
         budget = _extract_budget(text)
-        if budget is not None:
+        if budget is not None and (
+            req.get("budget_cny") is None or _BUDGET_UPDATE.search(text)
+        ):
             req["budget_cny"] = budget
+            req["budget_unlimited"] = False
         # Only record what the user said; never infer category/use case on our own.
         category = _extract_category(text)
-        if category:
+        if category and (
+            req.get("category") is None or _CATEGORY_UPDATE.search(text)
+        ):
             req["category"] = category
         ram = _extract_min_ram_gb(text)
-        if ram is not None:
-            must = [m for m in (req.get("must_have") or []) if not _RAM_MUST.search(str(m))]
+        if ram is not None and (
+            not req.get("must_have") or _RAM_UPDATE.search(text)
+        ):
+            must = [
+                m
+                for m in (req.get("must_have") or [])
+                if not _RAM_MUST.search(str(m))
+            ]
             must.append(f"{ram}G内存")
             req["must_have"] = must
         if patch:
@@ -483,29 +499,64 @@ class ToolBox:
         return {"ok": True, "questions": questions}
 
     def apply_clarify(self, answers: dict[str, str]) -> dict[str, Any]:
-        """Merge answered clarify questions into requirements; clear pending list."""
+        """Merge answered clarify questions into requirements by semantic field."""
         req = dict(self.session.requirements or {})
+        field_by_id = {
+            str(question.get("id") or ""): str(
+                question.get("field") or "other"
+            )
+            for question in (self.session.pending_questions or [])
+            if isinstance(question, dict)
+        }
+        known_fields = {
+            "budget",
+            "category",
+            "use_case",
+            "must_have",
+            "preferences",
+        }
         applied: dict[str, str] = {}
         for qid, raw in (answers or {}).items():
             value = str(raw or "").strip()
             if not value:
                 continue
-            if qid == "budget":
+            qid = str(qid)
+            if qid == "budget_ram_conflict":
+                if "放宽" in value:
+                    req["budget_cny"] = None
+                    req["budget_unlimited"] = True
+                elif re.search(r"16", value):
+                    self._merge_must_have_answer(req, "16G")
+                applied[qid] = value
+                continue
+            field = field_by_id.get(qid)
+            if not field or field == "other":
+                field = qid if qid in known_fields else "other"
+            if field == "budget":
                 if re.search(r"不限|无所谓|都可以|越贵越好", value):
                     req["budget_cny"] = None
+                    req["budget_unlimited"] = True
                 else:
                     parsed = _parse_budget_answer(value)
                     if parsed is not None:
                         req["budget_cny"] = parsed
-            elif qid == "category":
+                        req["budget_unlimited"] = False
+            elif field == "category":
                 req["category"] = value
-            elif qid == "budget_ram_conflict":
-                if "放宽" in value:
-                    req["budget_cny"] = None
-                elif re.search(r"16", value):
-                    req["must_have"] = ["16G内存"]
-                # 维持硬约束 → keep both; an empty result will interrupt later.
-            applied[qid] = value
+            elif field == "use_case":
+                req["use_case"] = value
+            elif field == "must_have":
+                self._merge_must_have_answer(req, value)
+            elif field == "preferences":
+                preferences = list(req.get("preferences") or [])
+                if value not in preferences:
+                    preferences.append(value)
+                req["preferences"] = preferences
+            else:
+                clarifications = dict(req.get("clarifications") or {})
+                clarifications[str(qid)] = value
+                req["clarifications"] = clarifications
+            applied[str(qid)] = value
         self.session.requirements = req
         self.session.pending_questions = []
         store.touch(self.session)
@@ -517,6 +568,24 @@ class ToolBox:
             data={"applied": applied, "requirements": req},
         )
         return {"ok": True, "applied": applied, "requirements": req}
+
+    @staticmethod
+    def _merge_must_have_answer(req: dict[str, Any], value: str) -> None:
+        must = list(req.get("must_have") or [])
+        ram_match = re.fullmatch(
+            r"\s*(\d{1,3})\s*g(?:b)?\s*", value, re.I
+        ) or re.search(
+            r"(?:内存|ram|运存)\s*(\d{1,3})\s*g(?:b)?", value, re.I
+        )
+        if ram_match:
+            ram = int(ram_match.group(1))
+            must = [m for m in must if not _RAM_MUST.search(str(m))]
+            normalized = f"{ram}G内存"
+        else:
+            normalized = value
+        if normalized not in must:
+            must.append(normalized)
+        req["must_have"] = must
 
     def _upsert_listing(self, site: str, item: dict[str, Any]) -> bool:
         source_id = str(item.get("source_product_id") or "").strip()

@@ -16,7 +16,13 @@ from app.trace import log_event, turn_logs
 logger = logging.getLogger(__name__)
 
 
-async def run_agent(session: Session, content: str, answers: dict[str, str] | None = None) -> dict[str, Any]:
+async def run_agent(
+    session: Session,
+    content: str,
+    answers: dict[str, str] | None = None,
+    *,
+    skip_parse: bool = False,
+) -> dict[str, Any]:
     session.turn += 1
     session.status = "running"
     session.interrupt_reason = None
@@ -67,7 +73,9 @@ async def run_agent(session: Session, content: str, answers: dict[str, str] | No
     try:
         from app.llm_agent import run_llm_policy
 
-        result = await run_llm_policy(session, text, tools, skip_parse=clarified)
+        result = await run_llm_policy(
+            session, text, tools, skip_parse=skip_parse or clarified
+        )
     except Exception as exc:  # noqa: BLE001
         logger.exception("agent turn failed sid=%s", session.id[:8])
         log_event(
@@ -101,7 +109,7 @@ async def resume_agent(session: Session, note: str) -> dict[str, Any]:
         if note and note.strip() not in {"continue", "user continued"}
         else session.requirement
     )
-    return await run_agent(session, content)
+    return await run_agent(session, content, skip_parse=True)
 
 
 def blocked_text(site: str, result: dict[str, Any], what: str) -> str:
