@@ -4,7 +4,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from app.store import SessionStore, store as default_store
+from app.store import Session, SessionStore, store as default_store
+from app.store_pg import VersionConflict
 
 
 def _now() -> datetime:
@@ -14,6 +15,13 @@ def _now() -> datetime:
 class RunSupervisor:
     def __init__(self, store: SessionStore | None = None) -> None:
         self.store = store or default_store
+
+    def _safe_touch(self, session: Session) -> bool:
+        try:
+            self.store.touch(session)
+            return True
+        except VersionConflict:
+            return False
 
     def reconcile_startup(self) -> int:
         changed = 0
@@ -32,8 +40,8 @@ class RunSupervisor:
             session.lease_owner = None
             session.lease_expires_at = None
             session.heartbeat_at = None
-            self.store.touch(session)
-            changed += 1
+            if self._safe_touch(session):
+                changed += 1
         return changed
 
     def sweep_expired(self) -> int:
@@ -51,8 +59,8 @@ class RunSupervisor:
             session.lease_owner = None
             session.lease_expires_at = None
             session.heartbeat_at = None
-            self.store.touch(session)
-            changed += 1
+            if self._safe_touch(session):
+                changed += 1
         return changed
 
     def acquire(self, run_id: str, ttl_seconds: int = 120) -> str | None:
@@ -76,8 +84,7 @@ class RunSupervisor:
         session.lease_owner = owner
         session.lease_expires_at = expires
         session.heartbeat_at = now.isoformat()
-        self.store.touch(session)
-        return owner
+        return owner if self._safe_touch(session) else None
 
     def heartbeat(self, run_id: str, owner: str, ttl_seconds: int = 120) -> bool:
         session = self.store.get(run_id)
@@ -87,8 +94,7 @@ class RunSupervisor:
         session.lease_expires_at = (
             _now() + timedelta(seconds=ttl_seconds)
         ).isoformat()
-        self.store.touch(session)
-        return True
+        return self._safe_touch(session)
 
     def release(self, run_id: str, owner: str) -> None:
         session = self.store.get(run_id)
@@ -96,4 +102,4 @@ class RunSupervisor:
             return
         session.lease_owner = None
         session.lease_expires_at = None
-        self.store.touch(session)
+        self._safe_touch(session)

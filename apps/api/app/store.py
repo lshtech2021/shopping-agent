@@ -139,15 +139,12 @@ class SessionStore:
 
                 if not isinstance(exc, VersionConflict):
                     raise
+                # Never force-write a stale full document over a newer version.
                 latest = self._repo.get(session.id)
-                if latest is None:
-                    raise
-                session.version = int(latest.get("version") or 0)
-                record = self._repo.update(
-                    session.id,
-                    session.to_dict(),
-                    expected_version=session.version,
-                )
+                if latest is not None:
+                    winner = Session.from_dict(latest)
+                    self._sessions[session.id] = winner
+                raise
         session.version = int(record.get("version") or session.version)
 
     # --- public API ----------------------------------------------------------
