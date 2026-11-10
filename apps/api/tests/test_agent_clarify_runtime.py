@@ -22,125 +22,8 @@ def seed_session(**overrides):
     return session
 
 
-def test_clarify_use_case_answer_is_merged():
-    session = seed_session()
-    session.pending_questions = [
-        {
-            "id": "usage",
-            "field": "use_case",
-            "question": "用途？",
-            "options": ["办公", "开发"],
-        }
-    ]
-
-    ToolBox(session).apply_clarify({"usage": "办公"})
-
-    assert session.requirements["use_case"] == "办公"
-    assert session.pending_questions == []
-
-
-def test_clarify_must_have_answer_preserves_other_must_haves():
-    session = seed_session(must_have=["防水", "32G内存"])
-    session.pending_questions = [
-        {
-            "id": "ram",
-            "field": "must_have",
-            "question": "内存？",
-            "options": ["16G", "32G"],
-        }
-    ]
-
-    ToolBox(session).apply_clarify({"ram": "16G"})
-
-    assert "防水" in session.requirements["must_have"]
-    assert "16G内存" in session.requirements["must_have"]
-    assert "32G内存" not in session.requirements["must_have"]
-
-
-def test_clarify_preference_answer_is_merged():
-    session = seed_session()
-    session.pending_questions = [
-        {
-            "id": "brand",
-            "field": "preferences",
-            "question": "品牌偏好？",
-            "options": ["Apple", "No preference"],
-        }
-    ]
-
-    ToolBox(session).apply_clarify({"brand": "Apple"})
-
-    assert "Apple" in session.requirements["preferences"]
-
-
-def test_unlimited_budget_is_not_treated_as_missing():
-    session = seed_session()
-    session.pending_questions = [
-        {
-            "id": "budget",
-            "field": "budget",
-            "question": "预算？",
-            "options": ["不限预算", "5000"],
-        }
-    ]
-
-    ToolBox(session).apply_clarify({"budget": "不限预算"})
-
-    assert session.requirements["budget_unlimited"] is True
-    assert session.requirements["budget_cny"] is None
-
-
-def test_clarify_unlimited_answer_clears_both_budget_bounds():
-    session = seed_session(budget_cny=5000, budget_min_cny=3000)
-    session.pending_questions = [
-        {
-            "id": "budget",
-            "field": "budget",
-            "question": "预算？",
-            "options": ["不限预算", "5000"],
-        }
-    ]
-
-    ToolBox(session).apply_clarify({"budget": "取消预算"})
-
-    assert session.requirements["budget_unlimited"] is True
-    assert session.requirements["budget_cny"] is None
-    assert session.requirements["budget_min_cny"] is None
-
-
-def test_clarify_bare_number_is_accepted_as_budget():
-    session = seed_session()
-    session.pending_questions = [
-        {"id": "budget", "field": "budget", "question": "预算？", "options": []}
-    ]
-
-    ToolBox(session).apply_clarify({"budget": "5000"})
-
-    assert session.requirements["budget_cny"] == 5000
-    assert session.requirements["budget_unlimited"] is False
-
-
-def test_clarify_budget_range_within_is_accepted():
-    session = seed_session()
-    session.pending_questions = [
-        {"id": "budget", "field": "budget", "question": "预算？", "options": []}
-    ]
-
-    ToolBox(session).apply_clarify({"budget": "8000以内"})
-
-    assert session.requirements["budget_cny"] == 8000
-
-
-def test_clarify_unparseable_budget_requests_another_answer():
-    session = seed_session()
-    session.pending_questions = [
-        {"id": "budget", "field": "budget", "question": "预算？", "options": []}
-    ]
-
-    result = ToolBox(session).apply_clarify({"budget": "看情况"})
-
-    assert result["needs_clarify"] is True
-    assert session.requirements["budget_cny"] is None
+def test_toolbox_has_no_apply_clarify_merger():
+    assert not hasattr(ToolBox, "apply_clarify")
 
 
 def test_unparseable_answer_is_reasked_via_model_tool(fake_llm):
@@ -187,7 +70,7 @@ def test_unparseable_answer_is_reasked_via_model_tool(fake_llm):
     assert session.requirements["budget_cny"] is None
 
 
-def test_card_reply_is_plain_content_not_answers_map(fake_llm, monkeypatch):
+def test_card_reply_is_plain_content_not_answers_map(fake_llm):
     seen = []
 
     def reply(messages):
@@ -206,10 +89,6 @@ def test_card_reply_is_plain_content_not_answers_map(fake_llm, monkeypatch):
         {"id": "budget", "field": "budget", "question": "预算？", "options": []}
     ]
 
-    def reject_apply_clarify(*_args, **_kwargs):
-        raise AssertionError("apply_clarify must not run on the message path")
-
-    monkeypatch.setattr(ToolBox, "apply_clarify", reject_apply_clarify)
     content = "budget: 5000\ncategory: 笔记本"
 
     response = client.post(
@@ -227,17 +106,12 @@ def test_card_reply_is_plain_content_not_answers_map(fake_llm, monkeypatch):
     assert any(content in message for message in seen)
 
 
-def test_deprecated_answers_are_formatted_as_a_user_message(fake_llm, monkeypatch):
+def test_deprecated_answers_are_formatted_as_a_user_message(fake_llm):
     fake_llm([AIMessage(content="收到")])
     session = seed_session()
     session.pending_questions = [
         {"id": "budget", "field": "budget", "question": "预算？", "options": []}
     ]
-
-    def reject_apply_clarify(*_args, **_kwargs):
-        raise AssertionError("apply_clarify must not run on the message path")
-
-    monkeypatch.setattr(ToolBox, "apply_clarify", reject_apply_clarify)
 
     response = client.post(
         f"/api/v1/sessions/{session.id}/messages",

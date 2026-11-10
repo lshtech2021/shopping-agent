@@ -8,9 +8,13 @@ from starlette.websockets import WebSocketDisconnect
 
 from app import main
 from app.config import settings
+from app.domains.shopping.requirements import (
+    _extract_budget,
+    _extract_min_ram_gb,
+)
 from app.main import app
 from app.store import store
-from app.tools import ToolBox, _extract_budget, _extract_min_ram_gb, _throttle
+from app.tools import ToolBox, _throttle
 from app.ws_hub import ExtensionHub
 from conftest import FakeModel, _call, _last_tool_json  # noqa: F401 (shared with phase6)
 

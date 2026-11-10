@@ -100,13 +100,17 @@ def test_reanalyze_path_does_not_re_clarify(mock_shopper):
     assert followup["interrupted"] is False
 
 
-def test_clarify_answers_without_pending_questions_are_ignored(mock_shopper):
+def test_answers_without_pending_questions_are_ordinary_user_text(mock_shopper):
     sid = _new_session(REQ_FULL)
     body = client.post(
         f"/api/v1/sessions/{sid}/messages",
         json={"content": "", "answers": {"budget": "5000"}},
     ).json()
-    assert body["interrupted"] is False  # nothing pending → turn just runs
+    assert body["interrupted"] is True
+    assert [question["id"] for question in body["clarify"]] == [
+        "budget",
+        "category",
+    ]
 
 
 def test_llm_policy_can_clarify(fake_llm):

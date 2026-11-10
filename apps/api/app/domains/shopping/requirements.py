@@ -5,26 +5,10 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-_BUDGET_CHANGE = re.compile(
-    r"(?:预算|价格|价位)[^。；;]{0,10}?"
-    r"(?:改成|改为|调整|改到|降到|提高到|不要超过|不超过|最多|控制在|是|为)?"
-    r"\s*[:：]?\s*\d"
-    r"|(?:改成|改为|调整|改到|降到|提高到)[^。；;]{0,8}?(?:预算|价格|价位)"
-    r"|\d[^。；;]{0,4}(?:以内|以下|封顶)"
-)
 _BUDGET_UNLIMITED = re.compile(
     r"(?:预算|价格|价位)[^。；;]{0,8}(?:不限|取消|不用管|无所谓|随意|越贵越好)"
     r"|(?:不限|取消|不用管|越贵越好)[^。；;]{0,6}(?:预算|价格|价位)"
     r"|^越贵越好$"
-)
-_UNLIMITED_ANSWER = re.compile(
-    r"不限|无所谓|都可以|越贵越好|取消预算|不用管预算|随意"
-)
-_CATEGORY_UPDATE = re.compile(r"改成|改为|换成|只看|只要|品类|类别|换购")
-_RAM_CHANGE = re.compile(
-    r"(?:内存|ram|运存)[^。；;]{0,10}?(?:改成|改为|调整|改到|提到|提高到|升到|降到|至少|不低于)"
-    r"|(?:改成|改为|调整|改到|提到|提高到|升到|降到)[^。；;]{0,10}?(?:内存|ram|运存)",
-    re.I,
 )
 _QUESTION_MENTION = re.compile(r"怎么样|如何|吗|哪款|哪个|这个|这款|够用|值不值")
 _SPEC_NUMBER = re.compile(
@@ -216,14 +200,6 @@ def _extract_category(text: str) -> str | None:
         if re.search(pattern, text or "", re.I):
             return name
     return None
-
-
-def _is_no_preference(value: str) -> bool:
-    return bool(
-        re.search(
-            r"无偏好|不限|无所谓|都可以|随意|no\s*preference", value or "", re.I
-        )
-    )
 
 
 def _extract_min_ram_gb(text: str) -> int | None:

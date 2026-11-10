@@ -1,8 +1,12 @@
 import asyncio
 
+from langchain_core.messages import AIMessage, HumanMessage
+
 from app.agent_runner import run_agent
+from app.llm_agent import run_llm_policy
 from app.store import store
 from app.tools import ToolBox
+from conftest import _call
 
 
 def seed_session(**overrides):
@@ -57,14 +61,30 @@ def test_question_mentioning_memory_does_not_overwrite_confirmed_ram():
     assert "16G内存" not in session.requirements["must_have"]
 
 
-def test_explicit_ram_change_overwrites_confirmed_ram():
+def test_model_applies_ram_from_user_text_as_explicit_patch(fake_llm):
     session = seed_session(must_have=["防水", "32G内存"])
+    text = "内存改成16G"
 
-    ToolBox(session).update_requirements("内存改成16G")
+    def update_from_user(messages):
+        assert any(
+            text in str(message.content)
+            for message in messages
+            if isinstance(message, HumanMessage)
+        )
+        return _call("update_requirements", must_have=["16G内存"])
+
+    fake_llm([update_from_user, AIMessage(content="已更新内存要求")])
+    asyncio.run(
+        run_llm_policy(
+            session,
+            text,
+            ToolBox(session),
+            skip_parse=True,
+        )
+    )
 
     assert "防水" in session.requirements["must_have"]
     assert "16G内存" in session.requirements["must_have"]
-    assert "32G内存" not in session.requirements["must_have"]
 
 
 def test_answers_without_pending_questions_do_not_reparse_original_requirement(

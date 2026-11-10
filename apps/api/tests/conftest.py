@@ -119,6 +119,15 @@ class MockShopper:
 
         if isinstance(last, HumanMessage):
             text = str(last.content or "")
+            if re.search(
+                r"budget_ram_conflict\s*:\s*放宽预算",
+                text,
+                re.I,
+            ):
+                return _call(
+                    "update_requirements",
+                    budget_unlimited=True,
+                )
             if "已回答澄清问题" in text:
                 return self._start_collect(status, force_search=False)
             if re.search(r"rate_limit_me|触发限流", text, re.I):

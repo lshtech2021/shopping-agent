@@ -1,6 +1,6 @@
 import pytest
 
-from app.tools import parse_budget
+from app.domains.shopping.requirements import parse_budget
 
 
 @pytest.mark.parametrize(

@@ -1,7 +1,6 @@
 """Nine shopping tools: memory + browse (+ mock) + recommend/ask_user."""
 from __future__ import annotations
 
-import re
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -10,13 +9,7 @@ from app.browser.gateway import throttle as _throttle
 from app.constraints import check_product
 from app.domains.shopping.requirements import (
     _QUESTION_MENTION,
-    _RAM_CHANGE,
     _RAM_MUST,
-    _UNLIMITED_ANSWER,
-    _extract_budget,
-    _extract_min_ram_gb,
-    _is_no_preference,
-    parse_budget,
 )
 from app.domains.shopping.extract import extract_requirement_patch_sync
 from app.domains.shopping.requirements_patch import (
@@ -196,12 +189,6 @@ class ToolBox:
                         ]
                     }
                 )
-            elif _RAM_CHANGE.search(text):
-                req["must_have"] = [
-                    item
-                    for item in (req.get("must_have") or [])
-                    if not _RAM_MUST.search(str(item))
-                ]
 
         if explicit_fields:
             explicit = RequirementPatch.model_validate(explicit_fields)
@@ -573,125 +560,6 @@ class ToolBox:
         self.last_ask = str(questions[0].get("question") or "")
         store.touch(self.session)
         return {"ok": True, "questions": questions, "reason": reason}
-
-    def apply_clarify(self, answers: dict[str, str]) -> dict[str, Any]:
-        """Merge answered clarify questions into requirements by semantic field."""
-        req = dict(self.session.requirements or {})
-        field_by_id = {
-            str(question.get("id") or ""): str(
-                question.get("field") or "other"
-            )
-            for question in (self.session.pending_questions or [])
-            if isinstance(question, dict)
-        }
-        known_fields = {
-            "budget",
-            "category",
-            "use_case",
-            "must_have",
-            "preferences",
-        }
-        applied: dict[str, str] = {}
-        needs_clarify = False
-        for qid, raw in (answers or {}).items():
-            value = str(raw or "").strip()
-            if not value:
-                continue
-            qid = str(qid)
-            if qid == "budget_ram_conflict":
-                if "放宽" in value:
-                    req["budget_cny"] = None
-                    req["budget_min_cny"] = None
-                    req["budget_unlimited"] = True
-                elif re.search(r"16", value):
-                    self._merge_must_have_answer(req, "16G")
-                applied[qid] = value
-                continue
-            field = field_by_id.get(qid)
-            if not field or field == "other":
-                field = qid if qid in known_fields else "other"
-            if field == "budget":
-                if _UNLIMITED_ANSWER.search(value):
-                    req["budget_cny"] = None
-                    req["budget_min_cny"] = None
-                    req["budget_unlimited"] = True
-                else:
-                    parsed = parse_budget(value)
-                    if parsed.confidence == "high" and (
-                        parsed.max_cny is not None
-                        or parsed.min_cny is not None
-                    ):
-                        req["budget_cny"] = parsed.max_cny
-                        req["budget_min_cny"] = parsed.min_cny
-                        req["budget_unlimited"] = False
-                    else:
-                        bare = re.fullmatch(
-                            r"\s*(\d+(?:\.\d+)?)\s*(?:元|块)?\s*", value
-                        )
-                        if bare:
-                            req["budget_cny"] = float(bare.group(1))
-                            req["budget_min_cny"] = None
-                            req["budget_unlimited"] = False
-                        else:
-                            needs_clarify = True
-            elif field == "category":
-                if not _is_no_preference(value):
-                    req["category"] = value
-            elif field == "use_case":
-                if not _is_no_preference(value):
-                    req["use_case"] = value
-            elif field == "must_have":
-                if not _is_no_preference(value):
-                    self._merge_must_have_answer(req, value)
-            elif field == "preferences":
-                if not _is_no_preference(value):
-                    preferences = list(req.get("preferences") or [])
-                    if value not in preferences:
-                        preferences.append(value)
-                    req["preferences"] = preferences
-            else:
-                clarifications = dict(req.get("clarifications") or {})
-                clarifications[str(qid)] = value
-                req["clarifications"] = clarifications
-            applied[str(qid)] = value
-        self.session.requirements = req
-        self.session.pending_questions = []
-        store.touch(self.session)
-        log_event(
-            self.session,
-            "应用澄清回答",
-            stage="tool.clarify",
-            source="tool",
-            data={
-                "applied": applied,
-                "requirements": req,
-                "needs_clarify": needs_clarify,
-            },
-        )
-        return {
-            "ok": True,
-            "applied": applied,
-            "requirements": req,
-            "needs_clarify": needs_clarify,
-        }
-
-    @staticmethod
-    def _merge_must_have_answer(req: dict[str, Any], value: str) -> None:
-        must = list(req.get("must_have") or [])
-        ram_match = re.fullmatch(
-            r"\s*(\d{1,3})\s*g(?:b)?\s*", value, re.I
-        ) or re.search(
-            r"(?:内存|ram|运存)\s*(\d{1,3})\s*g(?:b)?", value, re.I
-        )
-        if ram_match:
-            ram = int(ram_match.group(1))
-            must = [m for m in must if not _RAM_MUST.search(str(m))]
-            normalized = f"{ram}G内存"
-        else:
-            normalized = value
-        if normalized not in must:
-            must.append(normalized)
-        req["must_have"] = must
 
     def _reindex_products(self) -> None:
         self._product_index = build_product_index(self.session.products)
