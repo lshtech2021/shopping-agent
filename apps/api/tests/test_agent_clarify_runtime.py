@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, HumanMessage
 
 from app.main import app
+from conftest import _call
 from app.store import store
 from app.tools import ToolBox
 
@@ -70,18 +71,18 @@ def test_unparseable_answer_is_reasked_via_model_tool(fake_llm):
     assert session.requirements["budget_cny"] is None
 
 
-def test_card_budget_reply_is_applied_before_continuing(fake_llm):
+def test_card_reply_is_a_chat_message_the_model_saves(fake_llm):
     seen = []
 
-    def reply(messages):
+    def save_answers(messages):
         seen.extend(
             message.content
             for message in messages
             if isinstance(message, HumanMessage)
         )
-        return AIMessage(content="收到")
+        return _call("update_requirements", budget_cny=5000, category="笔记本")
 
-    fake_llm([reply])
+    fake_llm([save_answers, AIMessage(content="收到")])
     session = seed_session()
     session.status = "interrupted"
     session.interrupt_reason = "clarify"

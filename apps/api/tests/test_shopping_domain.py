@@ -292,6 +292,10 @@ def test_run_llm_policy_creates_and_persists_a_plan(monkeypatch):
         "/api/v1/sessions",
         json={"requirement": "笔记本 预算5000", "sites": ["jd"]},
     ).json()
+    # Requirements already confirmed (e.g. from an earlier turn).
+    store.get(created["session_id"]).requirements.update(
+        {"budget_cny": 5000, "category": "笔记本"}
+    )
     response = client.post(
         f"/api/v1/sessions/{created['session_id']}/messages",
         json={"content": "笔记本 预算5000"},

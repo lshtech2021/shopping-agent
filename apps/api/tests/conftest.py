@@ -118,27 +118,17 @@ class MockShopper:
         last = messages[-1]
 
         if isinstance(last, HumanMessage):
+            # Like the real model: first save whatever the user stated.
             text = str(last.content or "")
-            if re.search(
-                r"budget_ram_conflict\s*:\s*放宽预算",
-                text,
-                re.I,
-            ):
-                return _call(
-                    "update_requirements",
-                    budget_unlimited=True,
-                )
-            if re.search(r"rate_limit_me|触发限流", text, re.I):
-                site = (status["sites"] or ["jd"])[0]
-                return _call("search", site=site, query="rate_limit_me")
-            if not re.search(r"跳过澄清|不用问|别问了|直接搜|直接开始", text):
-                gaps = _requirement_gaps(status["requirements"])
-                if gaps:
-                    return _call(
-                        "ask_user", questions=gaps, reason="clarify"
-                    )
-            force = bool(re.search(r"重新搜索|再搜|换一批|重搜|research|search again", text, re.I))
-            return self._start_collect(status, force_search=force)
+            if _RELAX_CONFLICT.search(text):
+                return _call("update_requirements", budget_unlimited=True)
+            fields: dict = {}
+            budget = re.search(
+                r"(?im)^\s*budget\s*[:：]\s*(\d+(?:\.\d+)?)\s*$", text
+            )
+            if budget:
+                fields["budget_cny"] = float(budget.group(1))
+            return _call("update_requirements", text=text, **fields)
 
         tool_msgs = _trailing_tool_messages(messages)
         name = tool_msgs[-1].name if tool_msgs else ""
@@ -156,7 +146,22 @@ class MockShopper:
             return _recommend_from_inventory(messages)
         if name == "fetch_detail":
             return _call("query_inventory", limit=10)
-        if name in {"update_requirements", "get_session"}:
+        if name == "update_requirements":
+            text = _last_human_text(messages)
+            if _RELAX_CONFLICT.search(text):
+                return self._start_collect(status, force_search=False)
+            if re.search(r"rate_limit_me|触发限流", text, re.I):
+                site = (status["sites"] or ["jd"])[0]
+                return _call("search", site=site, query="rate_limit_me")
+            if not re.search(r"跳过澄清|不用问|别问了|直接搜|直接开始", text):
+                gaps = _requirement_gaps(status["requirements"])
+                if gaps:
+                    return _call(
+                        "ask_user", questions=gaps, reason="clarify"
+                    )
+            force = bool(re.search(r"重新搜索|再搜|换一批|重搜|research|search again", text, re.I))
+            return self._start_collect(status, force_search=force)
+        if name == "get_session":
             return self._start_collect(status, force_search=False)
         # Fallback: ask the user rather than crash the turn.
         return AIMessage(content="这一步我需要你再确认一下需求。")
@@ -170,6 +175,14 @@ class MockShopper:
             return _call("query_inventory", limit=10)
         site = (missing or status["sites"] or ["jd"])[0]
         return _call("search", site=site, query=_search_query(status))
+
+
+_RELAX_CONFLICT = re.compile(r"budget_ram_conflict\s*:\s*放宽预算", re.I)
+
+
+def _last_human_text(messages) -> str:
+    human = [m for m in messages if isinstance(m, HumanMessage)]
+    return str(human[-1].content or "") if human else ""
 
 
 def _trailing_tool_messages(messages) -> list[ToolMessage]:

@@ -29,18 +29,6 @@ def test_domain_update_requirements_extracts_free_text():
     assert result.data["requirements"]["budget_cny"] == 6000
 
 
-@pytest.mark.parametrize("answer", ["budget: 5000", "5000"])
-def test_pending_budget_answer_is_applied_with_high_confidence(answer):
-    session = store.create("找一台笔记本", ["jd"])
-    session.pending_questions = [
-        {"id": "budget", "field": "budget", "question": "预算？", "options": []}
-    ]
-
-    result = ToolBox(session).update_requirements(answer)
-
-    assert result["requirements"]["budget_cny"] == 5000
-    assert result["needs_clarify"] is False
-
 
 def test_domain_update_requirements_ignores_explicit_null_lists():
     session = store.create("找一台笔记本", ["jd"])

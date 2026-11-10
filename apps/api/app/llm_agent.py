@@ -41,25 +41,14 @@ async def run_llm_policy(
     *,
     checkpoint_resume: bool = False,
 ) -> dict[str, Any]:
-    # Host may parse high-confidence fields into requirements, but policy
-    # decisions (including ask_user) stay in the model tool loop.
-    # Only text the user actually sent this turn is parsed; an empty turn
-    # (e.g. resume after a risk-control block) never re-parses the original
-    # requirement over confirmed fields.
-    parse_notes: list[str] = []
-    if text:
-        parsed = box.update_requirements(text)
-        parse_notes = list(parsed.get("parse_notes") or [])
-        if session.pending_questions:
-            session.pending_questions = []
+    # The host does not parse requirements: the model reads the user message
+    # and saves constraints itself via the `update_requirements` tool.
+    if text and session.pending_questions:
+        session.pending_questions = []
 
-    turn_text = text or session.requirement or ""
-    if parse_notes:
-        notes = "；".join(parse_notes)
-        turn_text = (
-            turn_text
-            + f"\n（解析提示：{notes}。请调用 ask_user 向用户确认，不要自行写入硬约束。）"
-        )
+    # A turn with no new user text (resume after a risk-control block) gets a
+    # neutral nudge instead of replaying the original requirement.
+    turn_text = text or "（用户已处理中断，请继续当前任务。）"
 
     base_model = llm.build_chat_model()
     if session.plan is None and hasattr(base_model, "with_structured_output"):

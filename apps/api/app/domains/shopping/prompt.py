@@ -13,7 +13,8 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
    - If you think an unstated criterion would materially improve results, do not apply it. Ask about it with `ask_user`, including options and "No preference".
    - If a key criterion (budget, product category) is missing, or hard constraints conflict (e.g., low budget + high memory), call `ask_user` ONCE with all questions (include `field`), each with options. Stop and wait.
    - Replies to `ask_user` must be saved with `update_requirements` using explicit fields (for example, use `budget_unlimited=true` for 放宽预算).
-   - If the user message or a parse hint mentions an ambiguous bare number that might be a budget, call `ask_user` for budget — never write it via `update_requirements` yourself.
+   - Read each new user message and save every constraint it states (budget, category, memory, ...) with `update_requirements` before searching.
+   - If the user message contains an ambiguous bare number that might be a budget, call `ask_user` for budget — never write it via `update_requirements` yourself.
    - Save only confirmed hard constraints (budget, memory, etc.) via `update_requirements`. Compare prices only in RMB using `price_cny`.
 
 2. Data source

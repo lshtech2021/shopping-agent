@@ -37,7 +37,6 @@ def test_agent_hints_and_prompt_use_unified_ask_vocabulary():
     policy_source = inspect.getsource(llm_agent.run_llm_policy)
 
     assert "clarify" not in policy_source
-    assert "ask_user" in policy_source
     assert "Replies to `ask_user` must be saved with `update_requirements`" in SYSTEM_PROMPT
     assert "budget_unlimited=true" in SYSTEM_PROMPT
 

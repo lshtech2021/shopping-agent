@@ -157,35 +157,6 @@ class ToolBox:
                 text, current=req
             )
 
-        pending_budget = any(
-            question.get("field") == "budget"
-            or question.get("id") == "budget"
-            for question in self.session.pending_questions
-        )
-        if pending_budget and text:
-            budget_answer = re.search(
-                r"(?im)^\s*budget\s*[:：]\s*(\d+(?:\.\d+)?)\s*$",
-                text,
-            )
-            if budget_answer is None:
-                budget_answer = re.fullmatch(
-                    r"\s*(\d+(?:\.\d+)?)\s*", text
-                )
-            if budget_answer is not None:
-                confidence = dict(requirement_patch.confidence)
-                confidence["budget_cny"] = "high"
-                requirement_patch = requirement_patch.model_copy(
-                    update={
-                        "budget_cny": float(budget_answer.group(1)),
-                        "confidence": confidence,
-                        "ambiguous_fields": [
-                            field
-                            for field in requirement_patch.ambiguous_fields
-                            if field != "budget_cny"
-                        ],
-                    }
-                )
-
         explicit_names = set(explicit_fields)
         if (
             text
