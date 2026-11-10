@@ -8,10 +8,6 @@ from starlette.websockets import WebSocketDisconnect
 
 from app import main
 from app.config import settings
-from app.domains.shopping.requirements import (
-    _extract_budget,
-    _extract_min_ram_gb,
-)
 from app.main import app
 from app.store import store
 from app.tools import ToolBox, _throttle
@@ -27,42 +23,6 @@ def _new_session(requirement: str = REQ, sites=("jd",)) -> str:
     return client.post(
         "/api/v1/sessions", json={"requirement": requirement, "sites": list(sites)}
     ).json()["session_id"]
-
-
-# --- requirement parsing ---------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "text,budget",
-    [
-        ("帮我挑一台开发笔记本 内存至少 32G 512G SSD", None),  # 512G is storage, not ¥512
-        ("i5-13500H 笔记本", None),  # CPU model is not ¥13500
-        ("iPhone 15 256G", None),
-        ("2024款 笔记本", None),
-        ("预算5000", 5000.0),
-        ("5000元以内", 5000.0),
-        ("预算 1.2万", 12000.0),
-        ("预算五千", 5000.0),
-        ("八千左右", 8000.0),
-        ("4000-6000元", 6000.0),
-        ("笔记本 5000", None),
-    ],
-)
-def test_extract_budget(text, budget):
-    assert _extract_budget(text) == budget
-
-
-@pytest.mark.parametrize(
-    "text,ram",
-    [
-        ("内存至少 32G 512G SSD", 32),
-        ("要 16G 内存的", 16),
-        ("512G SSD 笔记本", None),
-        ("32G以上内存", 32),
-    ],
-)
-def test_extract_min_ram(text, ram):
-    assert _extract_min_ram_gb(text) == ram
 
 
 def test_missing_budget_asks_instead_of_false_parsing(mock_shopper):

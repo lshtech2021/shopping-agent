@@ -25,40 +25,22 @@ def seed_session(**overrides):
     return session
 
 
-def test_unrelated_any_preference_does_not_clear_confirmed_budget():
-    session = seed_session(budget_cny=8000)
-
-    for text in ("品牌无所谓，预算8000", "预算8000，颜色都可以"):
-        ToolBox(session).update_requirements(text)
-        assert session.requirements["budget_cny"] == 8000
-        assert session.requirements["budget_unlimited"] is False
-
-
-def test_question_mentioning_a_price_does_not_overwrite_confirmed_budget():
-    session = seed_session(budget_cny=8000)
-
-    ToolBox(session).update_requirements("这个5000元的怎么样？")
-
-    assert session.requirements["budget_cny"] == 8000
-    assert session.requirements["budget_unlimited"] is False
-
-
 def test_explicit_budget_change_overwrites_confirmed_budget():
     session = seed_session(budget_cny=8000)
 
-    ToolBox(session).update_requirements("预算改成7000")
+    ToolBox(session).update_requirements(budget_cny=7000)
 
     assert session.requirements["budget_cny"] == 7000
     assert session.requirements["budget_unlimited"] is False
 
 
-def test_question_mentioning_memory_does_not_overwrite_confirmed_ram():
-    session = seed_session(must_have=["32G内存"])
+def test_unrelated_fields_do_not_clear_confirmed_budget():
+    session = seed_session(budget_cny=8000)
 
-    ToolBox(session).update_requirements("这个16G内存的够用吗？")
+    ToolBox(session).update_requirements(preferences=["颜色都可以"])
 
-    assert "32G内存" in session.requirements["must_have"]
-    assert "16G内存" not in session.requirements["must_have"]
+    assert session.requirements["budget_cny"] == 8000
+    assert session.requirements["budget_unlimited"] is False
 
 
 def test_model_applies_ram_from_user_text_as_explicit_patch(fake_llm):

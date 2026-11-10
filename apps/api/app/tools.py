@@ -1,18 +1,12 @@
 """Nine shopping tools: memory + browse (+ mock) + recommend/ask_user."""
 from __future__ import annotations
 
-import re
 from typing import Any, Optional
 from urllib.parse import urlparse
 
 from app.browser.gateway import BLOCKING, SITE_RISK, BrowserGateway
 from app.browser.gateway import throttle as _throttle
 from app.constraints import check_product
-from app.domains.shopping.requirements import (
-    _QUESTION_MENTION,
-    _RAM_MUST,
-)
-from app.domains.shopping.extract import extract_requirement_patch_sync
 from app.domains.shopping.requirements_patch import (
     RequirementPatch,
     apply_requirement_patch,
@@ -141,55 +135,16 @@ class ToolBox:
 
     def update_requirements(
         self,
-        text: str = "",
         patch: RequirementPatch | dict[str, Any] | None = None,
         **explicit_fields: Any,
     ) -> dict[str, Any]:
+        """Apply structured requirement fields the model extracted itself."""
         req = dict(self.session.requirements or {})
-        req["raw"] = text or req.get("raw") or self.session.requirement
         requirement_patch = (
             patch
             if isinstance(patch, RequirementPatch)
             else RequirementPatch.model_validate(patch or {})
         )
-        if patch is None and text:
-            requirement_patch = extract_requirement_patch_sync(
-                text, current=req
-            )
-
-        explicit_names = set(explicit_fields)
-        if (
-            text
-            and _QUESTION_MENTION.search(text)
-            and not {
-                "budget_cny",
-                "budget_min_cny",
-                "budget_unlimited",
-            }
-            & explicit_names
-        ):
-            requirement_patch = requirement_patch.model_copy(
-                update={
-                    "budget_cny": None,
-                    "budget_min_cny": None,
-                    "budget_unlimited": None,
-                }
-            )
-        if (
-            text
-            and requirement_patch.must_have
-            and "must_have" not in explicit_names
-        ):
-            if _QUESTION_MENTION.search(text):
-                requirement_patch = requirement_patch.model_copy(
-                    update={
-                        "must_have": [
-                            item
-                            for item in requirement_patch.must_have
-                            if not _RAM_MUST.search(item)
-                        ]
-                    }
-                )
 
         if explicit_fields:
             explicit = RequirementPatch.model_validate(explicit_fields)

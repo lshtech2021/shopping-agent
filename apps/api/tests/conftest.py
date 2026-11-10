@@ -122,13 +122,7 @@ class MockShopper:
             text = str(last.content or "")
             if _RELAX_CONFLICT.search(text):
                 return _call("update_requirements", budget_unlimited=True)
-            fields: dict = {}
-            budget = re.search(
-                r"(?im)^\s*budget\s*[:：]\s*(\d+(?:\.\d+)?)\s*$", text
-            )
-            if budget:
-                fields["budget_cny"] = float(budget.group(1))
-            return _call("update_requirements", text=text, **fields)
+            return _call("update_requirements", **_mock_extract(text))
 
         tool_msgs = _trailing_tool_messages(messages)
         name = tool_msgs[-1].name if tool_msgs else ""
@@ -175,6 +169,38 @@ class MockShopper:
             return _call("query_inventory", limit=10)
         site = (missing or status["sites"] or ["jd"])[0]
         return _call("search", site=site, query=_search_query(status))
+
+
+_CN = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+_UNITS = {"万": 10000.0, "千": 1000.0, None: 1.0, "": 1.0}
+
+
+def _mock_extract(text: str) -> dict:
+    """Test double for the LLM reading a user message into structured fields."""
+    fields: dict = {}
+    if re.search(r"预算[^。；]{0,6}不限|不限预算", text):
+        fields["budget_unlimited"] = True
+    else:
+        num = r"(\d+(?:\.\d+)?)"
+        budget = None
+        if m := re.search(rf"{num}\s*(万|千)?\s*[-~到]\s*{num}\s*(万|千)?", text):
+            budget = float(m.group(3)) * _UNITS[m.group(4) or m.group(2)]
+        elif m := re.search(rf"(?:预算|budget)[^\d一二两三四五六七八九]{{0,8}}{num}\s*(万|千)?", text, re.I):
+            budget = float(m.group(1)) * _UNITS[m.group(2)]
+        elif m := re.search(rf"{num}\s*(万|千)?\s*(?:元|块)", text):
+            budget = float(m.group(1)) * _UNITS[m.group(2)]
+        elif m := re.search(r"([一二两三四五六七八九])(千|万)", text):
+            budget = _CN[m.group(1)] * _UNITS[m.group(2)]
+        if budget is not None:
+            fields["budget_cny"] = budget
+    if m := re.search(r"笔记本|手机|平板|耳机|显示器", text):
+        fields["category"] = m.group(0)
+    ram = re.search(r"(?:内存|ram)\D{0,6}(\d{1,3})\s*g", text, re.I) or re.search(
+        r"(\d{1,3})\s*g\D{0,3}内存", text, re.I
+    )
+    if ram:
+        fields["must_have"] = [f"{ram.group(1)}G内存"]
+    return fields
 
 
 _RELAX_CONFLICT = re.compile(r"budget_ram_conflict\s*:\s*放宽预算", re.I)
