@@ -242,7 +242,7 @@ def build_shopping_tools(
         explicit_fields = {
             field: getattr(args, field)
             for field in args.model_fields_set
-            if field != "text"
+            if field != "text" and getattr(args, field) is not None
         }
         patch = (
             await extract_requirement_patch(
@@ -391,7 +391,7 @@ def build_shopping_tools(
         ToolSpec(
             name="update_requirements",
             description=(
-                "仅写入用户明确陈述或已通过 answers 确认的结构化需求（预算、品类、用途、硬性要求、偏好）；"
+                "仅写入用户明确陈述或已通过 ask_user 回复确认的结构化需求（预算、品类、用途、硬性要求、偏好）；"
                 "不得自行添加用户没说过的条件。"
             ),
             args_model=_UpdateReq,

@@ -43,23 +43,25 @@ async def run_llm_policy(
     checkpoint_resume: bool = False,
 ) -> dict[str, Any]:
     # Host may parse high-confidence fields into requirements, but policy
-    # decisions (including clarify) stay in the model tool loop.
+    # decisions (including ask_user) stay in the model tool loop.
     parse_notes: list[str] = []
     if not skip_parse:
         parsed = box.update_requirements(text)
         parse_notes = list(parsed.get("parse_notes") or [])
+    if text and session.pending_questions:
+        session.pending_questions = []
 
     turn_text = text
     if skip_parse:
         turn_text = (
-            "（用户已回答澄清问题，请直接继续选品，不要再次调用 clarify。）\n"
+            "（用户已回复 ask_user，请直接继续选品，不要再次调用 ask_user。）\n"
             + text
         )
     elif parse_notes:
         notes = "；".join(parse_notes)
         turn_text = (
             text
-            + f"\n（解析提示：{notes}。请用 clarify 向用户确认，不要自行写入硬约束。）"
+            + f"\n（解析提示：{notes}。请调用 ask_user 向用户确认，不要自行写入硬约束。）"
         )
 
     base_model = llm.build_chat_model()

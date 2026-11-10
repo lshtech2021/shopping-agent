@@ -1,8 +1,12 @@
 """Golden-turn cost budgets and unified-ask regression locks."""
 from __future__ import annotations
 
+import inspect
+
 from fastapi.testclient import TestClient
 
+from app import llm_agent
+from app.domains.shopping.prompt import SYSTEM_PROMPT
 from app.domains.shopping.tools import build_shopping_tools
 from app.main import app
 from app.store import store
@@ -18,9 +22,24 @@ MAX_GET_SESSION_CALLS = 0
 
 def test_shopping_tool_registry_uses_ask_user_not_clarify():
     session = store.create("笔记本", ["jd"])
-    names = {spec.name for spec in build_shopping_tools(ToolBox(session), {})}
+    specs = build_shopping_tools(ToolBox(session), {})
+    names = {spec.name for spec in specs}
     assert "ask_user" in names
     assert "clarify" not in names
+    update_description = next(
+        spec.description for spec in specs if spec.name == "update_requirements"
+    )
+    assert "answers" not in update_description
+    assert "ask_user" in update_description
+
+
+def test_agent_hints_and_prompt_use_unified_ask_vocabulary():
+    policy_source = inspect.getsource(llm_agent.run_llm_policy)
+
+    assert "clarify" not in policy_source
+    assert "ask_user" in policy_source
+    assert "Replies to `ask_user` must be saved with `update_requirements`" in SYSTEM_PROMPT
+    assert "budget_unlimited=true" in SYSTEM_PROMPT
 
 
 def test_complete_requirement_turn_stays_within_cost_budget(monkeypatch, mock_shopper):

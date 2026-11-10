@@ -43,8 +43,6 @@ async def run_agent(
     text = "\n".join(
         part for part in ((content or "").strip(), answer_content) if part
     )
-    if text and session.pending_questions:
-        session.pending_questions = []
 
     session.turn += 1
     session.status = "running"
@@ -70,6 +68,8 @@ async def run_agent(
     )
 
     if not llm.llm_enabled():
+        if text and session.pending_questions:
+            session.pending_questions = []
         session.status = "interrupted"
         session.interrupt_reason = "llm_unavailable"
         result = await interrupt_response_async(

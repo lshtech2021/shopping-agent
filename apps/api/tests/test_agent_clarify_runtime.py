@@ -70,7 +70,7 @@ def test_unparseable_answer_is_reasked_via_model_tool(fake_llm):
     assert session.requirements["budget_cny"] is None
 
 
-def test_card_reply_is_plain_content_not_answers_map(fake_llm):
+def test_card_budget_reply_is_applied_before_continuing(fake_llm):
     seen = []
 
     def reply(messages):
@@ -99,6 +99,7 @@ def test_card_reply_is_plain_content_not_answers_map(fake_llm):
     assert response.status_code == 200
     detail = client.get(f"/api/v1/sessions/{session.id}").json()
     assert detail["pending_questions"] == []
+    assert detail["requirements"]["budget_cny"] == 5000
     assert any(
         message["role"] == "user" and message["content"] == content
         for message in detail["messages"]
