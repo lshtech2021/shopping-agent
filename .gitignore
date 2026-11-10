@@ -19,3 +19,4 @@ apps/api/shopping_agent.db
 *.db
 .idea/
 .vscode/
+.worktrees/
