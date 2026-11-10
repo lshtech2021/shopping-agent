@@ -1,9 +1,12 @@
-"""Golden-turn cost budgets for a complete shopping requirement."""
+"""Golden-turn cost budgets and unified-ask regression locks."""
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from app.domains.shopping.tools import build_shopping_tools
 from app.main import app
+from app.store import store
+from app.tools import ToolBox
 from conftest import MockShopper
 
 client = TestClient(app)
@@ -11,6 +14,13 @@ client = TestClient(app)
 # Complete requirements should not need clarify or get_session thrash.
 MAX_LLM_STEPS = 10
 MAX_GET_SESSION_CALLS = 0
+
+
+def test_shopping_tool_registry_uses_ask_user_not_clarify():
+    session = store.create("笔记本", ["jd"])
+    names = {spec.name for spec in build_shopping_tools(ToolBox(session), {})}
+    assert "ask_user" in names
+    assert "clarify" not in names
 
 
 def test_complete_requirement_turn_stays_within_cost_budget(monkeypatch, mock_shopper):
