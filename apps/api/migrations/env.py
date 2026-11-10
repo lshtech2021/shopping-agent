@@ -8,6 +8,8 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from app.config import settings  # noqa: E402  (import needs sys.path above)
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -31,11 +33,9 @@ def _alembic_url(url: str) -> str:
     return raw
 
 
-database_url = _alembic_url(
-    os.getenv("SA_DATABASE_URL")
-    or config.get_main_option("sqlalchemy.url")
-    or ""
-)
+# Single source of truth: the app's Settings, which reads SA_DATABASE_URL
+# from the environment or apps/api/.env (pydantic-settings).
+database_url = _alembic_url(settings.database_url)
 config.set_main_option("sqlalchemy.url", database_url)
 
 
