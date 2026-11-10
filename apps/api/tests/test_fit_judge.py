@@ -128,3 +128,46 @@ def test_query_inventory_tool_judges_and_reports_judge_errors(monkeypatch):
     result = asyncio.run(spec.handler(spec.args_model(limit=10), None))
     assert result.data["items"] == []
     assert "boom" in result.data["judge_error"]
+
+
+class StructuredUnavailableJudge:
+    """Mimics providers that reject response_format but accept plain JSON."""
+
+    def __init__(self):
+        self.structured_calls = 0
+        self.text_calls = 0
+
+    def with_structured_output(self, _schema):
+        outer = self
+
+        class BrokenStructured:
+            async def ainvoke(self, _messages):
+                outer.structured_calls += 1
+                raise RuntimeError(
+                    "Error code: 400 - {'error': {'message': "
+                    "'This response_format type is unavailable now', "
+                    "'type': 'invalid_request_error'}}"
+                )
+
+        return BrokenStructured()
+
+    async def ainvoke(self, messages):
+        self.text_calls += 1
+        return await FitJudgeDouble().ainvoke(messages)
+
+
+def test_structured_output_unavailable_falls_back_to_json_text():
+    session = seed(category="笔记本")
+    judge = StructuredUnavailableJudge()
+
+    outcome = asyncio.run(
+        fit_judge.judge_products(
+            list(session.products.values()), session.requirements, model=judge
+        )
+    )
+
+    assert outcome["judged"] == 2 and outcome["error"] is None
+    assert judge.structured_calls >= 1 and judge.text_calls >= 1
+    assert check_product(
+        session.products["ok"], session.requirements, sites=["jd"]
+    ).ok

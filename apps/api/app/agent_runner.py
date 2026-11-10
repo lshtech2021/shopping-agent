@@ -20,7 +20,9 @@ logger = logging.getLogger(__name__)
 
 async def durable_touch(session: Session) -> None:
     """Persist a session without blocking the agent event loop."""
-    await asyncio.to_thread(store.touch, session, durable=True)
+    await asyncio.to_thread(
+        store.touch, session, durable=True, retry_conflict=True
+    )
 
 
 async def run_agent(
@@ -145,7 +147,7 @@ def interrupt_response(session: Session, question: str, reason: str) -> dict[str
         data={"question": question, "reason": reason},
     )
     session.messages.append({"role": "assistant", "content": question})
-    store.touch(session, durable=True)
+    store.touch(session, durable=True, retry_conflict=True)
     return {
         "session_id": session.id,
         "status": session.status,

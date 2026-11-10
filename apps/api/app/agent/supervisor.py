@@ -90,10 +90,11 @@ class RunSupervisor:
         session = self.store.get(run_id)
         if session is None or session.lease_owner != owner:
             return False
-        session.heartbeat_at = _now().isoformat()
-        session.lease_expires_at = (
-            _now() + timedelta(seconds=ttl_seconds)
-        ).isoformat()
+        expires = (_now() + timedelta(seconds=ttl_seconds)).isoformat()
+        if self.store.persistent:
+            return self.store.heartbeat_lease(run_id, owner, expires)
+        session.heartbeat_at = expires
+        session.lease_expires_at = expires
         return self._safe_touch(session)
 
     def release(self, run_id: str, owner: str) -> None:

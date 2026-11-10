@@ -130,7 +130,9 @@ class SessionStore:
             session = Session.from_dict(record)
             self._sessions[session.id] = session
 
-    def _persist(self, session: Session) -> None:
+    def _persist(
+        self, session: Session, *, retry_conflict: bool = False
+    ) -> None:
         if session.version <= 0:
             record = self._repo.create(session.to_dict())
         else:
@@ -145,13 +147,25 @@ class SessionStore:
 
                 if not isinstance(exc, VersionConflict):
                     raise
-                # Never force-write a stale full document over a newer version.
                 latest = self._repo.get(session.id)
-                if latest is not None:
+                if latest is None:
+                    raise
+                if retry_conflict:
+                    # Turn owner keeps local mutations; adopt the newer version
+                    # and retry once (poll/heartbeat can bump version mid-turn).
+                    session.version = int(latest.get("version") or session.version)
+                    record = self._repo.update(
+                        session.id,
+                        session.to_dict(),
+                        expected_version=session.version,
+                    )
+                else:
+                    # Never force-write a stale full document over a newer version.
                     winner = Session.from_dict(latest)
                     self._sessions[session.id] = winner
-                raise
+                    raise
         session.version = int(record.get("version") or session.version)
+        self._sessions[session.id] = session
 
     # --- public API ----------------------------------------------------------
 
@@ -198,7 +212,10 @@ class SessionStore:
         return session
 
     def snapshot(self, session_id: str) -> Optional[Session]:
-        session = self.refresh(session_id)
+        # Prefer the in-memory working copy. Polling GET /sessions/{id} during a
+        # turn used to refresh from Postgres and replace the live object, which
+        # dropped mid-turn products and raced durable_touch (VersionConflict).
+        session = self.get(session_id)
         if session is None:
             return None
         return Session.from_dict(copy.deepcopy(session.to_dict()))
@@ -254,15 +271,34 @@ class SessionStore:
             run_id, after_id=after_id, limit=limit
         )
 
-    def touch(self, session: Session, *, durable: bool = False) -> None:
+    def touch(
+        self,
+        session: Session,
+        *,
+        durable: bool = False,
+        retry_conflict: bool = False,
+    ) -> None:
         """Update the in-memory working set; persist only when durable/flushed."""
         session.updated_at = _now()
         self._sessions[session.id] = session
         if durable:
-            self._persist(session)
+            self._persist(session, retry_conflict=retry_conflict)
             self._dirty.discard(session.id)
         else:
             self._dirty.add(session.id)
+
+    def heartbeat_lease(
+        self, run_id: str, owner: str, expires_at: str
+    ) -> bool:
+        """Extend a turn lease without rewriting the full run document."""
+        ok = self._repo.heartbeat_lease(run_id, owner, expires_at)
+        if not ok:
+            return False
+        session = self._sessions.get(run_id)
+        if session is not None and session.lease_owner == owner:
+            session.lease_expires_at = expires_at
+            session.heartbeat_at = expires_at
+        return True
 
     def flush(self, session: Session | None = None) -> None:
         if session is not None:

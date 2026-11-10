@@ -602,6 +602,33 @@ class RunRepository:
             ).fetchone()
         return row is not None
 
+    def heartbeat_lease(
+        self, run_id: str, owner: str, expires_at: str
+    ) -> bool:
+        """Extend an owned lease without bumping the optimistic document version.
+
+        Heartbeats used to rewrite the whole run row mid-turn, which raced the
+        agent durable_touch and produced VersionConflict 500s under polling.
+        """
+        if self._url is None:
+            run = self._memory_runs.get(run_id)
+            if run is None or run.get("lease_owner") != owner:
+                return False
+            run["lease_expires_at"] = expires_at
+            run["heartbeat_at"] = expires_at
+            return True
+        with self._db() as conn:
+            row = conn.execute(
+                """
+                UPDATE runs
+                SET lease_expires_at = %s, heartbeat_at = %s
+                WHERE id = %s AND lease_owner = %s
+                RETURNING id
+                """,
+                (expires_at, expires_at, run_id, owner),
+            ).fetchone()
+        return row is not None
+
     def running_runs(self) -> list[dict[str, Any]]:
         if self._url is None:
             return [
