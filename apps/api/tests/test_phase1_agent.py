@@ -43,7 +43,7 @@ def test_rate_limited_search_interrupts_and_resume_works(mock_shopper):
 
     blocked = client.post(
         f"/api/v1/sessions/{session_id}/messages",
-        json={"content": "rate_limit_me"},
+        json={"content": "笔记本 预算5000 rate_limit_me"},
     ).json()
     assert blocked["interrupted"] is True
     assert blocked["interrupt_reason"] == "rate_limited"

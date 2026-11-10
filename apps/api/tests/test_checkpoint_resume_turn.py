@@ -82,7 +82,6 @@ def test_resume_loads_checkpoint_saved_before_turn_bump(fake_llm, monkeypatch):
         run_agent(
             session,
             "continue",
-            skip_parse=True,
             checkpoint_resume=True,
         )
     )

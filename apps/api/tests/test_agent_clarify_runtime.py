@@ -61,7 +61,7 @@ def test_unparseable_answer_is_reasked_via_model_tool(fake_llm):
         {"id": "budget", "field": "budget", "question": "预算？", "options": []}
     ]
 
-    result = asyncio.run(run_agent(session, "", {"budget": "看情况"}))
+    result = asyncio.run(run_agent(session, "budget: 看情况"))
 
     assert result["interrupted"] is True
     assert result["interrupt_reason"] == "clarify"

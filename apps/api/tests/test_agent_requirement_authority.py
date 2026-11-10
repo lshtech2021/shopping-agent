@@ -79,7 +79,6 @@ def test_model_applies_ram_from_user_text_as_explicit_patch(fake_llm):
             session,
             text,
             ToolBox(session),
-            skip_parse=True,
         )
     )
 
@@ -96,6 +95,6 @@ def test_answers_without_pending_questions_do_not_reparse_original_requirement(
     monkeypatch.setattr(llm, "llm_enabled", lambda: False)
     session = seed_session(requirement="预算5000的笔记本", budget_cny=8000)
 
-    asyncio.run(run_agent(session, "", {"budget": "5000"}))
+    asyncio.run(run_agent(session, ""))
 
     assert session.requirements["budget_cny"] == 8000

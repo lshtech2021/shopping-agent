@@ -98,7 +98,7 @@ def test_response_logs_are_only_for_current_turn(mock_shopper):
 def test_rate_limited_site_stays_closed_until_resume(mock_shopper):
     sid = _new_session("笔记本 预算5000")
     body = client.post(
-        f"/api/v1/sessions/{sid}/messages", json={"content": "笔记本 触发限流 rate_limit_me"}
+        f"/api/v1/sessions/{sid}/messages", json={"content": "笔记本 预算5000 触发限流 rate_limit_me"}
     ).json()
     assert body["interrupted"] and body["interrupt_reason"] == "rate_limited"
     assert client.get(f"/api/v1/sessions/{sid}").json()["blocked_sites"] == {"jd": "rate_limited"}

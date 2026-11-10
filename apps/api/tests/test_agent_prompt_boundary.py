@@ -93,7 +93,6 @@ def test_tool_messages_are_marked_untrusted(monkeypatch):
             session,
             "测试",
             ToolBox(session),
-            skip_parse=True,
         )
     )
 

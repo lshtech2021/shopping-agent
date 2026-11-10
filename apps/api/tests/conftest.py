@@ -128,8 +128,6 @@ class MockShopper:
                     "update_requirements",
                     budget_unlimited=True,
                 )
-            if "已回复 ask_user" in text:
-                return self._start_collect(status, force_search=False)
             if re.search(r"rate_limit_me|触发限流", text, re.I):
                 site = (status["sites"] or ["jd"])[0]
                 return _call("search", site=site, query="rate_limit_me")

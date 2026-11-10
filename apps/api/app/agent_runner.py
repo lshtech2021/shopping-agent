@@ -34,22 +34,16 @@ async def durable_touch(session: Session) -> None:
 async def run_agent(
     session: Session,
     content: str,
-    answers: dict[str, str] | None = None,
     *,
-    skip_parse: bool = False,
     checkpoint_resume: bool = False,
 ) -> dict[str, Any]:
-    answer_content = format_answers_as_message(answers or {})
-    text = "\n".join(
-        part for part in ((content or "").strip(), answer_content) if part
-    )
+    text = (content or "").strip()
 
     session.turn += 1
     session.status = "running"
     session.interrupt_reason = None
     session.quotas = {}  # design §6: quotas are per turn, not per session
     tools = ToolBox(session)
-    text = (text or session.requirement or "").strip()
     log_event(
         session,
         "Agent 回合开始",
@@ -88,7 +82,6 @@ async def run_agent(
                 session,
                 text,
                 tools,
-                skip_parse=skip_parse,
                 checkpoint_resume=checkpoint_resume,
             ),
             timeout=settings.agent_turn_timeout_s,
@@ -145,11 +138,9 @@ async def resume_agent(session: Session, note: str) -> dict[str, Any]:
     content = (
         note.strip()
         if note and note.strip() not in {"continue", "user continued"}
-        else session.requirement
+        else ""
     )
-    return await run_agent(
-        session, content, skip_parse=True, checkpoint_resume=True
-    )
+    return await run_agent(session, content, checkpoint_resume=True)
 
 
 def interrupt_response(session: Session, question: str, reason: str) -> dict[str, Any]:
