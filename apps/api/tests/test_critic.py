@@ -8,6 +8,7 @@ from app.config import settings
 from app.domains.shopping.critic import ShoppingCritic
 from app.store import store
 from app.tools import ToolBox
+from conftest import judged
 
 
 def seed_session(**overrides):
@@ -30,6 +31,7 @@ def seed_session(**overrides):
         "detail_fetched": True,
         "attributes": {"内存": "32GB"},
     }
+    judged(ToolBox(session))
     return session
 
 

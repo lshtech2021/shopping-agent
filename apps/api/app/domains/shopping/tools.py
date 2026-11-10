@@ -250,7 +250,10 @@ def build_shopping_tools(
     async def query_inventory(
         args: _QueryInv, _context: Any
     ) -> ToolResult:
+        judge_error = await box.ensure_fit()
         result = box.query_inventory(limit=args.limit)
+        if judge_error:
+            result["judge_error"] = judge_error
         return ToolResult(
             call_id="",
             tool="query_inventory",
@@ -311,6 +314,7 @@ def build_shopping_tools(
 
     async def recommend(args: _Recommend, _context: Any) -> ToolResult:
         picks = [pick.model_dump() for pick in args.picks]
+        await box.ensure_fit([str(pick["product_id"]) for pick in picks])
         result = box.recommend(picks, args.answer, commit=False)
         if result.get("ok"):
             recommended_ids = [

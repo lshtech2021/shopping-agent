@@ -9,7 +9,7 @@ os.environ["SA_DATABASE_URL"] = "memory"  # force in-memory store before app set
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from app import llm
+from app import fit_judge, llm
 from app.config import settings
 from app.store import store
 
@@ -23,6 +23,104 @@ def isolated_store(monkeypatch):
     store.reset("memory")
     yield
     store.reset("memory")
+
+
+# --- LLM stand-in for the listing-fit judge (app.fit_judge) -------------------
+
+_ACCESSORY = re.compile(
+    r"贴纸|贴膜|保护膜|保护套|保护壳|手机壳|内胆包|电脑包|配件|充电器|数据线|扩展坞|"
+    r"accessor|sticker|screen protector|书",
+    re.I,
+)
+_CATEGORY_TERMS = {
+    "笔记本": r"笔记本|laptop|notebook|thinkpad|macbook|ideapad|开发本|轻薄本|游戏本|办公本",
+    "手机": r"手机|phone|iphone|galaxy|pixel",
+    "平板": r"平板|tablet|ipad",
+    "耳机": r"耳机|headphone|earphone|earbud|airpods",
+    "显示器": r"显示器|monitor",
+}
+_NEG_VALUES = {"否", "无", "no", "none", "false", "n/a", "0", "不支持"}
+
+
+def _judge_ram(text: str):
+    for pattern in (
+        r"(?:内存|ram|memory|运存)[^\d]{0,12}(\d{1,3})\s*g",
+        r"(\d{1,3})\s*g(?:b)?\s*(?:内存|ram|运存)",
+    ):
+        m = re.search(pattern, text, re.I)
+        if m:
+            return int(m.group(1))
+    sizes = [
+        (int(m.group(1)), int(m.group(1)) * (1024 if m.group(2).lower() == "t" else 1))
+        for m in re.finditer(r"(?<![\d.])(\d{1,3})\s*(g|t)(?:b)?(?![\d.a-z])", text, re.I)
+    ]
+    for value, normalized in sizes:
+        if value in (8, 16, 32, 64) and any(o > normalized for _, o in sizes):
+            return value
+    return None
+
+
+def _judge_listing(listing: dict, wanted: dict) -> dict:
+    attrs = {**(listing.get("attributes") or {}), **(listing.get("detail_attributes") or {})}
+    text = " ".join(
+        [str(listing.get("title") or ""), str(listing.get("category") or ""),
+         str(listing.get("detail_title") or "")]
+        + [f"{k} {v}" for k, v in attrs.items()]
+    ).lower()
+    category = wanted.get("category")
+    category_ok = None
+    if category:
+        terms = _CATEGORY_TERMS.get(category, re.escape(str(category)))
+        category_ok = bool(re.search(terms, text, re.I)) and not _ACCESSORY.search(text)
+    verdicts = []
+    for item in wanted.get("must_have") or []:
+        ok = None
+        m = re.search(r"(\d{1,3})\s*G内存", item, re.I)
+        if m:
+            ram = _judge_ram(text)
+            ok = None if ram is None else ram >= int(m.group(1))
+        else:
+            term = item.lower()
+            for key, value in attrs.items():
+                if term in str(key).lower() or term in str(value).lower():
+                    if str(value).strip().lower() in _NEG_VALUES:
+                        ok = False
+                        break
+                    ok = True
+            if ok is None and term in text:
+                title = str(listing.get("title") or "").lower()
+                idx = title.find(term)
+                ok = not (idx > 0 and re.search(r"[不非无没]$", title[max(0, idx - 2) : idx]))
+        verdicts.append({"item": item, "ok": ok})
+    return {
+        "product_id": listing["product_id"],
+        "category_ok": category_ok,
+        "must_have": verdicts,
+        "reason": "test double",
+    }
+
+
+class FitJudgeDouble:
+    def with_structured_output(self, _schema):
+        return self
+
+    async def ainvoke(self, messages):
+        payload = json.loads(messages[-1].content)
+        wanted = payload["requirements"]
+        return {"verdicts": [_judge_listing(p, wanted) for p in payload["products"]]}
+
+
+@pytest.fixture(autouse=True)
+def fit_judge_double(monkeypatch):
+    monkeypatch.setattr(fit_judge, "build_judge_model", lambda: FitJudgeDouble())
+
+
+def judged(box):
+    """Run the fit judge for every cached product (sync test helper)."""
+    import asyncio
+
+    asyncio.run(box.ensure_fit())
+    return box
 
 
 # --- shared helpers for LLM-policy tests (fake chat model, no network) ---------

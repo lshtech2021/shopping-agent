@@ -86,6 +86,8 @@ class ShoppingCritic:
                     for violation in eligibility.violations
                 ):
                     hints.append("补齐硬性要求或换一个候选")
+                if "unjudged" in eligibility.violations:
+                    hints.append("先调用 query_inventory 评估候选是否符合品类与硬性要求")
                 if "detail" in eligibility.violations:
                     hints.append("先 fetch_detail 验证规格")
 
@@ -101,6 +103,7 @@ class ShoppingCritic:
             "site",
             "category",
             "detail",
+            "unjudged",
         }
         hard_violations = [
             violation

@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from app.browser.gateway import BLOCKING, SITE_RISK, BrowserGateway
 from app.browser.gateway import throttle as _throttle
 from app.constraints import check_product
+from app.fit_judge import judge_products
 from app.domains.shopping.requirements_patch import (
     RequirementPatch,
     apply_requirement_patch,
@@ -213,6 +214,35 @@ class ToolBox:
             "needs_clarify": bool(requirement_patch.ambiguous_fields),
             "parse_notes": parse_notes,
         }
+
+    async def ensure_fit(
+        self, product_ids: list[str] | None = None
+    ) -> Optional[str]:
+        """Have the LLM judge category/must-have fit for products lacking a
+        current verdict. Returns an error string when judging failed."""
+        requirements = self.session.requirements or {}
+        products = (
+            [
+                self.session.products[pid]
+                for pid in product_ids
+                if pid in self.session.products
+            ]
+            if product_ids is not None
+            else list(self.session.products.values())
+        )
+        outcome = await judge_products(products, requirements)
+        if outcome["judged"]:
+            store.touch(self.session)
+        if outcome["error"]:
+            log_event(
+                self.session,
+                f"商品匹配评估失败：{outcome['error']}",
+                stage="tool.fit_judge",
+                source="tool",
+                level="warning",
+                data=outcome,
+            )
+        return outcome["error"]
 
     def query_inventory(
         self,
