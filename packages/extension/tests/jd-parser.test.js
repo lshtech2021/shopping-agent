@@ -39,6 +39,20 @@ test('parseDetail extracts title price attributes', () => {
   assert.equal(result.attributes['内存'], '32GB')
 })
 
+test('parseDetail falls back to document title when sku-name is missing', () => {
+  const dom = new JSDOM(
+    `<html>
+      <head><title>荣耀笔记本 X16 锐龙版 - 京东</title></head>
+      <body><div class="parameter2"><ul><li>内存：16GB</li></ul></div></body>
+    </html>`,
+    { url: 'https://item.jd.com/100291118241.html' },
+  )
+  const result = jd.parseDetail(dom.window.document, dom.window.location.href)
+  assert.equal(result.status, 'ok')
+  assert.match(result.title, /荣耀笔记本/)
+  assert.equal(result.attributes['内存'], '16GB')
+})
+
 test('blank page is rate_limited', () => {
   const dom = loadDom('jd-blank.html')
   const result = jd.parseListing(dom.window.document, dom.window.location.href)

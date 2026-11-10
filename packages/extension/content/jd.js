@@ -142,20 +142,79 @@
     }
   }
 
+  function metaContent(root, selectors) {
+    for (const selector of selectors) {
+      const node = root.querySelector(selector)
+      const value = clean(node?.getAttribute('content'))
+      if (value) return value
+    }
+    return null
+  }
+
+  function titleFromDocument(root) {
+    const raw =
+      metaContent(root, [
+        'meta[property="og:title"]',
+        'meta[name="keywords"]',
+      ]) || clean(root.querySelector('title')?.textContent)
+    if (!raw) return null
+    return clean(raw.replace(/\s*[-_|].*(京东|JD).*$/i, '')) || raw
+  }
+
+  function attributesFromScripts(root) {
+    const attributes = {}
+    const scripts = [...root.querySelectorAll('script')].map(
+      (node) => node.textContent || '',
+    )
+    for (const script of scripts) {
+      const match = script.match(
+        /pageConfig\s*=\s*(\{[\s\S]*?\})\s*;?\s*(?:<\/script>|$)/,
+      )
+      if (!match) continue
+      try {
+        // pageConfig is not always strict JSON; pull a few known keys loosely.
+        const name = script.match(/name\s*:\s*['"]([^'"]+)['"]/)
+        if (name?.[1]) attributes['商品名称'] = clean(name[1])
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    return attributes
+  }
+
   function parseDetail(root = document, url = location.href) {
     const blocked = detectBlock(root, url)
     if (blocked) return { status: blocked }
 
-    const title = text(root, ['.sku-name', '#name h1', '.itemInfo-wrap .sku-name'])
+    const title =
+      text(root, [
+        '.sku-name',
+        '#itemName',
+        '#name h1',
+        '.itemInfo-wrap .sku-name',
+        '.sku-name-title',
+        '[class*="skuName"]',
+        '.product-intro .sku-name',
+        'div.sku-name',
+      ]) || titleFromDocument(root)
     const priceText = text(root, [
       '.summary-price .p-price .price',
       '.summary-price .p-price',
       '.price .p-price .price',
       '.price .p-price',
+      '#jd-price',
+      '.p-price .price',
+      '[class*="price"] .p-price',
     ])
-    const attributes = {}
+    const attributes = attributesFromScripts(root)
     const rows = root.querySelectorAll(
-      '.p-parameter ul.p-parameter-list li, [class*="parameter"] li',
+      [
+        '.p-parameter ul.p-parameter-list li',
+        '#detail .parameter2 li',
+        '.parameter2 li',
+        '[class*="parameter"] li',
+        '.goods-base li',
+      ].join(', '),
     )
     for (const row of rows) {
       const labelNode = row.querySelector('.label')

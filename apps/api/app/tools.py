@@ -424,7 +424,11 @@ class ToolBox:
                 "product_id": product_id,
             },
         )
-        self._bump_quota(site, "fetch_detail")
+        # Charge quota only for successful detail opens. parse_error / blocks
+        # still cost wall time, but must not burn the 5-slot budget that later
+        # blocks recommend when the extension races or JD DOM is slow.
+        if result.get("status") == "ok":
+            self._bump_quota(site, "fetch_detail")
         if result.get("status") != "ok":
             return result
         product["detail_fetched"] = True

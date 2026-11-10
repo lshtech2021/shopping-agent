@@ -648,19 +648,46 @@ async function _runBrowserJob(tool, args = {}) {
           jobId,
         )
       }
+      // Parallel fetch_detail must not share one tab — otherwise jobs race and
+      // parse whichever page last navigated (often empty / mid-load).
+      const detailKey = `${site}-detail:${args.source_product_id || args.product_id || url}`
       const tabId = await ensureTab(
         site,
         url,
         log,
         deadline,
-        scopeKey(`${site}-detail`, args),
+        scopeKey(detailKey, args),
       )
-      await delay(800)
-      const response = await sendToTab(
+      await delay(1200)
+      let response = await sendToTab(
         tabId,
         { type: 'parse_detail' },
         { deadline },
       )
+      // SPA detail pages often hydrate after "complete"; retry briefly.
+      if (
+        response?.ok &&
+        response?.result?.status === 'parse_error' &&
+        response?.result?.error === 'detail_not_found'
+      ) {
+        for (let i = 0; i < 4 && Date.now() < deadline; i += 1) {
+          await delay(700)
+          response = await sendToTab(
+            tabId,
+            { type: 'parse_detail' },
+            { deadline },
+          )
+          if (
+            !(
+              response?.ok &&
+              response?.result?.status === 'parse_error' &&
+              response?.result?.error === 'detail_not_found'
+            )
+          ) {
+            break
+          }
+        }
+      }
       if (!response?.ok) {
         log.error('extension.detail', '详情解析失败', response)
         return withLogs(

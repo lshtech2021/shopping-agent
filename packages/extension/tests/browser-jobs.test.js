@@ -50,6 +50,53 @@ function installChrome({
   return calls
 }
 
+test('parallel fetch_detail opens a distinct tab per product', async () => {
+  const created = []
+  installChrome({
+    getTab: (tabId) => {
+      const hit = created.find((tab) => tab.id === tabId)
+      return hit
+        ? { id: hit.id, url: hit.url, status: 'complete' }
+        : { id: tabId, url: '', status: 'complete' }
+    },
+    createTab: (url) => {
+      const tab = { id: created.length + 10, url }
+      created.push(tab)
+      return tab
+    },
+    sendMessage: (_tabId, payload) => {
+      if (payload.type !== 'parse_detail') return { ok: true }
+      return {
+        ok: true,
+        document_url: created.find((tab) => tab.id === _tabId)?.url,
+        result: { status: 'ok', title: 'ok', price: 1, attributes: {} },
+      }
+    },
+  })
+  const { runBrowserJob } = await loadBrowserJobs()
+
+  await Promise.all([
+    runBrowserJob('fetch_detail', {
+      site: 'jd',
+      run_id: 'run-1',
+      source_product_id: '111',
+      url: 'https://item.jd.com/111.html',
+    }),
+    runBrowserJob('fetch_detail', {
+      site: 'jd',
+      run_id: 'run-1',
+      source_product_id: '222',
+      url: 'https://item.jd.com/222.html',
+    }),
+  ])
+
+  assert.equal(created.length, 2)
+  assert.deepEqual(
+    created.map((tab) => tab.url).sort(),
+    ['https://item.jd.com/111.html', 'https://item.jd.com/222.html'],
+  )
+})
+
 test('fetch_detail rejects a stale document from the reused tab', async () => {
   const oldUrl = 'https://item.jd.com/OLD.html'
   installChrome({
