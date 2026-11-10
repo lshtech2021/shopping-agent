@@ -15,10 +15,10 @@ def test_durable_touch_runs_store_write_off_event_loop(monkeypatch):
 
     real_touch = store.touch
 
-    def tracking_touch(sess, *, durable: bool = False):
+    def tracking_touch(sess, *, durable: bool = False, **kwargs):
         if durable:
             seen["thread"] = threading.get_ident()
-        return real_touch(sess, durable=durable)
+        return real_touch(sess, durable=durable, **kwargs)
 
     monkeypatch.setattr(store, "touch", tracking_touch)
     asyncio.run(durable_touch(session))
