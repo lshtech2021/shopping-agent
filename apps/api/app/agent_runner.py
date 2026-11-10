@@ -18,6 +18,14 @@ from app.trace import log_event, turn_logs
 logger = logging.getLogger(__name__)
 
 
+def format_answers_as_message(answers: dict[str, str]) -> str:
+    return "\n".join(
+        f"{key}: {value}"
+        for key, value in answers.items()
+        if str(value).strip()
+    )
+
+
 async def durable_touch(session: Session) -> None:
     """Persist a session without blocking the agent event loop."""
     await asyncio.to_thread(store.touch, session, durable=True)
@@ -31,36 +39,19 @@ async def run_agent(
     skip_parse: bool = False,
     checkpoint_resume: bool = False,
 ) -> dict[str, Any]:
+    answer_content = format_answers_as_message(answers or {})
+    text = "\n".join(
+        part for part in ((content or "").strip(), answer_content) if part
+    )
+    if text and session.pending_questions:
+        session.pending_questions = []
+
     session.turn += 1
     session.status = "running"
     session.interrupt_reason = None
     session.quotas = {}  # design §6: quotas are per turn, not per session
     tools = ToolBox(session)
-    text = (content or session.requirement or "").strip()
-    clarified = answers is not None
-    clarify_result: dict[str, Any] | None = None
-    if answers is not None:
-        if session.pending_questions:
-            clarify_result = tools.apply_clarify(answers)
-        else:
-            log_event(
-                session,
-                "收到澄清回答但没有待答问题，已忽略",
-                stage="agent.clarify",
-                source="agent",
-                level="warning",
-                data={"answers": answers},
-            )
-    clarify_failed = bool(
-        clarify_result and clarify_result.get("needs_clarify")
-    )
-    if clarify_failed:
-        # Host applied what it could; re-asking is a model tool decision.
-        text = (
-            f"{session.requirement or text}\n"
-            "（解析提示：上一轮澄清回答无法解析为有效条件，"
-            "请再次调用 ask_user，不要自行编造预算或其他硬约束。）"
-        ).strip()
+    text = (text or session.requirement or "").strip()
     log_event(
         session,
         "Agent 回合开始",
@@ -74,7 +65,6 @@ async def run_agent(
             "product_count": len(session.products),
             "mock_browser": tools.mock_mode,
             "llm_enabled": llm.llm_enabled(),
-            "clarify_failed": clarify_failed,
         },
         persist=True,
     )
@@ -93,17 +83,12 @@ async def run_agent(
     try:
         from app.llm_agent import run_llm_policy
 
-        # Successful clarify answers skip re-parse; failed ones must enter the
-        # tool loop so the model can call clarify again.
-        policy_skip_parse = (
-            False if clarify_failed else (skip_parse or clarified)
-        )
         result = await asyncio.wait_for(
             run_llm_policy(
                 session,
                 text,
                 tools,
-                skip_parse=policy_skip_parse,
+                skip_parse=skip_parse,
                 checkpoint_resume=checkpoint_resume,
             ),
             timeout=settings.agent_turn_timeout_s,

@@ -7,6 +7,7 @@ import {
 } from '../shared/api.js'
 import { logUi } from '../shared/logger.js'
 import {
+  formatAnswersAsMessage,
   isCurrentGeneration,
   progressText,
   shouldShowResume,
@@ -158,8 +159,7 @@ function appendClarify(questions = []) {
       handleResult(
         await sendMessage(
           state.sessionId,
-          '',
-          answers,
+          formatAnswersAsMessage(answers),
           state.clientId,
         ),
         generation,
@@ -188,7 +188,6 @@ function appendClarify(questions = []) {
         await sendMessage(
           state.sessionId,
           '跳过澄清，直接开始',
-          undefined,
           state.clientId,
         ),
         generation,
@@ -400,7 +399,6 @@ els.startBtn.addEventListener('click', async () => {
     const result = await sendMessage(
       state.sessionId,
       requirement,
-      undefined,
       state.clientId,
     )
     handleResult(result, generation)
@@ -427,7 +425,6 @@ els.sendBtn.addEventListener('click', async () => {
       await sendMessage(
         state.sessionId,
         content,
-        undefined,
         state.clientId,
       ),
       generation,

@@ -34,7 +34,11 @@ class ClarifyQuestion(BaseModel):
 class MessageRequest(BaseModel):
     content: str = Field(default="", max_length=4000)
     answers: Optional[dict[str, str]] = Field(
-        None, description="对上一轮 clarify 问题的回答：question.id -> 用户选择/输入"
+        None,
+        deprecated=True,
+        description=(
+            "已弃用；兼容旧客户端。回答会转换为普通用户消息内容。"
+        ),
     )
     client_message_id: Optional[str] = Field(
         None, max_length=200, description="客户端幂等键；重复请求返回原始响应"
@@ -42,7 +46,8 @@ class MessageRequest(BaseModel):
 
     @model_validator(mode="after")
     def _require_content_or_answers(self) -> "MessageRequest":
-        if not (self.content.strip() or (self.answers or {})):
+        answers = self.model_dump().get("answers") or {}
+        if not (self.content.strip() or answers):
             raise ValueError("content 或 answers 至少提供一个")
         return self
 

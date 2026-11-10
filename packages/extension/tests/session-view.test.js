@@ -48,3 +48,15 @@ test('progress text includes product count and current stage', async () => {
     /商品 1.*tool\.end.*scrape ok/,
   )
 })
+
+test('clarify answers are formatted as ordinary message content', async () => {
+  const view = await load()
+  assert.equal(
+    view.formatAnswersAsMessage({
+      budget: '5000',
+      category: '笔记本',
+      empty: '',
+    }),
+    'budget: 5000\ncategory: 笔记本',
+  )
+})

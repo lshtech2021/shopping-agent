@@ -9,6 +9,13 @@ export function shouldShowResume(detail) {
   )
 }
 
+export function formatAnswersAsMessage(answers) {
+  return Object.entries(answers || {})
+    .filter(([, value]) => value)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join('\n')
+}
+
 export function progressText(detail, events = []) {
   const fromEvents = events.map((row) => row?.event).filter(Boolean)
   const logs = fromEvents.length

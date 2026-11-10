@@ -267,16 +267,21 @@ async def post_message(
         if cached is not None:
             return MessageResponse(**cached["response"])
     async with _turn_slot(session_id):
-        from app.agent_runner import run_agent
+        from app.agent_runner import format_answers_as_message, run_agent
 
         session = _require_session(session_id)
         content = payload.content.strip()
+        answers = payload.model_dump().get("answers") or {}
+        answer_content = format_answers_as_message(answers)
+        content = "\n".join(
+            part for part in (content, answer_content) if part
+        )
         log_event(
             session,
             "收到用户消息",
             stage="api.message",
             source="api",
-            data={"content": content[:200], "answers": payload.answers},
+            data={"content": content[:200], "answers": answers or None},
             persist=False,
         )
         if content:
@@ -287,7 +292,7 @@ async def post_message(
                     "ts": datetime.now(timezone.utc).isoformat(),
                 }
             )
-        result = await run_agent(session, content, payload.answers)
+        result = await run_agent(session, content)
         if key:
             store.save_receipt(key, session_id, "message", result)
         return MessageResponse(**result)

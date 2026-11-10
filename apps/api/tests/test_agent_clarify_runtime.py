@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage, HumanMessage
 
 from app.main import app
 from app.store import store
@@ -142,8 +143,8 @@ def test_clarify_unparseable_budget_requests_another_answer():
     assert session.requirements["budget_cny"] is None
 
 
-def test_unparseable_clarify_answer_is_reasked_via_model_tool(fake_llm):
-    """Failed answer merge stays host-side; the model asks again."""
+def test_unparseable_answer_is_reasked_via_model_tool(fake_llm):
+    """The answer remains plain content, so the model decides to ask again."""
     import asyncio
 
     from conftest import _call
@@ -184,6 +185,72 @@ def test_unparseable_clarify_answer_is_reasked_via_model_tool(fake_llm):
     assert result["clarify"][0]["field"] == "budget"
     assert model.calls == 1
     assert session.requirements["budget_cny"] is None
+
+
+def test_card_reply_is_plain_content_not_answers_map(fake_llm, monkeypatch):
+    seen = []
+
+    def reply(messages):
+        seen.extend(
+            message.content
+            for message in messages
+            if isinstance(message, HumanMessage)
+        )
+        return AIMessage(content="收到")
+
+    fake_llm([reply])
+    session = seed_session()
+    session.status = "interrupted"
+    session.interrupt_reason = "clarify"
+    session.pending_questions = [
+        {"id": "budget", "field": "budget", "question": "预算？", "options": []}
+    ]
+
+    def reject_apply_clarify(*_args, **_kwargs):
+        raise AssertionError("apply_clarify must not run on the message path")
+
+    monkeypatch.setattr(ToolBox, "apply_clarify", reject_apply_clarify)
+    content = "budget: 5000\ncategory: 笔记本"
+
+    response = client.post(
+        f"/api/v1/sessions/{session.id}/messages",
+        json={"content": content},
+    )
+
+    assert response.status_code == 200
+    detail = client.get(f"/api/v1/sessions/{session.id}").json()
+    assert detail["pending_questions"] == []
+    assert any(
+        message["role"] == "user" and message["content"] == content
+        for message in detail["messages"]
+    )
+    assert any(content in message for message in seen)
+
+
+def test_deprecated_answers_are_formatted_as_a_user_message(fake_llm, monkeypatch):
+    fake_llm([AIMessage(content="收到")])
+    session = seed_session()
+    session.pending_questions = [
+        {"id": "budget", "field": "budget", "question": "预算？", "options": []}
+    ]
+
+    def reject_apply_clarify(*_args, **_kwargs):
+        raise AssertionError("apply_clarify must not run on the message path")
+
+    monkeypatch.setattr(ToolBox, "apply_clarify", reject_apply_clarify)
+
+    response = client.post(
+        f"/api/v1/sessions/{session.id}/messages",
+        json={"answers": {"budget": "5000", "category": "笔记本", "empty": " "}},
+    )
+
+    assert response.status_code == 200
+    detail = client.get(f"/api/v1/sessions/{session.id}").json()
+    assert any(
+        message["role"] == "user"
+        and message["content"] == "budget: 5000\ncategory: 笔记本"
+        for message in detail["messages"]
+    )
 
 
 def test_resume_does_not_override_confirmed_budget(mock_shopper):
