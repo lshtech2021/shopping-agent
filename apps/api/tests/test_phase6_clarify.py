@@ -41,7 +41,7 @@ def test_answers_apply_and_turn_completes(mock_shopper):
 
     second = client.post(
         f"/api/v1/sessions/{sid}/messages",
-        json={"content": "", "answers": {"budget": "5000-8000", "category": "笔记本"}},
+        json={"content": "budget: 5000-8000\ncategory: 笔记本"},
     ).json()
     assert second["interrupted"] is False
     assert second["recommendations"]
@@ -62,7 +62,7 @@ def test_conflict_question_for_low_budget_high_ram(mock_shopper):
 
     relaxed = client.post(
         f"/api/v1/sessions/{sid}/messages",
-        json={"content": "", "answers": {"budget_ram_conflict": "放宽预算"}},
+        json={"content": "budget_ram_conflict: 放宽预算"},
     ).json()
     assert relaxed["interrupted"] is False and relaxed["recommendations"]
     req = client.get(f"/api/v1/sessions/{sid}").json()["requirements"]
@@ -74,7 +74,7 @@ def test_free_text_answer_is_parsed(mock_shopper):
     client.post(f"/api/v1/sessions/{sid}/messages", json={"content": "帮我挑一台笔记本"})
     body = client.post(
         f"/api/v1/sessions/{sid}/messages",
-        json={"content": "", "answers": {"budget": "大概六千左右"}},
+        json={"content": "budget: 大概六千左右"},
     ).json()
     assert body["interrupted"] is False
     assert client.get(f"/api/v1/sessions/{sid}").json()["requirements"]["budget_cny"] == 6000.0
@@ -104,7 +104,7 @@ def test_answers_without_pending_questions_are_ordinary_user_text(mock_shopper):
     sid = _new_session(REQ_FULL)
     body = client.post(
         f"/api/v1/sessions/{sid}/messages",
-        json={"content": "", "answers": {"budget": "5000"}},
+        json={"content": "budget: 5000"},
     ).json()
     assert body["interrupted"] is True
     assert [question["id"] for question in body["clarify"]] == [

@@ -107,27 +107,6 @@ def test_card_budget_reply_is_applied_before_continuing(fake_llm):
     assert any(content in message for message in seen)
 
 
-def test_deprecated_answers_are_formatted_as_a_user_message(fake_llm):
-    fake_llm([AIMessage(content="收到")])
-    session = seed_session()
-    session.pending_questions = [
-        {"id": "budget", "field": "budget", "question": "预算？", "options": []}
-    ]
-
-    response = client.post(
-        f"/api/v1/sessions/{session.id}/messages",
-        json={"answers": {"budget": "5000", "category": "笔记本", "empty": " "}},
-    )
-
-    assert response.status_code == 200
-    detail = client.get(f"/api/v1/sessions/{session.id}").json()
-    assert any(
-        message["role"] == "user"
-        and message["content"] == "budget: 5000\ncategory: 笔记本"
-        for message in detail["messages"]
-    )
-
-
 def test_resume_does_not_override_confirmed_budget(mock_shopper):
     session = seed_session()
     session.requirement = "预算5000的笔记本"

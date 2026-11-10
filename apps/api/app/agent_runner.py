@@ -18,14 +18,6 @@ from app.trace import log_event, turn_logs
 logger = logging.getLogger(__name__)
 
 
-def format_answers_as_message(answers: dict[str, str]) -> str:
-    return "\n".join(
-        f"{key}: {value}"
-        for key, value in answers.items()
-        if str(value).strip()
-    )
-
-
 async def durable_touch(session: Session) -> None:
     """Persist a session without blocking the agent event loop."""
     await asyncio.to_thread(store.touch, session, durable=True)
