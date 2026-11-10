@@ -12,8 +12,29 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-database_url = os.getenv("SA_DATABASE_URL") or config.get_main_option(
-    "sqlalchemy.url"
+
+def _alembic_url(url: str) -> str:
+    """Force the psycopg3 dialect.
+
+    Plain ``postgresql://`` resolves to psycopg2, which on Chinese/non-UTF8
+    Windows often raises ``UnicodeDecodeError`` while decoding a connection
+    failure message and hides the real cause (server down, bad password, …).
+    The app itself already depends on ``psycopg`` (v3).
+    """
+    raw = (url or "").strip()
+    if raw.startswith("postgres://"):
+        raw = "postgresql://" + raw[len("postgres://") :]
+    if raw.startswith("postgresql+psycopg2://"):
+        raw = "postgresql+psycopg://" + raw[len("postgresql+psycopg2://") :]
+    elif raw.startswith("postgresql://"):
+        raw = "postgresql+psycopg://" + raw[len("postgresql://") :]
+    return raw
+
+
+database_url = _alembic_url(
+    os.getenv("SA_DATABASE_URL")
+    or config.get_main_option("sqlalchemy.url")
+    or ""
 )
 config.set_main_option("sqlalchemy.url", database_url)
 
