@@ -1,9 +1,13 @@
 # requirements_patch.py
 from __future__ import annotations
+
+import re
 from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 Confidence = Literal["high", "low"]
+_RAM_REQUIREMENT = re.compile(r"\d{1,3}\s*G内存", re.I)
 
 
 class RequirementPatch(BaseModel):
@@ -46,6 +50,12 @@ def apply_requirement_patch(
     if patch.must_have:
         must = list(req.get("must_have") or [])
         for item in patch.must_have:
+            if item and _RAM_REQUIREMENT.search(item):
+                must = [
+                    existing
+                    for existing in must
+                    if not _RAM_REQUIREMENT.search(str(existing))
+                ]
             if item and item not in must:
                 must.append(item)
         req["must_have"] = must

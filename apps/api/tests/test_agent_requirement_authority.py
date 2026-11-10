@@ -85,6 +85,7 @@ def test_model_applies_ram_from_user_text_as_explicit_patch(fake_llm):
 
     assert "防水" in session.requirements["must_have"]
     assert "16G内存" in session.requirements["must_have"]
+    assert "32G内存" not in session.requirements["must_have"]
 
 
 def test_answers_without_pending_questions_do_not_reparse_original_requirement(

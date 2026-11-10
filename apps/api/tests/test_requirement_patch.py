@@ -26,3 +26,12 @@ def test_apply_skips_low_confidence_budget():
     )
     out = apply_requirement_patch(req, patch)
     assert out.get("budget_cny") is None
+
+
+def test_apply_replaces_existing_ram_requirement():
+    req = {"must_have": ["32G内存"]}
+    patch = RequirementPatch(must_have=["16G内存"])
+
+    out = apply_requirement_patch(req, patch)
+
+    assert out["must_have"] == ["16G内存"]
