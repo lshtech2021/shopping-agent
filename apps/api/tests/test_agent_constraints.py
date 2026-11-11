@@ -1,4 +1,5 @@
 from app.config import settings
+from app.constraints import check_eligibility
 from app.store import store
 from app.tools import ToolBox
 from conftest import judged
@@ -7,7 +8,7 @@ from conftest import judged
 def seed_session(**overrides):
     session = store.create("测试需求", overrides.pop("site", "jd"))
     requirements = {
-        "budget_cny": None,
+        "budget": None,
         "must_have": [],
         "preferences": [],
         "category": None,
@@ -26,7 +27,6 @@ def seed_product(product_id, **overrides):
         "title": "商品",
         "price": 100.0,
         "currency": "CNY",
-        "price_cny": 100.0,
         "url": f"https://item.jd.com/{product_id}.html",
         "detail_fetched": True,
         "attributes": {},
@@ -35,9 +35,35 @@ def seed_product(product_id, **overrides):
     return product
 
 
+def test_budget_requires_matching_currency():
+    product = {
+        "source": "ebay",
+        "price": 500,
+        "currency": "USD",
+        "availability": "available",
+    }
+    requirements = {"budget": 600, "must_have": []}
+
+    matching = check_eligibility(
+        product,
+        requirements,
+        settings={"site": "ebay", "currency": "USD"},
+        sites=["ebay"],
+    )
+    assert "budget" not in matching.violations
+
+    mismatch = check_eligibility(
+        product,
+        requirements,
+        settings={"site": "ebay", "currency": "CNY"},
+        sites=["ebay"],
+    )
+    assert "budget" in mismatch.violations
+
+
 def test_recommend_rejects_over_budget_product():
-    session = seed_session(budget_cny=5000)
-    session.products["p1"] = seed_product("p1", price_cny=9000)
+    session = seed_session(budget=5000)
+    session.products["p1"] = seed_product("p1", price=9000)
     result = judged(ToolBox(session)).recommend(
         [{"product_id": "p1", "reason": "测试"}], "ok"
     )
@@ -47,7 +73,7 @@ def test_recommend_rejects_over_budget_product():
 
 def test_recommend_rejects_wrong_site_product():
     session = seed_session(sites=["jd"])
-    session.products["p1"] = seed_product("p1", source="ebay", price_cny=1000)
+    session.products["p1"] = seed_product("p1", source="ebay", price=1000)
     result = judged(ToolBox(session)).recommend(
         [{"product_id": "p1", "reason": "测试"}], "ok"
     )
@@ -58,7 +84,7 @@ def test_recommend_rejects_wrong_site_product():
 def test_recommend_rejects_missing_generic_must_have():
     session = seed_session(must_have=["防水"])
     session.products["p1"] = seed_product(
-        "p1", title="普通背包", attributes={}, price_cny=100
+        "p1", title="普通背包", attributes={}, price=100
     )
     result = judged(ToolBox(session)).recommend(
         [{"product_id": "p1", "reason": "测试"}], "ok"
@@ -70,7 +96,7 @@ def test_recommend_rejects_missing_generic_must_have():
 def test_recommend_accepts_must_have_in_attributes():
     session = seed_session(must_have=["防水"])
     session.products["p1"] = seed_product(
-        "p1", title="通勤背包", attributes={"防水": "是"}, price_cny=100
+        "p1", title="通勤背包", attributes={"防水": "是"}, price=100
     )
     result = judged(ToolBox(session)).recommend(
         [{"product_id": "p1", "reason": "防水通勤包"}], "ok"
@@ -92,8 +118,8 @@ def test_recommend_requires_detail_fetched(monkeypatch):
 
 
 def test_query_inventory_excludes_ineligible_products():
-    session = seed_session(budget_cny=1000, must_have=["防水"])
-    session.products["over"] = seed_product("over", price_cny=2000)
+    session = seed_session(budget=1000, must_have=["防水"])
+    session.products["over"] = seed_product("over", price=2000)
     session.products["wrong"] = seed_product("wrong", source="ebay")
     session.products["missing"] = seed_product("missing", title="普通背包")
     session.products["valid"] = seed_product("valid", title="防水背包")
@@ -121,7 +147,7 @@ def test_recommend_rejects_accessory_in_requested_category():
     session.products["acc"] = seed_product(
         "acc",
         title="笔记本电脑贴纸 保护膜 配件",
-        price_cny=29,
+        price=29,
         attributes={"type": "accessory"},
     )
     result = judged(ToolBox(session)).recommend(
@@ -134,7 +160,7 @@ def test_recommend_rejects_accessory_in_requested_category():
 def test_recommend_rejects_wrong_category_product():
     session = seed_session(category="笔记本")
     session.products["book"] = seed_product(
-        "book", title="三本软件开发书", price_cny=100
+        "book", title="三本软件开发书", price=100
     )
     result = judged(ToolBox(session)).recommend(
         [{"product_id": "book", "reason": "测试"}], "ok"
@@ -149,10 +175,10 @@ def test_query_inventory_excludes_accessory_and_wrong_category():
         "valid", title="ThinkPad T14 锐龙7 32G 开发本"
     )
     session.products["acc"] = seed_product(
-        "acc", title="笔记本电脑贴纸 保护膜 配件", price_cny=29
+        "acc", title="笔记本电脑贴纸 保护膜 配件", price=29
     )
     session.products["book"] = seed_product(
-        "book", title="三本软件开发书", price_cny=100
+        "book", title="三本软件开发书", price=100
     )
 
     items = judged(ToolBox(session)).query_inventory(limit=10)["items"]
@@ -161,13 +187,13 @@ def test_query_inventory_excludes_accessory_and_wrong_category():
 
 
 def test_price_range_upper_bound_is_used_for_budget():
-    session = seed_session(budget_cny=5000)
+    session = seed_session(budget=700)
+    session.settings["currency"] = "USD"
     session.products["range"] = seed_product(
         "range",
         price=620,
         currency="USD",
-        price_cny=4464,
-        price_max_cny=6120,
+        price_max=850,
         price_is_range=True,
     )
     result = judged(ToolBox(session)).recommend(
@@ -230,7 +256,6 @@ def test_listing_does_not_overwrite_verified_detail_price():
         "p1",
         title="ThinkPad T14 32G",
         price=5200,
-        price_cny=5200,
         detail_fetched=True,
         detail={"status": "ok", "title": "ThinkPad T14 32G", "price": 5200},
     )
@@ -246,7 +271,7 @@ def test_listing_does_not_overwrite_verified_detail_price():
     )
 
     product = session.products["p1"]
-    assert product["price_cny"] == 5200
+    assert product["price"] == 5200
     assert product["detail_fetched"] is True
 
 
@@ -266,5 +291,6 @@ def test_listing_range_price_is_persisted():
 
     product = next(iter(session.products.values()))
     assert product["price_is_range"] is True
-    assert product["price_cny"] == 4464
-    assert product["price_max_cny"] == 6120
+    assert product["price"] == 620
+    assert product["price_max"] == 850
+    assert product["currency"] == "USD"

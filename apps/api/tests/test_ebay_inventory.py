@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from app.constraints import check_product
-from app.inventory import build_product_index, to_cny, upsert_listing
+from app.inventory import build_product_index, upsert_listing
 from app.store import store
 from app.tools import ToolBox
 
@@ -60,8 +60,8 @@ def test_upsert_preserves_ebay_listing_metadata():
     assert product["has_variations"] is True
     assert product["variations"] == ["RAM", "Storage"]
     assert product["price"] == 620
-    assert product["price_cny"] == 4464
-    assert product["price_max_cny"] == 5040
+    assert product["price_max"] == 700
+    assert product["currency"] == "USD"
     assert product["price_is_range"] is True
 
 
@@ -100,19 +100,16 @@ def test_rescrape_keeps_detail_owned_fields():
     assert product["price"] == 620
 
 
-def test_jpy_conversion_and_unknown_currency():
-    assert to_cny(12800, "JPY") == 614.4
-    assert to_cny(1000, "ILS") is None
-
-
 def test_unavailable_product_is_ineligible():
     result = check_product(
         {
             "source": "ebay",
-            "price_cny": 100.0,
+            "price": 100.0,
+            "currency": "USD",
             "availability": "unavailable",
         },
         {},
+        settings={"site": "ebay", "currency": "USD"},
         sites=["ebay"],
     )
     assert result.ok is False
@@ -128,7 +125,6 @@ def test_query_inventory_exposes_ebay_observations():
         "title": "Lenovo ThinkPad T14",
         "price": 620.0,
         "currency": "USD",
-        "price_cny": 4464.0,
         "url": "https://www.ebay.com/itm/111222333444",
         "detail_fetched": True,
         "attributes": {},

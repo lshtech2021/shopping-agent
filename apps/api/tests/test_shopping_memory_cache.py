@@ -31,7 +31,7 @@ def test_summarize_reuses_cache_until_requirements_change(monkeypatch):
     assert first == second
     assert calls["n"] == 1
 
-    session.requirements["budget_cny"] = 5000
+    session.requirements["budget"] = 5000
     third = asyncio.run(memory.summarize(session.id))
     assert calls["n"] == 2
     assert "5000" in third or "budget" in third.lower() or third != first

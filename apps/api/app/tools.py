@@ -16,7 +16,6 @@ from app.inventory import (
     build_product_index,
     inventory_summary,
     select_diverse_products,
-    to_cny,
     upsert_listing,
 )
 from app.store import Session, store
@@ -130,7 +129,9 @@ class ToolBox:
             "requirement": self.session.requirement,
             "requirements": self.session.requirements,
             "product_count": len(products),
-            "inventory_summary": inventory_summary(products),
+            "inventory_summary": inventory_summary(
+                products, self.session.settings.get("currency")
+            ),
             "recommendations": self.session.recommendations,
             "interrupt_reason": self.session.interrupt_reason,
             "quotas": self.session.quotas,
@@ -261,6 +262,7 @@ class ToolBox:
             eligibility = check_product(
                 product,
                 requirements,
+                settings=self.session.settings,
                 sites=self.session.sites,
                 require_detail=prefer_detail,
             )
@@ -280,6 +282,7 @@ class ToolBox:
         samples = select_diverse_products(
             eligible,
             requirements,
+            settings=self.session.settings,
             sites=self.session.sites,
             limit=limit,
             require_detail=prefer_detail,
@@ -296,9 +299,8 @@ class ToolBox:
                     "source": p["source"],
                     "title": p["title"],
                     "price": p.get("price"),
+                    "price_max": p.get("price_max"),
                     "currency": p.get("currency"),
-                    "price_cny": p.get("price_cny"),
-                    "price_max_cny": p.get("price_max_cny"),
                     "price_is_range": p.get("price_is_range", False),
                     "shop_name": p.get("shop_name"),
                     "sales": p.get("sales"),
@@ -480,12 +482,9 @@ class ToolBox:
         if result.get("price") is not None:
             product["price"] = result["price"]
             product["currency"] = result.get("currency") or product.get("currency")
-            product["price_cny"] = to_cny(product["price"], product.get("currency"))
             price_is_range = bool(result.get("price_is_range"))
             price_max = result.get("price_max") if price_is_range else None
-            product["price_max_cny"] = to_cny(
-                price_max, product.get("currency")
-            )
+            product["price_max"] = price_max
             product["price_is_range"] = price_is_range
         if result.get("attributes"):
             product["attributes"] = result["attributes"]
@@ -545,6 +544,7 @@ class ToolBox:
             eligibility = check_product(
                 product,
                 requirements,
+                settings=self.session.settings,
                 sites=self.session.sites,
                 # Mock catalog has no detail pages; live mode must verify details.
                 require_detail=not self.mock_mode,
@@ -658,8 +658,8 @@ def _public_product(product: dict[str, Any]) -> dict[str, Any]:
         "product_id": product["product_id"],
         "title": product.get("title"),
         "price": product.get("price"),
+        "price_max": product.get("price_max"),
         "currency": product.get("currency"),
-        "price_cny": product.get("price_cny"),
         "url": product.get("url"),
         "image_url": product.get("image_url"),
         "condition": product.get("condition"),

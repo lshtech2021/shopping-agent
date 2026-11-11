@@ -13,7 +13,7 @@ def _run(run_id: str = "run-1", **overrides) -> dict:
         "requirement": "开发笔记本",
         "site": "jd",
         "status": "idle",
-        "requirements": {"budget_cny": 5000},
+        "requirements": {"budget": 5000},
         "plan": None,
         "messages": [],
         "products": {},

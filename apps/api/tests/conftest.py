@@ -199,8 +199,9 @@ def _recommend_from_inventory(messages) -> AIMessage:
             continue
         if re.search(r"shop on ebay", title, re.I):
             continue
-        price = item.get("price_cny")
-        reason = f"约¥{price:.0f}" if price is not None else "符合筛选"
+        price = item.get("price")
+        currency = item.get("currency") or ""
+        reason = f"约{currency} {price:.0f}" if price is not None else "符合筛选"
         picks.append({"product_id": item["product_id"], "reason": reason})
         if len(picks) >= 2:
             break
@@ -303,7 +304,7 @@ def _mock_extract(text: str) -> dict:
         elif m := re.search(r"([一二两三四五六七八九])(千|万)", text):
             budget = _CN[m.group(1)] * _UNITS[m.group(2)]
         if budget is not None:
-            fields["budget_cny"] = budget
+            fields["budget"] = budget
     if m := re.search(r"笔记本|手机|平板|耳机|显示器", text):
         fields["category"] = m.group(0)
     ram = re.search(r"(?:内存|ram)\D{0,6}(\d{1,3})\s*g", text, re.I) or re.search(
@@ -360,7 +361,7 @@ def _search_query(status: dict) -> str:
 def _requirement_gaps(req: dict) -> list[dict]:
     """Mirror the up-front clarify checklist the real model is prompted to follow."""
     questions: list[dict] = []
-    budget = req.get("budget_cny")
+    budget = req.get("budget")
     category = req.get("category")
     must = req.get("must_have") or []
     ram = None

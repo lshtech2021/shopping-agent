@@ -39,7 +39,7 @@ def test_resume_loads_checkpoint_saved_before_turn_bump(fake_llm, monkeypatch):
     session = store.create("预算5000的笔记本", "jd")
     session.requirements.update(
         {
-            "budget_cny": 5000,
+            "budget": 5000,
             "category": "笔记本",
             "budget_unlimited": False,
         }

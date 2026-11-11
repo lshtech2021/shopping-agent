@@ -66,10 +66,11 @@ def _current_fit(
     return None
 
 
-def check_product(
+def check_eligibility(
     product: dict[str, Any],
     requirements: dict[str, Any],
     *,
+    settings: dict[str, Any],
     sites: list[str],
     require_detail: bool = False,
 ) -> EligibilityResult:
@@ -83,22 +84,28 @@ def check_product(
         violations.append("availability")
 
     if not requirements.get("budget_unlimited"):
-        price = product.get("price_cny")
+        price = product.get("price")
         price_cap = (
-            product.get("price_max_cny")
+            product.get("price_max")
             if product.get("price_is_range")
             else price
         )
-        budget = requirements.get("budget_cny")
-        if budget is not None and (
-            price_cap is None or float(price_cap) > float(budget)
-        ):
+        budget = requirements.get("budget")
+        budget_min = requirements.get("budget_min")
+        has_budget = budget is not None or budget_min is not None
+        currency = str(product.get("currency") or "").upper()
+        session_currency = str(settings.get("currency") or "").upper()
+        if has_budget and session_currency and currency != session_currency:
             violations.append("budget")
-        budget_min = requirements.get("budget_min_cny")
-        if budget_min is not None and (
-            price is None or float(price) < float(budget_min)
-        ):
-            violations.append("budget_min")
+        else:
+            if budget is not None and (
+                price_cap is None or float(price_cap) > float(budget)
+            ):
+                violations.append("budget")
+            if budget_min is not None and (
+                price is None or float(price) < float(budget_min)
+            ):
+                violations.append("budget_min")
 
     if needs_fit(requirements):
         fit = _current_fit(product, requirements)
@@ -119,6 +126,23 @@ def check_product(
         violations.append("detail")
 
     return EligibilityResult(ok=not violations, violations=violations)
+
+
+def check_product(
+    product: dict[str, Any],
+    requirements: dict[str, Any],
+    *,
+    settings: dict[str, Any],
+    sites: list[str],
+    require_detail: bool = False,
+) -> EligibilityResult:
+    return check_eligibility(
+        product,
+        requirements,
+        settings=settings,
+        sites=sites,
+        require_detail=require_detail,
+    )
 
 
 def must_have_match_count(

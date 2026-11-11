@@ -223,7 +223,7 @@ def test_runtime_updates_plan_from_tool_meta():
 
 def test_real_shopping_tools_progress_through_all_plan_steps(monkeypatch):
     session = store.create("开发笔记本", "jd")
-    session.requirements.update({"category": "笔记本", "budget_cny": 5000})
+    session.requirements.update({"category": "笔记本", "budget": 5000})
     session.products["p1"] = {
         "product_id": "p1",
         "source": "jd",
@@ -231,7 +231,6 @@ def test_real_shopping_tools_progress_through_all_plan_steps(monkeypatch):
         "title": "ThinkPad T14 32G 开发本",
         "price": 4800.0,
         "currency": "CNY",
-        "price_cny": 4800.0,
         "url": "https://item.jd.com/1001.html",
         "detail_fetched": True,
         "attributes": {"内存": "32GB"},

@@ -16,7 +16,6 @@ def _ebay_product() -> dict:
         "title": "Lenovo ThinkPad T14",
         "price": 600.0,
         "currency": "USD",
-        "price_cny": 4320.0,
         "url": "https://www.ebay.com/itm/111222333444",
         "detail_fetched": False,
         "attributes": {},
@@ -62,8 +61,8 @@ def test_fetch_detail_keeps_range_and_metadata(monkeypatch):
     product = session.products["p1"]
     assert product["detail_fetched"] is True
     assert product["price"] == 620
-    assert product["price_cny"] == 4464
-    assert product["price_max_cny"] == 5040
+    assert product["price_max"] == 700
+    assert product["currency"] == "USD"
     assert product["price_is_range"] is True
     assert product["attributes"]["RAM Size"] == "32 GB"
     assert product["condition"] == "Pre-Owned"

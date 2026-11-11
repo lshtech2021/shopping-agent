@@ -12,8 +12,8 @@ from conftest import _call
 def seed_session(**overrides):
     session = store.create(overrides.pop("requirement", "测试需求"), "jd")
     requirements = {
-        "budget_cny": None,
-        "budget_min_cny": None,
+        "budget": None,
+        "budget_min": None,
         "budget_unlimited": False,
         "must_have": [],
         "preferences": [],
@@ -26,20 +26,20 @@ def seed_session(**overrides):
 
 
 def test_explicit_budget_change_overwrites_confirmed_budget():
-    session = seed_session(budget_cny=8000)
+    session = seed_session(budget=8000)
 
-    ToolBox(session).update_requirements(budget_cny=7000)
+    ToolBox(session).update_requirements(budget=7000)
 
-    assert session.requirements["budget_cny"] == 7000
+    assert session.requirements["budget"] == 7000
     assert session.requirements["budget_unlimited"] is False
 
 
 def test_unrelated_fields_do_not_clear_confirmed_budget():
-    session = seed_session(budget_cny=8000)
+    session = seed_session(budget=8000)
 
     ToolBox(session).update_requirements(preferences=["颜色都可以"])
 
-    assert session.requirements["budget_cny"] == 8000
+    assert session.requirements["budget"] == 8000
     assert session.requirements["budget_unlimited"] is False
 
 
@@ -75,8 +75,8 @@ def test_answers_without_pending_questions_do_not_reparse_original_requirement(
     from app import llm
 
     monkeypatch.setattr(llm, "llm_enabled", lambda: False)
-    session = seed_session(requirement="预算5000的笔记本", budget_cny=8000)
+    session = seed_session(requirement="预算5000的笔记本", budget=8000)
 
     asyncio.run(run_agent(session, ""))
 
-    assert session.requirements["budget_cny"] == 8000
+    assert session.requirements["budget"] == 8000

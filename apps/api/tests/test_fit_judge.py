@@ -11,7 +11,7 @@ from conftest import FitJudgeDouble
 def seed(**requirements):
     session = store.create("测试", "jd")
     session.requirements = {
-        "budget_cny": None,
+        "budget": None,
         "must_have": [],
         "category": None,
         **requirements,
@@ -26,7 +26,6 @@ def _product(product_id, title):
         "product_id": product_id,
         "source": "jd",
         "title": title,
-        "price_cny": 100.0,
         "detail_fetched": True,
         "attributes": {},
     }
@@ -61,7 +60,10 @@ def test_no_category_or_must_have_means_no_llm_call():
 
     assert judge.calls == 0 and outcome == {"judged": 0, "error": None}
     assert check_product(
-        session.products["ok"], session.requirements, sites=["jd"]
+        session.products["ok"],
+        session.requirements,
+        settings=session.settings,
+        sites=["jd"],
     ).ok
 
 
@@ -79,8 +81,12 @@ def test_verdicts_are_batched_cached_and_gate_eligibility():
 
     assert first["judged"] == 2 and again["judged"] == 0
     assert judge.calls == 1  # one batched call, then cache hit
-    ok = check_product(session.products["ok"], session.requirements, sites=["jd"])
-    acc = check_product(session.products["acc"], session.requirements, sites=["jd"])
+    ok = check_product(
+        session.products["ok"], session.requirements, settings=session.settings, sites=["jd"]
+    )
+    acc = check_product(
+        session.products["acc"], session.requirements, settings=session.settings, sites=["jd"]
+    )
     assert ok.ok
     assert "category" in acc.violations
 
@@ -110,7 +116,9 @@ def test_judge_failure_leaves_products_unjudged_and_ineligible():
     )
 
     assert outcome["judged"] == 0 and "boom" in outcome["error"]
-    result = check_product(session.products["ok"], session.requirements, sites=["jd"])
+    result = check_product(
+        session.products["ok"], session.requirements, settings=session.settings, sites=["jd"]
+    )
     assert result.violations == ["unjudged"]
 
 
@@ -169,5 +177,8 @@ def test_structured_output_unavailable_falls_back_to_json_text():
     assert outcome["judged"] == 2 and outcome["error"] is None
     assert judge.structured_calls >= 1 and judge.text_calls >= 1
     assert check_product(
-        session.products["ok"], session.requirements, sites=["jd"]
+        session.products["ok"],
+        session.requirements,
+        settings=session.settings,
+        sites=["jd"],
     ).ok

@@ -193,7 +193,7 @@ def _recommend_first_item(messages):
 def test_llm_policy_full_loop(fake_llm):
     model = fake_llm(
         [
-            _call("update_requirements", budget_cny=5000, use_case="开发", must_have=["32G内存"]),
+            _call("update_requirements", budget=5000, use_case="开发", must_have=["32G内存"]),
             _call("search", site="jd", query="笔记本 开发"),
             _call("scrape_listing", site="jd"),
             _call("query_inventory", limit=5),

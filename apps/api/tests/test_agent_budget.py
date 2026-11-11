@@ -3,7 +3,7 @@ def test_mock_shopper_clarify_questions_include_field():
 
     gaps = _requirement_gaps(
         {
-            "budget_cny": None,
+            "budget": None,
             "budget_unlimited": False,
             "category": None,
             "must_have": [],
@@ -20,10 +20,10 @@ def test_explicit_unlimited_clears_budget():
     from app.tools import ToolBox
 
     session = store.create("笔记本", "jd")
-    session.requirements["budget_cny"] = 5000
+    session.requirements["budget"] = 5000
     result = ToolBox(session).update_requirements(budget_unlimited=True)
     assert result["requirements"]["budget_unlimited"] is True
-    assert session.requirements["budget_cny"] is None
+    assert session.requirements["budget"] is None
 
 
 def test_low_confidence_budget_is_clarified_via_model_tool(fake_llm):
@@ -60,8 +60,8 @@ def test_low_confidence_budget_is_clarified_via_model_tool(fake_llm):
     )
     session = store.create("笔记本 5000", "jd")
     session.requirements = {
-        "budget_cny": None,
-        "budget_min_cny": None,
+        "budget": None,
+        "budget_min": None,
         "budget_unlimited": False,
         "must_have": [],
         "preferences": [],
@@ -77,4 +77,4 @@ def test_low_confidence_budget_is_clarified_via_model_tool(fake_llm):
     assert result["interrupt_reason"] == "clarify"
     assert result["clarify"][0]["field"] == "budget"
     assert model.calls == 1
-    assert session.requirements["budget_cny"] is None
+    assert session.requirements["budget"] is None

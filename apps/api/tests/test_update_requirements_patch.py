@@ -10,12 +10,12 @@ from app.tools import ToolBox
 
 def test_update_requirements_applies_explicit_patch_without_change_cues():
     session = store.create("预算 5000 的笔记本", "jd")
-    session.requirements["budget_cny"] = 5000
+    session.requirements["budget"] = 5000
 
-    result = ToolBox(session).update_requirements(budget_cny=8000)
+    result = ToolBox(session).update_requirements(budget=8000)
 
-    assert result["requirements"]["budget_cny"] == 8000
-    assert session.requirements["budget_cny"] == 8000
+    assert result["requirements"]["budget"] == 8000
+    assert session.requirements["budget"] == 8000
 
 
 def test_domain_update_requirements_ignores_explicit_null_lists():

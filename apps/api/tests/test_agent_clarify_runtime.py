@@ -12,7 +12,7 @@ client = TestClient(app)
 def seed_session(**overrides):
     session = store.create("测试需求", overrides.pop("site", "jd"))
     requirements = {
-        "budget_cny": None,
+        "budget": None,
         "must_have": [],
         "preferences": [],
         "category": None,
@@ -68,7 +68,7 @@ def test_unparseable_answer_is_reasked_via_model_tool(fake_llm):
     assert result["interrupt_reason"] == "clarify"
     assert result["clarify"][0]["field"] == "budget"
     assert model.calls == 1
-    assert session.requirements["budget_cny"] is None
+    assert session.requirements["budget"] is None
 
 
 def test_card_reply_is_a_chat_message_the_model_saves(fake_llm):
@@ -80,7 +80,7 @@ def test_card_reply_is_a_chat_message_the_model_saves(fake_llm):
             for message in messages
             if isinstance(message, HumanMessage)
         )
-        return _call("update_requirements", budget_cny=5000, category="笔记本")
+        return _call("update_requirements", budget=5000, category="笔记本")
 
     fake_llm([save_answers, AIMessage(content="收到")])
     session = seed_session()
@@ -112,7 +112,7 @@ def test_resume_does_not_override_confirmed_budget(mock_shopper):
     session = seed_session()
     session.requirement = "预算5000的笔记本"
     session.requirements.update(
-        {"budget_cny": 8000, "category": "笔记本"}
+        {"budget": 8000, "category": "笔记本"}
     )
     session.status = "interrupted"
     session.turn = 1

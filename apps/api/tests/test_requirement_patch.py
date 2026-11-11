@@ -5,27 +5,28 @@ from app.domains.shopping.requirements_patch import (
 
 
 def test_apply_sets_budget_and_category():
-    req = {"budget_cny": None, "category": None, "must_have": [], "preferences": []}
+    req = {"budget": None, "category": None, "must_have": [], "preferences": []}
     patch = RequirementPatch(
-        budget_cny=5000,
+        budget=5000,
         category="笔记本",
-        confidence={"budget_cny": "high", "category": "high"},
+        confidence={"budget": "high", "category": "high"},
     )
     out = apply_requirement_patch(req, patch)
-    assert out["budget_cny"] == 5000
+    assert out["budget"] == 5000
+    assert "budget_cny" not in out
     assert out["category"] == "笔记本"
     assert out.get("budget_unlimited") is False
 
 
 def test_apply_skips_low_confidence_budget():
-    req = {"budget_cny": None}
+    req = {"budget": None}
     patch = RequirementPatch(
-        budget_cny=5000,
-        confidence={"budget_cny": "low"},
-        ambiguous_fields=["budget_cny"],
+        budget=5000,
+        confidence={"budget": "low"},
+        ambiguous_fields=["budget"],
     )
     out = apply_requirement_patch(req, patch)
-    assert out.get("budget_cny") is None
+    assert out.get("budget") is None
 
 
 def test_apply_replaces_existing_ram_requirement():

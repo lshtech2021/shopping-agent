@@ -14,7 +14,7 @@ from conftest import judged
 def seed_session(**overrides):
     session = store.create("开发笔记本", "jd")
     session.requirements = {
-        "budget_cny": 5000,
+        "budget": 5000,
         "must_have": [],
         "category": "笔记本",
     }
@@ -26,7 +26,6 @@ def seed_session(**overrides):
         "title": "ThinkPad T14 32G 开发本",
         "price": 4800.0,
         "currency": "CNY",
-        "price_cny": 4800.0,
         "url": "https://item.jd.com/1001.html",
         "detail_fetched": True,
         "attributes": {"内存": "32GB"},
@@ -64,7 +63,7 @@ def state(plan: dict | None = None) -> AgentState:
 
 def test_over_budget_candidate_is_rejected():
     session = seed_session()
-    session.products["p1"]["price_cny"] = 9000
+    session.products["p1"]["price"] = 9000
     critic = ShoppingCritic(session, ToolBox(session))
 
     critique = asyncio.run(critic.evaluate(state=state(), output=output_for("p1")))

@@ -19,7 +19,7 @@ class Context:
 def seed_session():
     session = store.create("需要一台开发笔记本", "jd")
     session.requirements = {
-        "budget_cny": 5000,
+        "budget": 5000,
         "must_have": [],
         "category": "笔记本",
     }
@@ -30,7 +30,6 @@ def seed_session():
         "title": "ThinkPad T14 32G 开发本",
         "price": 4800.0,
         "currency": "CNY",
-        "price_cny": 4800.0,
         "url": "https://item.jd.com/1001.html",
         "detail_fetched": True,
         "attributes": {"内存": "32GB"},
@@ -39,7 +38,7 @@ def seed_session():
 
 
 def test_shopping_state_and_output_are_domain_models():
-    state = ShoppingState(requirements={"budget_cny": 5000}, sites=["jd"])
+    state = ShoppingState(requirements={"budget": 5000}, sites=["jd"])
     output = ShoppingOutput(reply="推荐", recommendations=[{"product_id": "p1"}])
     assert state.sites == ["jd"]
     assert output.recommendations[0]["product_id"] == "p1"
@@ -294,7 +293,7 @@ def test_run_llm_policy_creates_and_persists_a_plan(monkeypatch):
     ).json()
     # Requirements already confirmed (e.g. from an earlier turn).
     store.get(created["session_id"]).requirements.update(
-        {"budget_cny": 5000, "category": "笔记本"}
+        {"budget": 5000, "category": "笔记本"}
     )
     response = client.post(
         f"/api/v1/sessions/{created['session_id']}/messages",

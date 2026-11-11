@@ -23,8 +23,8 @@ class _NoArgs(BaseModel):
 
 
 class _UpdateReq(BaseModel):
-    budget_cny: Optional[float] = Field(None, description="预算上限，人民币")
-    budget_min_cny: Optional[float] = Field(None, description="预算下限，人民币")
+    budget: Optional[float] = Field(None, description="预算上限（会话币种）")
+    budget_min: Optional[float] = Field(None, description="预算下限（会话币种）")
     budget_unlimited: Optional[bool] = Field(None, description="是否不限预算")
     category: Optional[str] = Field(None, description="品类，如 手机 / 跑鞋 / 笔记本")
     use_case: Optional[str] = Field(None, description="用途，如 通勤 / 送礼")

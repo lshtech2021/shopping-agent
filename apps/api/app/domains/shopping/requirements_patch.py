@@ -11,8 +11,8 @@ _RAM_REQUIREMENT = re.compile(r"\d{1,3}\s*G内存", re.I)
 
 
 class RequirementPatch(BaseModel):
-    budget_cny: float | None = None
-    budget_min_cny: float | None = None
+    budget: float | None = None
+    budget_min: float | None = None
     budget_unlimited: bool | None = None
     category: str | None = None
     use_case: str | None = None
@@ -33,15 +33,15 @@ def apply_requirement_patch(
         return conf.get(field, "high") == "high" and field not in patch.ambiguous_fields
 
     if patch.budget_unlimited is True and high("budget_unlimited"):
-        req["budget_cny"] = None
-        req["budget_min_cny"] = None
+        req["budget"] = None
+        req["budget_min"] = None
         req["budget_unlimited"] = True
     else:
-        if patch.budget_cny is not None and high("budget_cny"):
-            req["budget_cny"] = float(patch.budget_cny)
+        if patch.budget is not None and high("budget"):
+            req["budget"] = float(patch.budget)
             req["budget_unlimited"] = False
-        if patch.budget_min_cny is not None and high("budget_min_cny"):
-            req["budget_min_cny"] = float(patch.budget_min_cny)
+        if patch.budget_min is not None and high("budget_min"):
+            req["budget_min"] = float(patch.budget_min)
             req["budget_unlimited"] = False
     if patch.category and high("category"):
         req["category"] = patch.category

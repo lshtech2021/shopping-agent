@@ -10,7 +10,7 @@ from app.tools import ToolBox
 def seed_session():
     session = store.create("需要一台开发笔记本", "jd")
     session.requirements = {
-        "budget_cny": 5000,
+        "budget": 5000,
         "must_have": ["32G内存"],
         "category": "笔记本",
     }
@@ -19,7 +19,6 @@ def seed_session():
         "source": "jd",
         "source_product_id": "1001",
         "title": "SECRET PRODUCT TITLE",
-        "price_cny": 4800,
         "attributes": {"内存": "32GB"},
     }
     return session
@@ -48,7 +47,6 @@ def test_shopping_memory_records_products():
             "product_id": "p2",
             "source": "jd",
             "title": "Another product",
-            "price_cny": 100,
         }
     )
 
@@ -63,7 +61,7 @@ def test_shopping_memory_load_save_query_and_summary():
     loaded = asyncio.run(memory.load("run-1"))
     assert loaded["session_id"] == session.id
     assert loaded["note"] == "checked"
-    assert loaded["requirements"]["budget_cny"] == 5000
+    assert loaded["requirements"]["budget"] == 5000
     assert asyncio.run(memory.query("SECRET", limit=1))[0]["product_id"] == "p1"
 
     summary = asyncio.run(memory.summarize("run-1"))

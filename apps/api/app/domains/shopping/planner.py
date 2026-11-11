@@ -26,8 +26,7 @@ Search query rules:
   "thinkpad laptop", or "laptop 16GB". Never pass a sentence or use-case
   phrase such as "laptop for software development"; express constraints with
   category/price filters instead. Prefix exclusion terms with "-".
-- Convert CNY budgets to site currency conservatively (round down and leave
-  room for shipping/tax).
+- Treat budgets as amounts in the session currency; never convert currencies.
 - JD uses concise Chinese keywords.
 - Provide 2-4 keyword variants per site when useful.
 """
@@ -61,7 +60,7 @@ def requirements_complete(
         return False
     if req.get("budget_unlimited"):
         return True
-    return req.get("budget_cny") is not None or req.get("budget_min_cny") is not None
+    return req.get("budget") is not None or req.get("budget_min") is not None
 
 
 class ShoppingPlanner:

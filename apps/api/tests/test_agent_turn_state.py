@@ -14,7 +14,7 @@ client = TestClient(app)
 def seed_session(**overrides):
     session = store.create("测试需求", overrides.pop("site", "jd"))
     requirements = {
-        "budget_cny": None,
+        "budget": None,
         "must_have": [],
         "preferences": [],
         "category": None,

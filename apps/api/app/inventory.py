@@ -5,7 +5,6 @@ import uuid
 from collections import defaultdict
 from typing import Any
 
-from app.config import settings
 from app.constraints import check_product, must_have_match_count
 
 
@@ -13,6 +12,7 @@ def select_diverse_products(
     products: list[dict[str, Any]],
     requirements: dict[str, Any],
     *,
+    settings: dict[str, Any],
     sites: list[str],
     limit: int,
     require_detail: bool = False,
@@ -25,6 +25,7 @@ def select_diverse_products(
         if check_product(
             product,
             requirements,
+            settings=settings,
             sites=sites,
             require_detail=require_detail,
         ).ok
@@ -40,7 +41,7 @@ def select_diverse_products(
 
     bands: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for product in ordered:
-        price = float(product.get("price_cny") or 0)
+        price = float(product.get("price") or 0)
         index = min(3, max(0, int(price / budget * 4)))
         bands[index].append(product)
 
@@ -72,7 +73,7 @@ def _rank_key(
         not bool(product.get("detail_fetched")),
         -must_have_match_count(product, requirements),
         -(int(product.get("sales") or 0)),
-        float(product.get("price_cny") or 0),
+        float(product.get("price") or 0),
         str(product.get("product_id") or ""),
     )
 
@@ -80,7 +81,7 @@ def _rank_key(
 def _budget(requirements: dict[str, Any]) -> float | None:
     if requirements.get("budget_unlimited"):
         return None
-    value = requirements.get("budget_cny")
+    value = requirements.get("budget")
     if value is None:
         return None
     try:
@@ -90,7 +91,9 @@ def _budget(requirements: dict[str, Any]) -> float | None:
     return budget if budget > 0 else None
 
 
-def inventory_summary(products: list[dict[str, Any]]) -> str:
+def inventory_summary(
+    products: list[dict[str, Any]], currency: str | None = None
+) -> str:
     if not products:
         return "库存摘要：无已抓商品"
     by_site: dict[str, int] = {}
@@ -99,36 +102,24 @@ def inventory_summary(products: list[dict[str, Any]]) -> str:
             by_site.get(product.get("source") or "?", 0) + 1
         )
     priced = [
-        product["price_cny"]
+        product["price"]
         for product in products
-        if product.get("price_cny") is not None
+        if product.get("price") is not None
+        and (
+            not currency
+            or str(product.get("currency") or "").upper() == currency.upper()
+        )
     ]
     price_part = (
-        f"价区¥{min(priced):.0f}-¥{max(priced):.0f}" if priced else "价区未知"
+        f"价区{currency or ''} {min(priced):.0f}-{max(priced):.0f}"
+        if priced
+        else "价区未知"
     )
     site_part = "；".join(f"{key}={value}" for key, value in sorted(by_site.items()))
     return (
         f"库存摘要：商品数={len(products)}；总计={len(products)}；"
         f"{site_part}；{price_part}"
     )
-
-
-def to_cny(price: Any, currency: str | None) -> float | None:
-    if price is None:
-        return None
-    try:
-        value = float(price)
-    except (TypeError, ValueError):
-        return None
-    code = (currency or "CNY").upper()
-    rates = {
-        str(key).upper(): float(rate)
-        for key, rate in (settings.fx_rates or {}).items()
-    }
-    rate = rates.get(code)
-    if rate is None or rate <= 0:
-        return None
-    return round(value * rate, 2)
 
 
 def build_product_index(
@@ -166,8 +157,7 @@ def upsert_listing(
         "title": item.get("title") or source_id,
         "price": price,
         "currency": currency,
-        "price_cny": to_cny(price, currency),
-        "price_max_cny": to_cny(price_max, currency),
+        "price_max": price_max,
         "price_is_range": price_is_range,
     }
     if detail_owned:
@@ -175,8 +165,7 @@ def upsert_listing(
             "title": existing.get("title") or source_id,
             "price": existing.get("price"),
             "currency": existing.get("currency") or currency,
-            "price_cny": existing.get("price_cny"),
-            "price_max_cny": existing.get("price_max_cny"),
+            "price_max": existing.get("price_max"),
             "price_is_range": existing.get("price_is_range", False),
         }
     def _pick(name: str, default: Any = None) -> Any:

@@ -20,19 +20,19 @@ class CountingModel:
 
 def test_requirements_complete_detects_budget_and_category():
     assert requirements_complete(
-        {"category": "笔记本", "budget_cny": 5000}, sites=["jd"]
+        {"category": "笔记本", "budget": 5000}, sites=["jd"]
     )
     assert requirements_complete(
         {"category": "笔记本", "budget_unlimited": True}, sites=["jd"]
     )
     assert not requirements_complete(
-        {"category": "笔记本", "budget_cny": None}, sites=["jd"]
+        {"category": "笔记本", "budget": None}, sites=["jd"]
     )
     assert not requirements_complete(
-        {"category": None, "budget_cny": 5000}, sites=["jd"]
+        {"category": None, "budget": 5000}, sites=["jd"]
     )
     assert not requirements_complete(
-        {"category": "笔记本", "budget_cny": 5000}, sites=[]
+        {"category": "笔记本", "budget": 5000}, sites=[]
     )
 
 
@@ -45,7 +45,7 @@ def test_planner_uses_template_when_requirements_complete():
             context={
                 "requirements": {
                     "category": "笔记本",
-                    "budget_cny": 5000,
+                    "budget": 5000,
                     "budget_unlimited": False,
                 },
                 "sites": ["jd"],
@@ -68,7 +68,7 @@ def test_template_plan_uses_short_ebay_query_without_use_case():
                 "requirements": {
                     "category": "笔记本电脑",
                     "use_case": "软件开发",
-                    "budget_cny": 5000,
+                    "budget": 5000,
                     "budget_unlimited": False,
                 },
                 "sites": ["ebay"],

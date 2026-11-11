@@ -13,7 +13,7 @@ def test_update_requirements_syncs_plan_metadata():
     state = {
         "plan": {
             "metadata": {
-                "requirements": {"category": None, "budget_cny": None}
+                "requirements": {"category": None, "budget": None}
             }
         }
     }
@@ -25,7 +25,7 @@ def test_update_requirements_syncs_plan_metadata():
 
     result = asyncio.run(
         spec.handler(
-            spec.args_model(category="笔记本电脑", budget_cny=5000),
+            spec.args_model(category="笔记本电脑", budget=5000),
             None,
         )
     )
@@ -33,4 +33,4 @@ def test_update_requirements_syncs_plan_metadata():
     assert result.ok
     plan_requirements = state["plan"]["metadata"]["requirements"]
     assert plan_requirements["category"] == "笔记本电脑"
-    assert plan_requirements["budget_cny"] == 5000
+    assert plan_requirements["budget"] == 5000
