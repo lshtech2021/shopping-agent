@@ -1,7 +1,7 @@
 # Currency and Budget Hardening Plan
 
 Status: implemented in four phases on `fix/ebay-scraping-quality`
-(2026-11-11). Verification: extension 62 tests passed; API 281 passed,
+(2026-11-11). Verification: extension 63 tests passed; API 282 passed,
 2 skipped.
 
 ## Findings
@@ -41,6 +41,8 @@ Status: implemented in four phases on `fix/ebay-scraping-quality`
   mismatch when no currency can be inferred.
 - Do not let a detail-page currency mismatch block specification extraction;
   keep the listing price/currency authoritative and flag the detail currency.
+- When eBay shows a primary price plus an approximate price in the session
+  currency, use the approximate price without reporting a mismatch.
 - Report currency mismatches as `currency`, not `budget`.
 - Fix the panel mismatch scan so it does not stop at the first unrelated log.
 - Add tests for CNY listing + USD detail, bare dollar, and multiple logs.

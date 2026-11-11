@@ -582,30 +582,65 @@ class ToolBox:
             return result
         product["detail_fetched"] = True
         product["detail"] = result
-        detail_currency = normalize_currency(result.get("currency"))
+        primary_price = result.get("price")
+        primary_currency = normalize_currency(result.get("currency"))
+        approx_price = result.get("approx_price")
+        approx_currency = normalize_currency(result.get("approx_currency"))
         product_currency = normalize_currency(product.get("currency"))
         session_currency = normalize_currency(
             self.session.settings.get("currency")
         )
+        target_currency = session_currency or product_currency
+        chosen_price = primary_price
+        chosen_currency = primary_currency
+        price_source = "primary"
+        if (
+            target_currency
+            and approx_price is not None
+            and approx_currency == target_currency
+            and primary_currency != target_currency
+        ):
+            chosen_price = approx_price
+            chosen_currency = approx_currency
+            price_source = "approx"
+        elif primary_currency is None and approx_currency:
+            chosen_price = approx_price
+            chosen_currency = approx_currency
+            price_source = "approx"
+
         currency_mismatch = bool(
-            detail_currency
-            and (
-                (session_currency and detail_currency != session_currency)
-                or (product_currency and detail_currency != product_currency)
-            )
+            target_currency
+            and chosen_currency
+            and chosen_currency != target_currency
         )
         product["detail_currency_mismatch"] = currency_mismatch
+        product["detail_price_source"] = price_source
+        product["detail_primary_currency"] = primary_currency
+        if primary_price is not None:
+            product["detail_primary_price"] = primary_price
+        else:
+            product.pop("detail_primary_price", None)
         if currency_mismatch:
-            product["detail_currency"] = detail_currency
-            if result.get("price") is not None:
-                product["detail_price"] = result["price"]
+            product["detail_currency"] = chosen_currency
+            if chosen_price is not None:
+                product["detail_price"] = chosen_price
+        else:
+            product.pop("detail_currency", None)
+            product.pop("detail_price", None)
+
         if result.get("title"):
             product["title"] = result["title"]
-        if result.get("price") is not None and not currency_mismatch:
-            product["price"] = result["price"]
-            product["currency"] = result.get("currency") or product.get("currency")
-            price_is_range = bool(result.get("price_is_range"))
-            price_max = result.get("price_max") if price_is_range else None
+        if chosen_price is not None and not currency_mismatch:
+            product["price"] = chosen_price
+            product["currency"] = chosen_currency or product.get("currency")
+            price_is_range = (
+                bool(result.get("price_is_range"))
+                if price_source == "primary"
+                else False
+            )
+            price_max = (
+                result.get("price_max") if price_is_range else None
+            )
             product["price_max"] = price_max
             product["price_is_range"] = price_is_range
         if result.get("attributes"):
@@ -630,16 +665,26 @@ class ToolBox:
             "item_number",
         )
         for key in keys:
-            if key == "shipping_cost" and currency_mismatch:
+            if key == "shipping_cost" and (
+                currency_mismatch or price_source == "approx"
+            ):
                 continue
             if result.get(key) is not None:
                 product[key] = result[key]
         if currency_mismatch or product.get("price") is None:
+            product.pop("shipping_cost", None)
             product["cost_complete"] = False
             product["landed_cost"] = None
         else:
             shipping = result.get("shipping_cost")
             if shipping is None:
+                product.pop("shipping_cost", None)
+                product["cost_complete"] = False
+                product["landed_cost"] = None
+            elif price_source == "approx" and float(shipping) != 0:
+                # The approximate item price is in the session currency while
+                # the shipping amount is in the primary listing currency; do
+                # not add unlike currencies.
                 product.pop("shipping_cost", None)
                 product["cost_complete"] = False
                 product["landed_cost"] = None
@@ -667,7 +712,7 @@ class ToolBox:
         }
         if currency_mismatch:
             response["currency_mismatch"] = True
-            response["detail_currency"] = detail_currency
+            response["detail_currency"] = chosen_currency
             response["session_currency"] = session_currency
         return response
 
@@ -829,5 +874,7 @@ def _public_product(product: dict[str, Any]) -> dict[str, Any]:
             "detail_currency_mismatch", False
         ),
         "detail_currency": product.get("detail_currency"),
+        "detail_price_source": product.get("detail_price_source"),
+        "detail_primary_currency": product.get("detail_primary_currency"),
         "attributes": product.get("attributes") or {},
     }

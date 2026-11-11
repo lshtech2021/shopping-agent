@@ -159,6 +159,27 @@ test('brand subtitles are not treated as item condition', () => {
   assert.equal(result.items[0].condition, null)
 })
 
+test('parseDetail keeps primary and approximate prices separately', () => {
+  const dom = new JSDOM(
+    `<html><body>
+      <h1 class="x-item-title__mainTitle">ThinkPad</h1>
+      <div class="x-bin-price">
+        <div class="x-price-primary"><span class="ux-textspans">EUR 299.00</span></div>
+        <div class="x-price-approx">
+          <span>Approximately</span>
+          <span class="ux-textspans ux-textspans--BOLD">RMB 2,228.97</span>
+        </div>
+      </div>
+    </body></html>`,
+    { url: 'https://www.ebay.com/itm/123' },
+  )
+  const result = ebay.parseDetail(dom.window.document, dom.window.location.href)
+  assert.equal(result.price, 299)
+  assert.equal(result.currency, 'EUR')
+  assert.equal(result.approx_price, 2228.97)
+  assert.equal(result.approx_currency, 'CNY')
+})
+
 test('parseDetail marks an ended listing unavailable', () => {
   const dom = loadDom(
     'ebay-detail-ended.html',

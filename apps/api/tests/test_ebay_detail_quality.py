@@ -121,6 +121,44 @@ def test_detail_currency_mismatch_keeps_listing_price(monkeypatch):
     assert product["attributes"]["RAM Size"] == "16 GB"
 
 
+def test_detail_approx_price_in_session_currency_is_accepted(monkeypatch):
+    session = store.create("需要笔记本", "ebay")
+    session.settings["currency"] = "CNY"
+    session.products["p1"] = {
+        **_ebay_product(),
+        "price": 2228.97,
+        "currency": "CNY",
+    }
+    box = ToolBox(session)
+
+    async def fake_browse(tool, args):
+        assert tool == "fetch_detail"
+        return {
+            "status": "ok",
+            "title": "ThinkPad T14",
+            "price": 299,
+            "currency": "EUR",
+            "approx_price": 2228.97,
+            "approx_currency": "CNY",
+            "shipping_cost": 20,
+            "attributes": {"RAM Size": "16 GB"},
+        }
+
+    monkeypatch.setattr(box, "_browse", fake_browse)
+    result = asyncio.run(box.fetch_detail("p1"))
+
+    product = session.products["p1"]
+    assert result["status"] == "ok"
+    assert "currency_mismatch" not in result
+    assert product["price"] == 2228.97
+    assert product["currency"] == "CNY"
+    assert product["detail_currency_mismatch"] is False
+    assert product["detail_price_source"] == "approx"
+    assert product["detail_primary_currency"] == "EUR"
+    assert product["cost_complete"] is False
+    assert product["landed_cost"] is None
+
+
 def test_fit_judge_payload_includes_detail_evidence():
     record = _listing(
         {

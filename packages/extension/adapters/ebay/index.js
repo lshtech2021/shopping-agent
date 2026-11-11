@@ -597,10 +597,12 @@
     }
 
     const title = text(root, DETAIL_TITLE_SELECTORS)
-    const priceText = text(root, [
-      ...DETAIL_PRICE_SELECTORS,
+    const primaryPriceText = text(root, DETAIL_PRICE_SELECTORS)
+    const approxPriceText = text(root, [
       '.x-price-approx',
+      '[data-testid="x-price-approx"]',
     ])
+    const priceText = primaryPriceText || approxPriceText
     const priceRange = parseUtils.parsePriceRange(priceText)
     const attributes = Object.fromEntries(
       Object.entries(attributesOf(root)).slice(0, 40),
@@ -628,6 +630,10 @@
       price_max: priceRange ? priceRange.max : null,
       price_is_range: Boolean(priceRange),
       currency: parseUtils.parseCurrency(priceText, 'USD'),
+      approx_price: parseUtils.parsePrice(approxPriceText),
+      approx_currency: approxPriceText
+        ? parseUtils.parseCurrency(approxPriceText, 'USD')
+        : null,
       attributes,
       condition,
       seller,

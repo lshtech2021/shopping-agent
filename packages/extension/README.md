@@ -82,6 +82,8 @@ Quality rules:
   ebay.com as USD, and uses the geo control only as a last resort.
 - A detail page may display a different currency from the listing; the
   backend keeps the listing price/currency and flags the detail mismatch.
+  When eBay also shows an approximate price in the session currency, the
+  backend uses that approximate price instead of reporting a mismatch.
 - `buyItNowOnly` maps to eBay `LH_BIN=1`; hard-budget searches use it to
   avoid auctions whose final price is unknown.
 - Condition values are limited to known eBay labels; a brand subtitle such
