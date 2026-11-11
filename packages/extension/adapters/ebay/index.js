@@ -647,7 +647,15 @@
         const spanText = clean(span.textContent)
         if (!spanText || parseUtils.parsePrice(spanText) === null) continue
         if (/approx/i.test(spanText)) {
-          if (!approxText) approxText = spanText
+          // Some layouts put both amounts in one span, e.g.
+          // "US $399.73 (approx. RMB 2,669.20) delivery...".
+          const split = splitApproxAmounts(spanText)
+          if (!primaryText && split.primaryText) {
+            primaryText = split.primaryText
+          }
+          if (!approxText && split.approxText) {
+            approxText = split.approxText
+          }
         } else if (!primaryText) {
           primaryText = spanText
         }
@@ -658,18 +666,24 @@
       primaryText = split.primaryText
       approxText = split.approxText
     }
+    const shippingCost = primaryText
+      ? parseUtils.parsePrice(primaryText)
+      : null
+    const approxCost = approxText
+      ? parseUtils.parsePrice(approxText)
+      : null
     return {
       shipping: raw,
-      shipping_cost: primaryText ? parseUtils.parsePrice(primaryText) : null,
-      shipping_currency: primaryText
-        ? parseUtils.parseCurrency(primaryText, null)
-        : null,
-      shipping_approx_cost: approxText
-        ? parseUtils.parsePrice(approxText)
-        : null,
-      shipping_approx_currency: approxText
-        ? parseUtils.parseCurrency(approxText, null)
-        : null,
+      shipping_cost: shippingCost,
+      shipping_currency:
+        shippingCost !== null
+          ? parseUtils.parseCurrency(primaryText, null)
+          : null,
+      shipping_approx_cost: approxCost,
+      shipping_approx_currency:
+        approxCost !== null
+          ? parseUtils.parseCurrency(approxText, null)
+          : null,
     }
   }
 

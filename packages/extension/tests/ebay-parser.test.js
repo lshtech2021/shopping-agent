@@ -241,6 +241,29 @@ test('parseDetail keeps primary and approximate prices separately', () => {
   assert.equal(result.shipping_approx_currency, 'CNY')
 })
 
+test('parseDetail splits both shipping amounts inside one span', () => {
+  const dom = new JSDOM(
+    `<html><body>
+      <h1 class="x-item-title__mainTitle">Latitude 5520</h1>
+      <div class="x-price-primary"><span class="ux-textspans">US $290.00</span></div>
+      <div class="ux-labels-values ux-labels-values--shipping">
+        <div class="ux-labels-values__labels">Shipping</div>
+        <div class="ux-labels-values__values">
+          <div class="ux-labels-values__values-content"><div>
+            <span class="ux-textspans">US $399.73 (approx. RMB 2,669.20) delivery in 1-3 days</span>
+          </div></div>
+        </div>
+      </div>
+    </body></html>`,
+    { url: 'https://www.ebay.com/itm/123' },
+  )
+  const result = ebay.parseDetail(dom.window.document, dom.window.location.href)
+  assert.equal(result.shipping_cost, 399.73)
+  assert.equal(result.shipping_currency, 'USD')
+  assert.equal(result.shipping_approx_cost, 2669.2)
+  assert.equal(result.shipping_approx_currency, 'CNY')
+})
+
 test('parseDetail splits a plain-text shipping row with an approximate price', () => {
   const dom = new JSDOM(
     `<html><body>
