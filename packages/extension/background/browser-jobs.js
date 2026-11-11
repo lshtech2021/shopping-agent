@@ -325,7 +325,7 @@ function sessionSettings(args) {
   return runId ? SESSION_SETTINGS.get(runId) || null : null
 }
 
-async function guardTab(tabId, args, deadline) {
+async function guardTab(tabId, args, deadline, { skipCurrency = false } = {}) {
   const settings = sessionSettings(args)
   // Legacy/local callers without a session cannot provide a meaningful
   // currency precondition. Production jobs always include session settings.
@@ -341,13 +341,48 @@ async function guardTab(tabId, args, deadline) {
   if (!siteCheck.ok && siteCheck.error !== 'currency_mismatch') {
     return { status: 'blocked', ...siteCheck }
   }
+  if (skipCurrency) {
+    // Detail pages are evidence pages. eBay may show a different display
+    // currency there; the backend keeps the listing price/currency and flags
+    // the detail currency instead of blocking specification extraction.
+    return null
+  }
+
+  const probe = await sendToTab(
+    tabId,
+    { type: 'detect_block' },
+    { deadline },
+  )
+  const block = mapBlock(probe?.block)
+  if (block) {
+    return {
+      status: block,
+      error: probe?.block || block,
+      document_url: probe?.document_url || tab?.url,
+    }
+  }
+
   const detected = await sendToTab(
     tabId,
     { type: 'detect_currency' },
     { deadline },
   )
   const pageCurrency = detected?.ok ? detected.currency : null
-  if (!settings.currency && pageCurrency) {
+  if (!pageCurrency) {
+    if (!settings.currency) {
+      return {
+        status: 'blocked',
+        error: 'currency_unknown',
+        page_currency: null,
+        session_currency: null,
+      }
+    }
+    // No currency signal on this page (for example a zero-result page). The
+    // product parser still records each item's currency and backend
+    // eligibility rejects cross-currency items, so do not deadlock here.
+    return null
+  }
+  if (!settings.currency) {
     if (!args.run_id) {
       return {
         status: 'blocked',
@@ -753,7 +788,9 @@ async function _runBrowserJob(tool, args = {}) {
         deadline,
         scopeKey(detailKey, args),
       )
-      const refused = await guardTab(tabId, args, deadline)
+      const refused = await guardTab(tabId, args, deadline, {
+        skipCurrency: true,
+      })
       if (refused) return withLogs(refused, log, jobId)
       // The content bridge waits for detail hydration before parsing; retry
       // only when eBay still reports a transient "not found" state.

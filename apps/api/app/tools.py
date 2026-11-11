@@ -576,9 +576,26 @@ class ToolBox:
             return result
         product["detail_fetched"] = True
         product["detail"] = result
+        detail_currency = normalize_currency(result.get("currency"))
+        product_currency = normalize_currency(product.get("currency"))
+        session_currency = normalize_currency(
+            self.session.settings.get("currency")
+        )
+        currency_mismatch = bool(
+            detail_currency
+            and (
+                (session_currency and detail_currency != session_currency)
+                or (product_currency and detail_currency != product_currency)
+            )
+        )
+        product["detail_currency_mismatch"] = currency_mismatch
+        if currency_mismatch:
+            product["detail_currency"] = detail_currency
+            if result.get("price") is not None:
+                product["detail_price"] = result["price"]
         if result.get("title"):
             product["title"] = result["title"]
-        if result.get("price") is not None:
+        if result.get("price") is not None and not currency_mismatch:
             product["price"] = result["price"]
             product["currency"] = result.get("currency") or product.get("currency")
             price_is_range = bool(result.get("price_is_range"))
@@ -587,7 +604,7 @@ class ToolBox:
             product["price_is_range"] = price_is_range
         if result.get("attributes"):
             product["attributes"] = result["attributes"]
-        for key in (
+        keys = (
             "condition",
             "shipping",
             "shipping_cost",
@@ -605,7 +622,10 @@ class ToolBox:
             "highlights",
             "images",
             "item_number",
-        ):
+        )
+        for key in keys:
+            if key == "shipping_cost" and currency_mismatch:
+                continue
             if result.get(key) is not None:
                 product[key] = result[key]
         if isinstance(result.get("seller"), dict):
@@ -614,7 +634,16 @@ class ToolBox:
         if isinstance(images, list) and images:
             product.setdefault("image_url", images[0])
         store.touch(self.session)
-        return {"status": "ok", "product_id": product_id, "product": _public_product(product)}
+        response = {
+            "status": "ok",
+            "product_id": product_id,
+            "product": _public_product(product),
+        }
+        if currency_mismatch:
+            response["currency_mismatch"] = True
+            response["detail_currency"] = detail_currency
+            response["session_currency"] = session_currency
+        return response
 
     # --- close ---
 
@@ -767,5 +796,9 @@ def _public_product(product: dict[str, Any]) -> dict[str, Any]:
         "listing_type": product.get("listing_type"),
         "seller": product.get("seller"),
         "detail_fetched": product.get("detail_fetched"),
+        "detail_currency_mismatch": product.get(
+            "detail_currency_mismatch", False
+        ),
+        "detail_currency": product.get("detail_currency"),
         "attributes": product.get("attributes") or {},
     }

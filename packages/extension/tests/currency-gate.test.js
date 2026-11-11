@@ -43,13 +43,26 @@ test('allows when site and currencies match', () => {
   assert.deepEqual(result, { ok: true })
 })
 
-test('ebay detects currency from geo control before listing prices', () => {
+test('ebay price samples win over the geo control', () => {
   const dom = new JSDOM(`
     <div id="gh-eb-Geo">Ship to Canada · CAD</div>
     <span class="s-item__price">US $12.00</span>
   `)
 
-  assert.equal(getAdapter('ebay').detectCurrency(dom.window.document), 'CAD')
+  assert.equal(getAdapter('ebay').detectCurrency(dom.window.document), 'USD')
+})
+
+test('ebay detects CNY, bare dollar and geo fallback', () => {
+  const cny = new JSDOM(
+    '<span class="s-item__price">RMB 88.00</span>',
+  )
+  assert.equal(getAdapter('ebay').detectCurrency(cny.window.document), 'CNY')
+
+  const usd = new JSDOM('<span class="s-item__price">$12.00</span>')
+  assert.equal(getAdapter('ebay').detectCurrency(usd.window.document), 'USD')
+
+  const geo = new JSDOM('<div id="gh-eb-Geo">Ship to Canada · CAD</div>')
+  assert.equal(getAdapter('ebay').detectCurrency(geo.window.document), 'CAD')
 })
 
 test('ebay returns null when an empty page has no currency signal', () => {

@@ -38,6 +38,8 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
    - Every `search`/`next_page` must be followed by `scrape_listing`.
    - The host builds search price filters from the budget in the session currency.
    - Run `fetch_detail` on the top 3 candidates to verify specs before recommending. If the detail page contradicts the listing, trust the detail page and mention the discrepancy.
+   - If a detail result sets `detail_currency_mismatch`, use only its specs;
+     keep the listing `price`/`currency` for budget comparisons.
    - On `quota_exceeded`: stop calling that tool and proceed with existing data.
 
 4. Plan
@@ -97,6 +99,20 @@ def blocked_text(site: str, result: dict[str, Any], what: str) -> str:
         return "插件连接中断，请确认插件在线后点「继续」。"
     if error == "job_timeout":
         return f"{site} {what}超时（页面可能卡住或需要验证），处理后点「继续」。"
+    if error == "currency_mismatch":
+        return (
+            f"{site} 页面货币与会话货币不一致"
+            f"（页面 {result.get('page_currency') or '未知'} / "
+            f"会话 {result.get('session_currency') or '未设置'}）。"
+            "请在面板中改好网站货币或采用页面货币后点「继续」。"
+        )
+    if error == "currency_unknown":
+        return (
+            f"{site} 页面没有显示可识别的货币。请在面板中手动选择货币后"
+            "点「继续」。"
+        )
+    if error == "site_mismatch":
+        return f"{site} 当前标签页不是会话站点，请切回对应站点后点「继续」。"
     if status in {"rate_limited", "captcha", "login_required"}:
         label = {
             "rate_limited": "访问过频",

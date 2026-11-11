@@ -29,9 +29,24 @@ export function findCurrencyMismatch(
 
   const currentCurrency = String(settings.currency || '').toUpperCase()
   const currentMismatch = (value) => {
-    if (value?.error !== 'currency_mismatch') return null
+    if (
+      value?.error !== 'currency_mismatch' &&
+      value?.error !== 'currency_unknown'
+    ) {
+      return null
+    }
     const pageCurrency = String(value.page_currency || '').toUpperCase()
     const sessionCurrency = String(value.session_currency || '').toUpperCase()
+    if (
+      value.error === 'currency_unknown' &&
+      (!currentCurrency || !sessionCurrency)
+    ) {
+      return {
+        pageCurrency: null,
+        sessionCurrency: currentCurrency || null,
+        currencyUnknown: true,
+      }
+    }
     if (
       !currentCurrency ||
       sessionCurrency !== currentCurrency ||
@@ -45,13 +60,22 @@ export function findCurrencyMismatch(
     }
   }
 
-  if (result.error === 'currency_mismatch') return currentMismatch(result)
+  if (
+    result.error === 'currency_mismatch' ||
+    result.error === 'currency_unknown'
+  ) {
+    return currentMismatch(result)
+  }
 
   const logs = result.execution_logs || []
   for (let index = logs.length - 1; index >= 0; index -= 1) {
     const value = logs[index]?.data?.result
     if (!value || (!value.status && !value.error)) continue
-    return currentMismatch(value)
+    const mismatch = currentMismatch(value)
+    if (mismatch) return mismatch
+    // A later successful/error tool result supersedes an older mismatch;
+    // unrelated running events are skipped.
+    if (value.status === 'ok' || value.error) return null
   }
   return null
 }

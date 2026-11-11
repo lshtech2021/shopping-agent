@@ -102,6 +102,30 @@ test('currency mismatch is extracted from a tool result log', async () => {
   assert.equal(view.findCurrencyMismatch({ execution_logs: [] }), null)
 })
 
+test('unrelated running logs do not hide an older currency mismatch', async () => {
+  const view = await load()
+  assert.deepEqual(
+    view.findCurrencyMismatch({
+      status: 'interrupted',
+      settings: { currency: 'CNY' },
+      execution_logs: [
+        {
+          data: {
+            result: {
+              status: 'blocked',
+              error: 'currency_mismatch',
+              page_currency: 'USD',
+              session_currency: 'CNY',
+            },
+          },
+        },
+        { data: { result: { status: 'running' } } },
+      ],
+    }),
+    { pageCurrency: 'USD', sessionCurrency: 'CNY' },
+  )
+})
+
 test('a newer successful tool result clears an old currency mismatch', async () => {
   const view = await load()
   assert.equal(

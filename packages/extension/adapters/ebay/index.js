@@ -790,23 +790,39 @@
   }
 
   function detectCurrency(root = document) {
-    const selectors = [
-      '#gh-eb-Geo',
+    const explicitSelectors = [
       '[data-testid="currency-selector"]',
       '[aria-label*="currency" i]',
       '.currency-selector',
+    ]
+    for (const selector of explicitSelectors) {
+      for (const node of [...root.querySelectorAll(selector)].slice(0, 3)) {
+        const detected = parseUtils.parseCurrency(clean(node.textContent), null)
+        if (detected) return detected
+      }
+    }
+
+    // Price text is the most reliable signal on a listing page. A bare "$"
+    // on ebay.com is USD; RMB/CNY, C$, €, £ and ¥ stay explicit.
+    const priceSelectors = [
       '.x-price-primary',
       '.s-item__price',
       '.s-card__price',
     ]
-    const signals = selectors
-      .map((selector) => clean(root.querySelector(selector)?.textContent))
-      .filter(Boolean)
-    for (const signal of signals) {
-      const detected = parseUtils.parseCurrency(signal, null)
-      if (detected) return detected
+    const counts = new Map()
+    for (const selector of priceSelectors) {
+      for (const node of [...root.querySelectorAll(selector)].slice(0, 5)) {
+        const detected = parseUtils.parseCurrency(clean(node.textContent), 'USD')
+        if (!detected) continue
+        counts.set(detected, (counts.get(detected) || 0) + 1)
+      }
     }
-    return null
+    if (counts.size) {
+      return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0]
+    }
+
+    const geo = clean(root.querySelector('#gh-eb-Geo')?.textContent)
+    return geo ? parseUtils.parseCurrency(geo, null) : null
   }
 
   return {

@@ -81,6 +81,42 @@ def test_fetch_detail_keeps_range_and_metadata(monkeypatch):
     )
 
 
+def test_detail_currency_mismatch_keeps_listing_price(monkeypatch):
+    session = store.create("需要笔记本", "ebay")
+    session.settings["currency"] = "CNY"
+    session.products["p1"] = {
+        **_ebay_product(),
+        "price": 8.34,
+        "currency": "CNY",
+    }
+    box = ToolBox(session)
+
+    async def fake_browse(tool, args):
+        assert tool == "fetch_detail"
+        return {
+            "status": "ok",
+            "title": "Dell Precision 3490",
+            "price": 1.25,
+            "currency": "USD",
+            "attributes": {"RAM Size": "16 GB"},
+            "condition": "Pre-Owned",
+            "shipping_cost": 77.65,
+        }
+
+    monkeypatch.setattr(box, "_browse", fake_browse)
+    result = asyncio.run(box.fetch_detail("p1"))
+
+    product = session.products["p1"]
+    assert result["status"] == "ok"
+    assert result["currency_mismatch"] is True
+    assert product["price"] == 8.34
+    assert product["currency"] == "CNY"
+    assert product["detail_currency"] == "USD"
+    assert product["detail_currency_mismatch"] is True
+    assert product.get("shipping_cost") is None
+    assert product["attributes"]["RAM Size"] == "16 GB"
+
+
 def test_fit_judge_payload_includes_detail_evidence():
     record = _listing(
         {
