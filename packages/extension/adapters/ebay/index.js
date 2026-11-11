@@ -464,7 +464,15 @@
   function parseListing(root = document, baseUrl = location.href) {
     const problem = classifyPage(root, baseUrl)
     if (problem.status) {
-      return { status: problem.status, error: problem.error, items: [] }
+      return {
+        status: problem.status,
+        error: problem.error,
+        items: [],
+        diagnostics: {
+          url: baseUrl,
+          card_count: root.querySelectorAll(ITEM_SELECTORS).length,
+        },
+      }
     }
 
     const category = categoryOf(root)

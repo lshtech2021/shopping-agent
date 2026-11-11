@@ -400,6 +400,8 @@ test('classifies eBay error, challenge and login pages', () => {
   )
   assert.equal(errorResult.status, 'rate_limited')
   assert.equal(errorResult.error, 'ebay_error_page')
+  assert.equal(errorResult.diagnostics.card_count, 0)
+  assert.match(errorResult.diagnostics.url, /ebay\.com\/sch\/i\.html/)
 
   const challenge = loadDom(
     'ebay-challenge.html',
