@@ -335,6 +335,17 @@ def build_shopping_tools(
             elif soft:
                 updated["needs_clarify"] = True
 
+        changes: dict[str, Any] = {}
+        for key in set(previous_requirements) | set(updated["requirements"]):
+            if key == "raw":
+                continue
+            before = previous_requirements.get(key)
+            after = updated["requirements"].get(key)
+            if before != after:
+                changes[key] = {"before": before, "after": after}
+        if changes:
+            updated["changes"] = changes
+
         # Keep the plan's requirement snapshot current; the replanner reads it
         # to choose the next search query.
         hard_changed = any(

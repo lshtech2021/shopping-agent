@@ -261,6 +261,7 @@ def patch_session_settings(
     session = store.get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
+    settings_before = dict(session.settings)
     budget_cleared = False
     recommendations_cleared = False
     if payload.site is not None:
@@ -305,6 +306,14 @@ def patch_session_settings(
     if payload.clear_products:
         session.products.clear()
         session.recommendations.clear()
+    settings_changes = {
+        key: {
+            "before": settings_before.get(key),
+            "after": session.settings.get(key),
+        }
+        for key in set(settings_before) | set(session.settings)
+        if settings_before.get(key) != session.settings.get(key)
+    }
     store.touch(session, durable=True)
     log_event(
         session,
@@ -312,6 +321,7 @@ def patch_session_settings(
         stage="api.patch_session_settings",
         source="api",
         data={
+            "changes": settings_changes,
             "site": session.settings.get("site"),
             "currency": session.settings.get("currency"),
             "currency_source": session.settings.get("currency_source"),

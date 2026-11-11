@@ -11,7 +11,7 @@ from app.config import settings
 from app.schemas import MessageResponse
 from app.store import Session
 from app.tools import ToolBox
-from app.trace import log_event
+from app.trace import classify_error, log_event
 
 
 def initial_state(session: Session, turn_text: str) -> AgentState:
@@ -119,11 +119,61 @@ class ShoppingBrowser:
         )
 
 
+def _tool_result_summary(result: Any) -> dict[str, Any] | None:
+    if not isinstance(result, dict):
+        return None
+    summary: dict[str, Any] = {}
+    for key in (
+        "status",
+        "error",
+        "accepted",
+        "product_count",
+        "result_count",
+        "page_item_count",
+        "fallback_item_count",
+        "count",
+        "total_cached",
+        "item_count",
+        "page",
+    ):
+        if key in result:
+            summary[key] = result[key]
+    if isinstance(result.get("items"), list):
+        summary["items"] = len(result["items"])
+    if isinstance(result.get("excluded"), dict):
+        summary["excluded"] = result["excluded"]
+    product = result.get("product")
+    if isinstance(product, dict):
+        summary["product"] = {
+            key: product.get(key)
+            for key in (
+                "product_id",
+                "title",
+                "price",
+                "currency",
+                "shipping_cost",
+                "landed_cost",
+                "cost_complete",
+            )
+        }
+    return summary or None
+
+
 class ShoppingTrace:
     def __init__(self, session: Session) -> None:
         self.session = session
 
     def event(self, name: str, **fields: Any) -> None:
+        if name == "llm.call":
+            log_event(
+                self.session,
+                "LLM 调用",
+                stage="llm.call",
+                source="llm",
+                duration_ms=fields.get("duration_ms"),
+                data=fields,
+            )
+            return
         if name == "llm.step":
             log_event(
                 self.session,
@@ -137,6 +187,14 @@ class ShoppingTrace:
         if name == "llm.tool":
             tool = str(fields.get("tool") or "tool")
             status = str(fields.get("status") or "ok")
+            fields["result_summary"] = _tool_result_summary(
+                fields.get("result")
+            )
+            fields["error_code"] = classify_error(
+                status,
+                fields.get("error"),
+                fields.get("result") if isinstance(fields.get("result"), dict) else {},
+            )
             log_event(
                 self.session,
                 f"工具 {tool} → {status}",

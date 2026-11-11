@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from app import llm
@@ -25,6 +26,115 @@ async def durable_touch(session: Session) -> None:
     )
 
 
+def _turn_summary(
+    session: Session,
+    result: dict[str, Any],
+    *,
+    started: float,
+    product_count_before: int,
+) -> None:
+    events = turn_logs(session, limit=400)
+    tool_counts: dict[str, int] = {}
+    tool_status: dict[str, int] = {}
+    error_codes: dict[str, int] = {}
+    warnings: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    excluded: dict[str, int] = {}
+    extension_version = None
+    model = None
+    prompt_tokens = 0
+    completion_tokens = 0
+    total_tokens = 0
+    for event in events:
+        stage = str(event.get("stage") or "")
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        if data.get("extension_version"):
+            extension_version = data["extension_version"]
+        if stage == "llm.call":
+            model = data.get("model") or model
+            prompt_tokens += int(data.get("prompt_tokens") or 0)
+            completion_tokens += int(data.get("completion_tokens") or 0)
+            total_tokens += int(data.get("total_tokens") or 0)
+        if stage.startswith("llm.tool."):
+            tool = stage.split(".", 2)[-1]
+            tool_counts[tool] = tool_counts.get(tool, 0) + 1
+            status = str(data.get("status") or "ok")
+            key = f"{tool}:{status}"
+            tool_status[key] = tool_status.get(key, 0) + 1
+            code = data.get("error_code")
+            if code:
+                error_codes[str(code)] = error_codes.get(str(code), 0) + 1
+            result_data = data.get("result")
+            if (
+                stage == "llm.tool.query_inventory"
+                and isinstance(result_data, dict)
+                and isinstance(result_data.get("excluded"), dict)
+            ):
+                excluded = dict(result_data["excluded"])
+        level = str(event.get("level") or "")
+        if level in {"warning", "error"}:
+            item = {
+                "stage": stage,
+                "message": str(event.get("message") or "")[:200],
+            }
+            if data.get("error_code"):
+                item["error_code"] = data["error_code"]
+            (errors if level == "error" else warnings).append(item)
+
+    status = str(result.get("status") or session.status)
+    summary = {
+        "status": status,
+        "interrupted": bool(result.get("interrupted")),
+        "interrupt_reason": result.get("interrupt_reason"),
+        "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+        "llm": {
+            "model": model,
+            "calls": sum(1 for e in events if e.get("stage") == "llm.call"),
+            "steps": sum(1 for e in events if e.get("stage") == "llm.step"),
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "structured_fallbacks": sum(
+                1
+                for item in warnings
+                if "structured output" in item["message"].lower()
+            ),
+        },
+        "tools": tool_counts,
+        "tool_status": tool_status,
+        "error_codes": error_codes,
+        "inventory": {
+            "product_count_before": product_count_before,
+            "product_count": len(session.products),
+            "added": len(session.products) - product_count_before,
+            "excluded": excluded,
+        },
+        "recommendations": len(
+            result.get("recommendations") or session.recommendations or []
+        ),
+        "warnings": warnings[-10:],
+        "errors": errors[-10:],
+        "settings": {
+            "site": session.settings.get("site"),
+            "currency": session.settings.get("currency"),
+            "max_shipping_ratio": session.settings.get("max_shipping_ratio"),
+            "max_shipping_cost": session.settings.get("max_shipping_cost"),
+        },
+        "versions": {
+            "llm_model": model or settings.llm_model,
+            "extension": extension_version,
+        },
+    }
+    log_event(
+        session,
+        "Agent 回合摘要",
+        stage="turn.summary",
+        source="agent",
+        level="warning" if errors or summary["interrupted"] else "info",
+        data=summary,
+    )
+
+
 async def run_agent(
     session: Session,
     content: str,
@@ -32,6 +142,8 @@ async def run_agent(
     checkpoint_resume: bool = False,
 ) -> dict[str, Any]:
     text = (content or "").strip()
+    started = time.perf_counter()
+    product_count_before = len(session.products)
 
     session.turn += 1
     session.status = "running"
@@ -51,6 +163,8 @@ async def run_agent(
             "product_count": len(session.products),
             "mock_browser": tools.mock_mode,
             "llm_enabled": llm.llm_enabled(),
+            "llm_model": settings.llm_model,
+            "settings": dict(session.settings),
         },
         persist=True,
     )
@@ -65,6 +179,13 @@ async def run_agent(
             "未配置 SA_LLM_API_KEY，无法运行选品助手。请在 apps/api/.env 中设置后重试。",
             "llm_unavailable",
         )
+        _turn_summary(
+            session,
+            result,
+            started=started,
+            product_count_before=product_count_before,
+        )
+        await durable_touch(session)
         result["execution_logs"] = turn_logs(session)
         return result
 
@@ -87,7 +208,10 @@ async def run_agent(
             stage="agent.timeout",
             source="agent",
             level="error",
-            data={"timeout_s": settings.agent_turn_timeout_s},
+            data={
+                "timeout_s": settings.agent_turn_timeout_s,
+                "error_code": "turn_timeout",
+            },
         )
         session.status = "interrupted"
         session.interrupt_reason = "turn_timeout"
@@ -104,7 +228,7 @@ async def run_agent(
             stage="agent.error",
             source="agent",
             level="error",
-            data={"policy": "llm"},
+            data={"policy": "llm", "error_code": "agent_error"},
         )
         session.status = "interrupted"
         session.interrupt_reason = "agent_error"
@@ -114,6 +238,12 @@ async def run_agent(
             "agent_error",
         )
 
+    _turn_summary(
+        session,
+        result,
+        started=started,
+        product_count_before=product_count_before,
+    )
     await durable_touch(session)
     result["execution_logs"] = turn_logs(session)
     return result
@@ -144,7 +274,11 @@ def interrupt_response(session: Session, question: str, reason: str) -> dict[str
         stage="agent.interrupt",
         source="agent",
         level="warning",
-        data={"question": question, "reason": reason},
+        data={
+            "question": question,
+            "reason": reason,
+            "error_code": reason,
+        },
     )
     session.messages.append({"role": "assistant", "content": question})
     store.touch(session, durable=True, retry_conflict=True)
@@ -167,7 +301,11 @@ async def interrupt_response_async(
         stage="agent.interrupt",
         source="agent",
         level="warning",
-        data={"question": question, "reason": reason},
+        data={
+            "question": question,
+            "reason": reason,
+            "error_code": reason,
+        },
     )
     session.messages.append({"role": "assistant", "content": question})
     await durable_touch(session)

@@ -24,6 +24,59 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+_KNOWN_ERROR_CODES = {
+    "currency_mismatch",
+    "currency_unknown",
+    "site_mismatch",
+    "quota_exceeded",
+    "site_blocked_until_resume",
+    "no_extension_online",
+    "extension_disconnected",
+    "job_timeout",
+    "settings_sync_failed",
+    "ineligible_product",
+    "unknown product_id",
+    "listing_not_ready",
+    "detail_not_found",
+    "empty_listing",
+    "not_a_listing_page",
+    "ebay_error_page",
+    "access_denied",
+    "empty_body",
+    "rate_limited",
+    "captcha",
+    "login_required",
+    "blocked",
+}
+
+
+def classify_error(
+    status: Any = None,
+    error: Any = None,
+    data: Optional[dict[str, Any]] = None,
+) -> Optional[str]:
+    """Map heterogeneous tool/provider failures to a stable audit code."""
+    data = data or {}
+    candidate = str(data.get("error") or error or "").strip()
+    if candidate.lower() in _KNOWN_ERROR_CODES:
+        return candidate.lower()
+    text = candidate.lower()
+    status_text = str(status or "").lower()
+    if "response_format" in text or "invalid_request_error" in text:
+        return "provider_structured_output_unsupported"
+    if "timeout" in text or "timed out" in text:
+        return "timeout"
+    if "json" in text and "parse" in text:
+        return "json_parse_error"
+    if status_text in _KNOWN_ERROR_CODES:
+        return status_text
+    if status_text == "parse_error":
+        return candidate or "parse_error"
+    if status_text in {"error", "failed"}:
+        return "tool_error"
+    return None
+
+
 def _trim(value: Any, limit: int = MAX_DATA_CHARS) -> Any:
     if value is None:
         return None

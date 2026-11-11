@@ -164,10 +164,30 @@ class AgentRuntime:
                 memory_summary=memory_summary,
                 tool_specs=self.tools.specs(),
             )
+            llm_started = time.perf_counter()
             ai = await policy.next_action(state, context)
+            llm_duration_ms = (time.perf_counter() - llm_started) * 1000
             state["messages"].append(ai)
             state["step"] = int(state["step"]) + 1
             tool_calls = list(getattr(ai, "tool_calls", None) or [])
+            usage = getattr(ai, "usage_metadata", None)
+            if not isinstance(usage, dict):
+                usage = {}
+            response_metadata = getattr(ai, "response_metadata", None)
+            if not isinstance(response_metadata, dict):
+                response_metadata = {}
+            self.tool_context.trace.event(
+                "llm.call",
+                step=int(state["step"]),
+                duration_ms=llm_duration_ms,
+                model=response_metadata.get("model_name")
+                or response_metadata.get("model"),
+                prompt_tokens=usage.get("input_tokens"),
+                completion_tokens=usage.get("output_tokens"),
+                total_tokens=usage.get("total_tokens"),
+                finish_reason=response_metadata.get("finish_reason"),
+                tool_calls=[call.get("name") for call in tool_calls],
+            )
             self.tool_context.trace.event(
                 "llm.step",
                 step=int(state["step"]),
