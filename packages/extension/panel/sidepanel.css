@@ -30,7 +30,8 @@ h1 {
 }
 
 textarea,
-input[type='text'] {
+input[type='text'],
+select {
   width: 100%;
   box-sizing: border-box;
   border: 1px solid var(--line);
@@ -44,6 +45,50 @@ input[type='text'] {
   display: flex;
   gap: 12px;
   margin: 10px 0 14px;
+}
+
+.session-settings {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.settings-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+
+.settings-controls select {
+  width: auto;
+  padding: 5px 8px;
+}
+
+.mismatch-banner {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #f59e0b;
+  border-radius: 12px;
+  background: #fffbeb;
+}
+
+.mismatch-banner p {
+  margin: 6px 0 10px;
+}
+
+.mismatch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mismatch-actions button {
+  padding: 7px 10px;
+  font-size: 0.85rem;
 }
 
 button {

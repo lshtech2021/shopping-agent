@@ -16,6 +16,32 @@ export function formatAnswersAsMessage(answers) {
     .join('\n')
 }
 
+export function formatSessionSettings(settings = {}) {
+  const site = settings.site === 'ebay' ? 'eBay' : '京东'
+  return `站点: ${site} · 货币: ${settings.currency || '待检测'}`
+}
+
+export function findCurrencyMismatch(result = {}) {
+  if (result.error === 'currency_mismatch') {
+    return {
+      pageCurrency: result.page_currency || null,
+      sessionCurrency: result.session_currency || null,
+    }
+  }
+  const logs = result.execution_logs || []
+  for (let index = logs.length - 1; index >= 0; index -= 1) {
+    const value = logs[index]?.data?.result
+    if (!value || (!value.status && !value.error)) continue
+    return value.error === 'currency_mismatch'
+      ? {
+          pageCurrency: value.page_currency || null,
+          sessionCurrency: value.session_currency || null,
+        }
+      : null
+  }
+  return null
+}
+
 export function progressText(detail, events = []) {
   const fromEvents = events.map((row) => row?.event).filter(Boolean)
   const logs = fromEvents.length

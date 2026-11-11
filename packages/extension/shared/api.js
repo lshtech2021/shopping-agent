@@ -17,10 +17,10 @@ async function request(path, options = {}) {
   return text ? JSON.parse(text) : null
 }
 
-export function createSession(requirement, sites) {
+export function createSession(requirement, site) {
   return request('/api/v1/sessions', {
     method: 'POST',
-    body: JSON.stringify({ requirement, sites }),
+    body: JSON.stringify({ requirement, site }),
   })
 }
 

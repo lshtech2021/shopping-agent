@@ -104,6 +104,22 @@ def test_browse_observation_keeps_pagination_signals():
     assert result["has_next"] is True
 
 
+def test_browse_observation_keeps_currency_mismatch_context():
+    from app.domains.shopping.tools import _compact_browse
+
+    result = _compact_browse(
+        {
+            "status": "blocked",
+            "error": "currency_mismatch",
+            "page_currency": "USD",
+            "session_currency": "CNY",
+        }
+    )
+
+    assert result["page_currency"] == "USD"
+    assert result["session_currency"] == "CNY"
+
+
 def test_query_inventory_reports_diverse_mode():
     session = seed_session()
     session.products["p1"] = seed_product("p1")

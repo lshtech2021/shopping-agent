@@ -60,3 +60,59 @@ test('clarify answers are formatted as ordinary message content', async () => {
     'budget: 5000\ncategory: 笔记本',
   )
 })
+
+test('session settings are rendered as one site and one currency', async () => {
+  const view = await load()
+  assert.equal(
+    view.formatSessionSettings({ site: 'ebay', currency: 'USD' }),
+    '站点: eBay · 货币: USD',
+  )
+  assert.equal(
+    view.formatSessionSettings({ site: 'jd' }),
+    '站点: 京东 · 货币: 待检测',
+  )
+})
+
+test('currency mismatch is extracted from a tool result log', async () => {
+  const view = await load()
+  assert.deepEqual(
+    view.findCurrencyMismatch({
+      execution_logs: [
+        {
+          stage: 'llm.tool.search',
+          data: {
+            result: {
+              status: 'blocked',
+              error: 'currency_mismatch',
+              page_currency: 'USD',
+              session_currency: 'CNY',
+            },
+          },
+        },
+      ],
+    }),
+    { pageCurrency: 'USD', sessionCurrency: 'CNY' },
+  )
+  assert.equal(view.findCurrencyMismatch({ execution_logs: [] }), null)
+})
+
+test('a newer successful tool result clears an old currency mismatch', async () => {
+  const view = await load()
+  assert.equal(
+    view.findCurrencyMismatch({
+      execution_logs: [
+        {
+          data: {
+            result: {
+              status: 'blocked',
+              error: 'currency_mismatch',
+              page_currency: 'USD',
+            },
+          },
+        },
+        { data: { result: { status: 'ok' } } },
+      ],
+    }),
+    null,
+  )
+})

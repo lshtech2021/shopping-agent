@@ -15,13 +15,38 @@
       <label>购物需求</label>
       <textarea id="requirement" rows="3" placeholder="例如：帮我挑一台 5000 元内的开发笔记本"></textarea>
       <div class="sites">
-        <label><input type="checkbox" name="site" value="jd" checked /> 京东</label>
-        <label><input type="checkbox" name="site" value="ebay" /> eBay</label>
+        <label><input type="radio" name="site" value="jd" checked /> 京东</label>
+        <label><input type="radio" name="site" value="ebay" /> eBay</label>
       </div>
       <button id="startBtn" type="button">开始选品</button>
     </section>
 
     <section id="chat" hidden>
+      <div class="session-settings">
+        <strong id="settingsSummary">站点: 京东 · 货币: 待检测</strong>
+        <div class="settings-controls">
+          <span>站点</span>
+          <label><input type="radio" name="activeSite" value="jd" /> 京东</label>
+          <label><input type="radio" name="activeSite" value="ebay" /> eBay</label>
+          <label for="currencySelect">货币</label>
+          <select id="currencySelect">
+            <option value="">待检测</option>
+            <option value="CNY">CNY</option>
+            <option value="USD">USD</option>
+            <option value="EUR">EUR</option>
+            <option value="GBP">GBP</option>
+            <option value="JPY">JPY</option>
+          </select>
+        </div>
+      </div>
+      <div id="currencyMismatch" class="mismatch-banner" hidden>
+        <strong>页面货币与会话货币不一致</strong>
+        <p id="currencyMismatchText"></p>
+        <div class="mismatch-actions">
+          <button id="alignCurrencyBtn" type="button">我已改好网站货币</button>
+          <button id="adoptCurrencyBtn" type="button">清空商品并改用页面货币</button>
+        </div>
+      </div>
       <p id="turnStatus" class="muted" hidden></p>
       <div id="messages"></div>
       <div class="composer">

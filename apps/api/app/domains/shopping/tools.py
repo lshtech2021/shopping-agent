@@ -117,6 +117,8 @@ def _compact_browse(result: dict[str, Any]) -> dict[str, Any]:
         "page_item_count",
         "fallback_item_count",
         "has_next",
+        "page_currency",
+        "session_currency",
         "site",
         "reason",
         "used",
