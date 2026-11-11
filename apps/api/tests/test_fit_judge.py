@@ -184,6 +184,27 @@ def test_structured_output_unavailable_falls_back_to_json_text():
     ).ok
 
 
+def test_structured_output_failure_is_cached_for_default_model(monkeypatch):
+    session = seed(category="笔记本")
+    judge = StructuredUnavailableJudge()
+    monkeypatch.setattr(fit_judge, "build_judge_model", lambda: judge)
+
+    asyncio.run(
+        fit_judge.judge_products(
+            list(session.products.values()), session.requirements
+        )
+    )
+    session.products["ok2"] = _product("ok2", "ThinkPad T14 笔记本 32G")
+    asyncio.run(
+        fit_judge.judge_products(
+            [session.products["ok2"]], session.requirements
+        )
+    )
+
+    assert judge.structured_calls == 1
+    assert judge.text_calls >= 2
+
+
 def test_structured_output_failure_is_cached_per_model():
     session = seed(category="笔记本")
     judge = StructuredUnavailableJudge()

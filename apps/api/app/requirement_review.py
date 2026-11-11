@@ -52,8 +52,27 @@ class RequirementReview(BaseModel):
     clarify_options: list[str] = Field(default_factory=list)
 
 
+_NO_STRUCTURED_OUTPUT = "_sa_no_structured_output"
+_DEFAULT_MODEL: tuple[Any, Any] | None = None
+
+
 def build_review_model() -> Any:
     return llm.build_chat_model()
+
+
+def _structured_unavailable(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return "response_format" in text or "invalid_request_error" in text
+
+
+def _default_review_model() -> Any:
+    """Reuse one model per builder so a provider-wide structured-output
+    failure is not retried on every update_requirements call."""
+    global _DEFAULT_MODEL
+    builder = build_review_model
+    if _DEFAULT_MODEL is None or _DEFAULT_MODEL[0] is not builder:
+        _DEFAULT_MODEL = (builder, builder())
+    return _DEFAULT_MODEL[1]
 
 
 def _content_text(response: Any) -> str:
@@ -101,14 +120,16 @@ async def review_requirements(
         return None
 
     try:
-        model = model if model is not None else build_review_model()
+        model = model if model is not None else _default_review_model()
     except Exception as exc:  # noqa: BLE001 — review is best effort
         logger.warning("requirement review unavailable: %s", exc)
         return None
 
+    # Preferences are soft context. Sending them to a reviewer whose job is to
+    # classify must-have items made it ask again about a preference the user
+    # had already turned into a concrete must-have.
     payload = {
         "must_have": items,
-        "preferences": list(requirements.get("preferences") or []),
         "category": requirements.get("category"),
         "use_case": requirements.get("use_case"),
         "raw_requirement": requirements.get("raw"),
@@ -121,11 +142,19 @@ async def review_requirements(
     ]
 
     try:
-        if hasattr(model, "with_structured_output"):
+        supports_structured = hasattr(
+            model, "with_structured_output"
+        ) and not getattr(model, _NO_STRUCTURED_OUTPUT, False)
+        if supports_structured:
             try:
                 structured = model.with_structured_output(RequirementReview)
                 return _coerce(await structured.ainvoke(messages))
             except Exception as exc:  # noqa: BLE001
+                if _structured_unavailable(exc):
+                    try:
+                        setattr(model, _NO_STRUCTURED_OUTPUT, True)
+                    except Exception:  # noqa: BLE001 — immutable wrappers
+                        pass
                 logger.warning(
                     "requirement review structured output unavailable: %s",
                     exc,

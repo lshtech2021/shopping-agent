@@ -50,8 +50,21 @@ class FitBatch(BaseModel):
     verdicts: list[_ProductFit] = Field(default_factory=list)
 
 
+_DEFAULT_MODEL: tuple[Any, Any] | None = None
+
+
 def build_judge_model() -> Any:
     return llm.build_chat_model()
+
+
+def _default_judge_model() -> Any:
+    """Reuse one model per builder so the structured-output failure flag
+    survives across query_inventory calls."""
+    global _DEFAULT_MODEL
+    builder = build_judge_model
+    if _DEFAULT_MODEL is None or _DEFAULT_MODEL[0] is not builder:
+        _DEFAULT_MODEL = (builder, builder())
+    return _DEFAULT_MODEL[1]
 
 
 def _listing(product: dict[str, Any]) -> dict[str, Any]:
@@ -166,7 +179,7 @@ async def judge_products(
     judged = 0
     error: str | None = None
     try:
-        model = model if model is not None else build_judge_model()
+        model = model if model is not None else _default_judge_model()
     except Exception as exc:  # noqa: BLE001
         logger.warning("fit judge unavailable: %s", exc)
         return {"judged": 0, "error": f"{type(exc).__name__}: {exc}"}

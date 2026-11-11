@@ -31,6 +31,47 @@ class FailingModel:
         raise RuntimeError("review unavailable")
 
 
+class CapturingReviewModel(ReviewModel):
+    def __init__(self):
+        self.payload = None
+
+    async def ainvoke(self, messages):
+        import json
+
+        self.payload = json.loads(messages[-1].content)
+        return await super().ainvoke(messages)
+
+
+class StructuredUnavailableReviewModel:
+    def __init__(self):
+        self.structured_calls = 0
+        self.text_calls = 0
+
+    def with_structured_output(self, _schema):
+        outer = self
+
+        class BrokenStructured:
+            async def ainvoke(self, _messages):
+                outer.structured_calls += 1
+                raise RuntimeError(
+                    "Error code: 400 - {'error': {'message': "
+                    "'This response_format type is unavailable now', "
+                    "'type': 'invalid_request_error'}}"
+                )
+
+        return BrokenStructured()
+
+    async def ainvoke(self, _messages):
+        self.text_calls += 1
+        return {
+            "hard_must_have": ["32G内存"],
+            "soft_must_have": [],
+            "dropped_must_have": [],
+            "clarify_question": None,
+            "clarify_options": [],
+        }
+
+
 def test_review_requirements_classifies_existing_items():
     review = asyncio.run(
         review_requirements(
@@ -67,6 +108,37 @@ def test_review_requirements_failure_is_non_fatal():
         )
         is None
     )
+
+
+def test_review_requirements_does_not_send_preferences():
+    model = CapturingReviewModel()
+    asyncio.run(
+        review_requirements(
+            {
+                "must_have": ["32G内存"],
+                "preferences": ["性能足够高"],
+            },
+            model=model,
+        )
+    )
+    assert model.payload is not None
+    assert "preferences" not in model.payload
+
+
+def test_default_review_model_caches_structured_failure(monkeypatch):
+    model = StructuredUnavailableReviewModel()
+    monkeypatch.setattr(
+        "app.requirement_review.build_review_model", lambda: model
+    )
+
+    for _ in range(2):
+        review = asyncio.run(
+            review_requirements({"must_have": ["32G内存"]})
+        )
+        assert review is not None and review.hard_must_have == ["32G内存"]
+
+    assert model.structured_calls == 1
+    assert model.text_calls == 2
 
 
 def test_update_requirements_tool_applies_llm_review(monkeypatch):
