@@ -66,17 +66,29 @@ Each adapter is a UMD module that exports:
 `source_product_id`, `url` (variation parameters kept, tracking stripped),
 `title`, `price`, `price_max`, `price_is_range`, `currency`, `image_url`,
 `shop_name`, `sales`, `watchers`, `rating`, `sponsored`, `shipping`,
-`condition`, `badges`, `category`, `listing_type`.
+`shipping_cost`, `shipping_currency`, `condition`, `badges`, `category`,
+`location`, `listing_type`.
 
 Quality rules:
 
 - A card is only usable when it has an item id, a title, and a price. This is
   also the readiness condition used before parsing.
+- Modern cards reuse `s-card__attribute-row` for price, purchase options,
+  shipping, location and signals. The parser reads all rows instead of only
+  the first one, so watchers/sold counts are not lost behind the price row.
 - `sales` requires an explicit `N sold` token. Watchers are reported
   separately and are never used as sales.
 - `rating` requires a star-rating element or an `X out of 5` label. Review
   counts such as `1,234 product ratings` return `null`.
-- `sponsored` requires an explicit `Sponsored` badge/label. Top-rated-seller
+- `condition` scans every subtitle row, so a brand subtitle such as `Dell`
+  does not hide the following `Pre-Owned` subtitle.
+- `shipping_cost` is parsed from the card when the amount is shown, e.g.
+  `+RMB 633.65 shipping`; `shipping_currency` comes from that text or falls
+  back to the listing currency. `Free delivery` becomes `0`.
+- `shop_name` falls back to the seller name in the secondary attribute row
+  when the card has no dedicated seller element.
+- `sponsored` requires an explicit `Sponsored` badge/label, including eBay's
+  footer label whose DOM text is reversed (`derosnopS`). Top-rated-seller
   badges are not treated as sponsored.
 - `¥` maps to JPY; `RMB`/`CNY` map to CNY. Unsupported currency symbols keep
   the raw price but do not silently become USD.

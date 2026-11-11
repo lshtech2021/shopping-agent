@@ -23,6 +23,8 @@ def _ebay_listing() -> dict:
         "rating": 4.6,
         "sponsored": False,
         "shipping": "Free delivery",
+        "shipping_cost": 0,
+        "shipping_currency": None,
         "condition": "Pre-Owned",
         "listing_type": "buy_it_now",
         "availability": "available",
@@ -49,6 +51,8 @@ def test_upsert_preserves_ebay_listing_metadata():
     assert product["image_url"].endswith("s-l1600.jpg")
     assert product["condition"] == "Pre-Owned"
     assert product["shipping"] == "Free delivery"
+    assert product["shipping_cost"] == 0
+    assert product["shipping_currency"] is None
     assert product["listing_type"] == "buy_it_now"
     assert product["availability"] == "available"
     assert product["location"] == "Shenzhen, China"
@@ -78,6 +82,8 @@ def test_rescrape_keeps_detail_owned_fields():
             "image_url": "https://i.ebayimg.com/images/g/detail/s-l1600.jpg",
             "availability": "unavailable",
             "highlights": ["Verified by detail page"],
+            "shipping_cost": 50,
+            "shipping_currency": "USD",
         }
     )
 
@@ -88,6 +94,9 @@ def test_rescrape_keeps_detail_owned_fields():
         "title": "Lenovo ThinkPad T14",
         "price": 640,
         "currency": "USD",
+        "shipping": "USD 20.00 shipping",
+        "shipping_cost": 20,
+        "shipping_currency": "USD",
     }
     assert upsert_listing(products, index, site="ebay", item=rescrape)
 
@@ -96,8 +105,10 @@ def test_rescrape_keeps_detail_owned_fields():
     assert product["image_url"].endswith("detail/s-l1600.jpg")
     assert product["availability"] == "unavailable"
     assert product["highlights"] == ["Verified by detail page"]
-    # Detail-owned price is authoritative after fetch_detail.
+    # Detail-owned price and shipping are authoritative after fetch_detail.
     assert product["price"] == 620
+    assert product["shipping_cost"] == 50
+    assert product["shipping_currency"] == "USD"
 
 
 def test_unavailable_product_is_ineligible():

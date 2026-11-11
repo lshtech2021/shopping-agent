@@ -189,6 +189,7 @@ def upsert_listing(
         "sold": _pick("sold"),
         "quantity_available": _pick("quantity_available"),
         "shipping_cost": _pick("shipping_cost"),
+        "shipping_currency": _pick("shipping_currency"),
         "landed_cost": _pick("landed_cost"),
         "cost_complete": _pick("cost_complete"),
         "returns": _pick("returns"),
@@ -199,6 +200,14 @@ def upsert_listing(
         "highlights": _pick("highlights") or [],
         "item_number": _pick("item_number"),
     }
+    if detail_owned:
+        # Detail parsing selects the shipping amount already rendered in the
+        # session currency. A later listing scrape must not replace it with
+        # the card's primary-currency amount.
+        observation_fields["shipping_cost"] = existing.get("shipping_cost")
+        observation_fields["shipping_currency"] = existing.get(
+            "shipping_currency"
+        )
     products[key] = {
         **existing,
         "product_id": key,

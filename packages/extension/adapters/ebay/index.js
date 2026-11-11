@@ -26,6 +26,21 @@
     return null
   }
 
+  /**
+   * Return every text matching the first selector that yields content. Card
+   * layouts repeat the same row class for price, options, shipping, location
+   * and signals, so reading only the first row loses most of the card.
+   */
+  function allTexts(node, selectors) {
+    for (const selector of selectors) {
+      const values = [...node.querySelectorAll(selector)]
+        .map((element) => clean(element.textContent))
+        .filter(Boolean)
+      if (values.length) return values
+    }
+    return []
+  }
+
   const DETAIL_TITLE_SELECTORS = [
     'h1.x-item-title__mainTitle',
     'h1.x-item-title',
@@ -258,45 +273,115 @@
     )
   }
 
-  function conditionOf(node) {
-    const direct = text(node, [
+  function attributeRowsOf(node) {
+    return allTexts(node, [
+      '.s-card__attribute-row',
+      '.s-item__details-row',
+      '.s-item__detail',
+    ])
+  }
+
+  function conditionOf(node, rows = []) {
+    for (const subtitle of allTexts(node, [
       '.s-item__subtitle',
       '.s-card__subtitle',
       '.SECONDARY_INFO',
-    ])
-    const directCondition = knownCondition(direct)
-    if (directCondition) return directCondition
-    const row = text(node, ['.s-card__attribute-row'])
-    return knownCondition(row)
+    ])) {
+      const condition = knownCondition(subtitle)
+      if (condition) return condition
+    }
+    for (const row of rows) {
+      const condition = knownCondition(row)
+      if (condition) return condition
+    }
+    return null
   }
 
-  function shippingOf(node) {
+  function shippingOf(node, rows = [], currency = null) {
     const direct = text(node, [
       '.s-item__shipping',
       '.s-item__logisticsCost',
       '.s-card__shipping',
     ])
-    if (direct) return direct
-    const row = text(node, ['.s-card__attribute-row'])
-    if (!row) return null
-    return (
-      row
+    const candidates = direct ? [direct] : []
+    for (const row of rows) {
+      const part = row
         .split(/[·|]/)
         .map(clean)
-        .find((part) => /shipping|delivery|postage/i.test(part)) || null
-    )
+        .find((value) => /shipping|delivery|postage/i.test(value))
+      if (part) candidates.push(part)
+    }
+    const raw = candidates.find(Boolean)
+    if (!raw) {
+      return { shipping: null, shipping_cost: null, shipping_currency: null }
+    }
+    const shipping = clean(raw.replace(/^\+\s*/, ''))
+    if (/free/i.test(shipping)) {
+      return { shipping, shipping_cost: 0, shipping_currency: null }
+    }
+    return {
+      shipping,
+      shipping_cost: parseUtils.parsePrice(shipping),
+      shipping_currency: parseUtils.parseCurrency(
+        shipping,
+        currency || null,
+      ),
+    }
   }
 
-  function listingTypeOf(node) {
-    const raw = text(node, [
+  function listingTypeOf(node, rows = []) {
+    const direct = allTexts(node, [
       '.s-item__purchase-options-with-icon',
       '.s-item__purchase-options',
       '.s-card__purchase-options',
     ])
-    if (!raw) return null
-    if (/auction|bid/i.test(raw)) return 'auction'
-    if (/buy it now/i.test(raw)) return 'buy_it_now'
+    const values = [...direct, ...rows]
+    if (
+      values.some((value) =>
+        /place bid|bid now|auction|\bbids?\b/i.test(value),
+      )
+    ) {
+      return 'auction'
+    }
+    if (values.some((value) => /buy it now/i.test(value))) return 'buy_it_now'
     return null
+  }
+
+  function shopNameOf(node) {
+    const direct = text(node, [
+      '.s-item__seller-info-text',
+      '.s-card__seller',
+      '[data-testid="seller-info"]',
+    ])
+    if (direct) return direct
+    const row = node.querySelector(
+      '.su-card-container__attributes__secondary .s-card__attribute-row',
+    )
+    const name = clean(
+      row?.querySelector('.su-styled-text, span')?.textContent,
+    )
+    if (!name || /positive/i.test(name)) return null
+    return name
+  }
+
+  function locationOf(rows) {
+    for (const row of rows) {
+      const match =
+        row.match(/^from\s+(.+)$/i) ||
+        row.match(/^located in:?\s*(.+)$/i)
+      if (match) return clean(match[1])
+    }
+    return null
+  }
+
+  function hotnessOf(node, rows = []) {
+    return [
+      ...allTexts(node, [
+        '.s-item__hotness',
+        '.s-item__additionalItemHotness',
+      ]),
+      ...rows,
+    ].join(' · ')
   }
 
   function sponsoredOf(node) {
@@ -304,6 +389,10 @@
       '.s-item__ad-badge, .s-card__ad-badge, [data-testid="s-card__ad-badge"]',
     )
     if (badge && /sponsored/i.test(clean(badge.textContent))) return true
+    // eBay renders the sponsored footer label with its text reversed in the
+    // DOM and paints the real label as a background image.
+    const footer = clean(node.querySelector('.s-card__footer')?.textContent)
+    if (/derosnops/i.test(footer)) return true
     return [...node.querySelectorAll('span, div')].some(
       (element) =>
         element.children.length === 0 &&
@@ -367,13 +456,18 @@
       const href = link?.getAttribute('href') || ''
       const sourceProductId = extractItemId(href)
       const title = clean(
-        text(node, ['.s-item__title', '.s-card__title']),
+        text(node, [
+          '.s-item__title',
+          '.s-card__title .su-styled-text.primary',
+          '.s-card__title',
+        ]),
       )
         .replace(/^(?:New Listing|Sponsored)\s*/i, '')
         .replace(/\s*Opens in a new window.*$/i, '')
         .trim()
       if (!sourceProductId || !title || /^shop on ebay$/i.test(title)) continue
 
+      const rows = attributeRowsOf(node)
       const priceText = text(node, [
         '.s-item__price',
         '.s-card__price',
@@ -381,17 +475,10 @@
         '.s-card__price-primary',
       ])
       const priceRange = parseUtils.parsePriceRange(priceText)
-      const shopName = text(node, [
-        '.s-item__seller-info-text',
-        '.s-card__seller',
-        '[data-testid="seller-info"]',
-      ])
-      const hotnessText = text(node, [
-        '.s-item__hotness',
-        '.s-item__additionalItemHotness',
-        '.s-card__attribute-row',
-      ])
-      const condition = conditionOf(node)
+      const currency = parseUtils.parseCurrency(priceText, 'USD')
+      const hotnessText = hotnessOf(node, rows)
+      const condition = conditionOf(node, rows)
+      const shipping = shippingOf(node, rows, currency)
       items.push({
         source_product_id: String(sourceProductId),
         url: normalizeItemUrl(href, sourceProductId),
@@ -399,18 +486,21 @@
         price: priceRange ? priceRange.min : parseUtils.parsePrice(priceText),
         price_max: priceRange ? priceRange.max : null,
         price_is_range: Boolean(priceRange),
-        currency: parseUtils.parseCurrency(priceText, 'USD'),
+        currency,
         image_url: imageUrlOf(node),
-        shop_name: shopName,
+        shop_name: shopNameOf(node),
         sales: parseUtils.parseSales(hotnessText, { requireSold: true }),
         watchers: parseUtils.parseWatchers(hotnessText),
         rating: ratingOf(node),
         sponsored: sponsoredOf(node),
-        shipping: shippingOf(node),
+        shipping: shipping.shipping,
+        shipping_cost: shipping.shipping_cost,
+        shipping_currency: shipping.shipping_currency,
         condition,
         badges: condition ? [condition] : [],
         category,
-        listing_type: listingTypeOf(node),
+        location: locationOf(rows),
+        listing_type: listingTypeOf(node, rows),
       })
     }
 

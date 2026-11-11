@@ -51,6 +51,8 @@ test('parseListing enriches modern eBay cards', () => {
   assert.equal(first.currency, 'USD')
   assert.equal(first.condition, 'Pre-Owned')
   assert.equal(first.shipping, 'Free delivery')
+  assert.equal(first.shipping_cost, 0)
+  assert.equal(first.shipping_currency, null)
   assert.equal(first.sales, 12)
   assert.equal(first.watchers, null)
   assert.equal(first.rating, 4.6)
@@ -72,6 +74,40 @@ test('parseListing enriches modern eBay cards', () => {
     result.next_url,
     'https://www.ebay.com/sch/i.html?_nkw=thinkpad&_ipg=60&_pgn=2',
   )
+})
+
+test('parseListing reads repeated SRP attribute rows', () => {
+  const dom = loadDom(
+    'ebay-list-srp-card.html',
+    'https://www.ebay.com/sch/i.html?_nkw=laptop',
+  )
+  const result = ebay.parseListing(dom.window.document, dom.window.location.href)
+
+  assert.equal(result.status, 'ok')
+  assert.equal(result.items.length, 1)
+  const item = result.items[0]
+  assert.equal(item.source_product_id, '277676672443')
+  assert.equal(
+    item.title,
+    'Dell Latitude 7420 // Intel Core i7-1185G7, 16GB RAM, 512GB SSD, LTE',
+  )
+  assert.equal(item.url, 'https://www.ebay.com/itm/277676672443')
+  assert.equal(
+    item.image_url,
+    'https://i.ebayimg.com/images/g/uG0AAeSwxYtpgcgw/s-l1600.webp',
+  )
+  assert.equal(item.price, 2228.97)
+  assert.equal(item.currency, 'CNY')
+  assert.equal(item.condition, 'Pre-Owned')
+  assert.equal(item.shipping, 'RMB 633.65 shipping')
+  assert.equal(item.shipping_cost, 633.65)
+  assert.equal(item.shipping_currency, 'CNY')
+  assert.equal(item.listing_type, 'buy_it_now')
+  assert.equal(item.watchers, 45)
+  assert.equal(item.sales, null)
+  assert.equal(item.location, 'Germany')
+  assert.equal(item.shop_name, 'compicool')
+  assert.equal(item.sponsored, true)
 })
 
 test('nextPageUrl falls back to the result count without a next anchor', () => {
