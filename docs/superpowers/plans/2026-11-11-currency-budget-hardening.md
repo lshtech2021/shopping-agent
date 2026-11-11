@@ -1,6 +1,8 @@
 # Currency and Budget Hardening Plan
 
-Status: implemented in phases on `fix/ebay-scraping-quality` (2026-11-11).
+Status: implemented in four phases on `fix/ebay-scraping-quality`
+(2026-11-11). Verification: extension 62 tests passed; API 281 passed,
+2 skipped.
 
 ## Findings
 
@@ -19,7 +21,7 @@ Status: implemented in phases on `fix/ebay-scraping-quality` (2026-11-11).
    batch and judges the entire inventory.
 7. The read-only web console still renders the removed `price_cny` field.
 
-## Phase 1: Currency is required before a budget is stored
+## Phase 1: Currency is required before a budget is stored (implemented)
 
 - Add `budget_currency` to requirement patches and `update_requirements`.
 - JD defaults to CNY; eBay budget writes require an explicit currency.
@@ -31,7 +33,7 @@ Status: implemented in phases on `fix/ebay-scraping-quality` (2026-11-11).
   the new currency.
 - Reject empty or unsupported currency codes.
 
-## Phase 2: Reliable eBay detection and non-blocking detail evidence
+## Phase 2: Reliable eBay detection and non-blocking detail evidence (implemented)
 
 - Detect currency from explicit selectors and several price samples, with a
   USD fallback for bare `$` on ebay.com.
@@ -43,7 +45,7 @@ Status: implemented in phases on `fix/ebay-scraping-quality` (2026-11-11).
 - Fix the panel mismatch scan so it does not stop at the first unrelated log.
 - Add tests for CNY listing + USD detail, bare dollar, and multiple logs.
 
-## Phase 3: Landed cost and purchase realism
+## Phase 3: Landed cost and purchase realism (implemented)
 
 - Add `landed_cost` and `cost_complete`; budget checks use the landed cost.
 - Add a search cap buffer for shipping/tax instead of using the full budget.
@@ -53,7 +55,7 @@ Status: implemented in phases on `fix/ebay-scraping-quality` (2026-11-11).
   exclude parts/repair listings from normal recommendations.
 - Remove the stale `price_cny` render from `apps/web`.
 
-## Phase 4: Performance and migration cleanup
+## Phase 4: Performance and migration cleanup (implemented)
 
 - Remember when a provider does not support structured output and skip the
   failing attempt for subsequent fit-judge batches.

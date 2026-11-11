@@ -78,6 +78,14 @@ Quality rules:
   badges are not treated as sponsored.
 - `¥` maps to JPY; `RMB`/`CNY` map to CNY. Unsupported currency symbols keep
   the raw price but do not silently become USD.
+- Currency detection samples up to five price nodes, treats a bare `$` on
+  ebay.com as USD, and uses the geo control only as a last resort.
+- A detail page may display a different currency from the listing; the
+  backend keeps the listing price/currency and flags the detail mismatch.
+- `buyItNowOnly` maps to eBay `LH_BIN=1`; hard-budget searches use it to
+  avoid auctions whose final price is unknown.
+- Condition values are limited to known eBay labels; a brand subtitle such
+  as `Dell` is not reported as condition.
 - `result_count` comes from the results heading when available. If the next
   anchor is missing, pagination falls back to `_pgn + 1` only when the total
   proves another page exists.
