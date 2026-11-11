@@ -27,6 +27,17 @@
           return
         }
         if (message.type === 'parse_listing') {
+          if (adapter.matchesUrl && !adapter.matchesUrl(location.href)) {
+            reply({
+              ok: true,
+              result: {
+                status: 'parse_error',
+                error: 'not_a_listing_page',
+                items: [],
+              },
+            })
+            return
+          }
           const ready = adapter.waitForListing
             ? await adapter.waitForListing(document, location.href)
             : true
