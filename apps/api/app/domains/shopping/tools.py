@@ -24,8 +24,15 @@ class _NoArgs(BaseModel):
 
 
 class _UpdateReq(BaseModel):
-    budget: Optional[float] = Field(None, description="预算上限（会话币种）")
-    budget_min: Optional[float] = Field(None, description="预算下限（会话币种）")
+    budget: Optional[float] = Field(None, description="预算上限")
+    budget_min: Optional[float] = Field(None, description="预算下限")
+    budget_currency: Optional[str] = Field(
+        None,
+        description=(
+            "预算币种 ISO 代码，如 CNY、USD。用户说“人民币/元”时填 CNY；"
+            "不要自行换算金额。"
+        ),
+    )
     budget_unlimited: Optional[bool] = Field(None, description="是否不限预算")
     category: Optional[str] = Field(None, description="品类，如 手机 / 跑鞋 / 笔记本")
     use_case: Optional[str] = Field(None, description="用途，如 通勤 / 送礼")
@@ -311,11 +318,12 @@ def build_shopping_tools(
                 updated["parse_notes"] = notes
             if review.clarify_question:
                 updated["needs_clarify"] = True
-                updated["clarify_question"] = {
-                    "field": "must_have",
-                    "question": review.clarify_question,
-                    "options": review.clarify_options[:4],
-                }
+                if not updated.get("clarify_question"):
+                    updated["clarify_question"] = {
+                        "field": "must_have",
+                        "question": review.clarify_question,
+                        "options": review.clarify_options[:4],
+                    }
             elif soft:
                 updated["needs_clarify"] = True
 

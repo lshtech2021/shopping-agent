@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from app.config import settings
+from app.currency import normalize_currency
 
 # Warm the in-process working set with recent runs only; older runs lazy-load
 # through ``get`` / ``refresh``.
@@ -29,10 +30,13 @@ def normalize_session_dict(data: dict) -> dict:
     if site not in ALLOWED_SITES:
         site = "jd"
     settings["site"] = site
-    if "currency" not in settings:
-        settings["currency"] = None
+    settings["currency"] = normalize_currency(settings.get("currency"))
     if "currency_source" not in settings:
         settings["currency_source"] = None
+    # JD always prices in CNY; eBay currency is detected before money is used.
+    if site == "jd" and not settings["currency"]:
+        settings["currency"] = "CNY"
+        settings["currency_source"] = settings["currency_source"] or "detected"
     data["settings"] = settings
     data["sites"] = [site]
 
@@ -45,6 +49,12 @@ def normalize_session_dict(data: dict) -> dict:
         legacy_min = req.pop("budget_min_cny")
         if req.get("budget_min") is None and legacy_min is not None:
             req["budget_min"] = legacy_min
+    budget_currency = normalize_currency(req.get("budget_currency"))
+    if (
+        req.get("budget") is not None or req.get("budget_min") is not None
+    ) and not budget_currency:
+        budget_currency = normalize_currency(settings.get("currency"))
+    req["budget_currency"] = budget_currency
     data["requirements"] = req
 
     products = dict(data.get("products") or {})
@@ -219,12 +229,15 @@ class SessionStore:
             sites=[site],
             settings={
                 "site": site,
-                "currency": None,
-                "currency_source": None,
+                "currency": "CNY" if site == "jd" else None,
+                "currency_source": "detected" if site == "jd" else None,
             },
             requirements={
                 "raw": requirement.strip(),
                 "budget": None,
+                "budget_min": None,
+                "budget_currency": None,
+                "budget_unlimited": False,
                 "must_have": [],
                 "preferences": [],
                 "category": None,

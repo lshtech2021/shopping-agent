@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from app.browser.gateway import BLOCKING, SITE_RISK, BrowserGateway
 from app.browser.gateway import throttle as _throttle
 from app.constraints import check_product
+from app.currency import is_supported_currency, normalize_currency
 from app.fit_judge import judge_products
 from app.domains.shopping.requirements_patch import (
     RequirementPatch,
@@ -204,18 +205,116 @@ class ToolBox:
                 }
             )
 
+        budget_notes: list[str] = []
+        budget_clarify: dict[str, Any] | None = None
+        requested_budget = (
+            requirement_patch.budget
+            if "budget" in requirement_patch.model_fields_set
+            else None
+        )
+        requested_min = (
+            requirement_patch.budget_min
+            if "budget_min" in requirement_patch.model_fields_set
+            else None
+        )
+        requested_currency = normalize_currency(
+            requirement_patch.budget_currency
+        )
+        session_currency = normalize_currency(
+            self.session.settings.get("currency")
+        )
+        if requested_budget is not None or requested_min is not None:
+            currency = (
+                requested_currency
+                or session_currency
+                or normalize_currency(req.get("budget_currency"))
+            )
+            if not currency:
+                budget_notes.append(
+                    "budget_currency_required: budget not written"
+                )
+                budget_clarify = {
+                    "field": "budget",
+                    "question": "预算金额使用哪种货币？",
+                    "options": ["CNY", "USD", "EUR", "GBP", "JPY"],
+                }
+                requirement_patch = requirement_patch.model_copy(
+                    update={
+                        "budget": None,
+                        "budget_min": None,
+                        "budget_currency": None,
+                    }
+                )
+            elif not is_supported_currency(currency):
+                budget_notes.append(
+                    f"budget_currency_unsupported: {currency}"
+                )
+                budget_clarify = {
+                    "field": "budget",
+                    "question": f"暂不支持 {currency} 预算，请选择支持的货币。",
+                    "options": ["CNY", "USD", "EUR", "GBP", "JPY"],
+                }
+                requirement_patch = requirement_patch.model_copy(
+                    update={
+                        "budget": None,
+                        "budget_min": None,
+                        "budget_currency": None,
+                    }
+                )
+            elif session_currency and currency != session_currency:
+                budget_notes.append(
+                    "budget_currency_mismatch: "
+                    f"budget={currency}, session={session_currency}"
+                )
+                budget_clarify = {
+                    "field": "budget",
+                    "question": (
+                        f"当前会话货币是 {session_currency}，但预算是 "
+                        f"{currency}。请改用 {session_currency} 预算，"
+                        "或先在面板切换页面货币。"
+                    ),
+                    "options": [
+                        f"改用 {session_currency} 预算",
+                        "切换页面货币",
+                    ],
+                }
+                requirement_patch = requirement_patch.model_copy(
+                    update={
+                        "budget": None,
+                        "budget_min": None,
+                        "budget_currency": None,
+                    }
+                )
+            else:
+                requirement_patch = requirement_patch.model_copy(
+                    update={"budget_currency": currency}
+                )
+                if not session_currency:
+                    self.session.settings["currency"] = currency
+                    self.session.settings["currency_source"] = "manual"
+
         req = apply_requirement_patch(req, requirement_patch)
+        if (
+            req.get("budget") is not None
+            or req.get("budget_min") is not None
+        ) and not req.get("budget_currency"):
+            req["budget_currency"] = normalize_currency(
+                self.session.settings.get("currency")
+            )
         parse_notes = [
             f"ambiguous_{field}: not written; call ask_user"
             for field in requirement_patch.ambiguous_fields
         ]
+        parse_notes.extend(budget_notes)
         self.session.requirements = req
         store.touch(self.session)
         return {
             "ok": True,
             "requirements": req,
-            "needs_clarify": bool(requirement_patch.ambiguous_fields),
+            "needs_clarify": bool(requirement_patch.ambiguous_fields)
+            or budget_clarify is not None,
             "parse_notes": parse_notes,
+            "clarify_question": budget_clarify,
         }
 
     async def ensure_fit(

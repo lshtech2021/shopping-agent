@@ -58,7 +58,7 @@ def test_budget_requires_matching_currency():
         settings={"site": "ebay", "currency": "CNY"},
         sites=["ebay"],
     )
-    assert "budget" in mismatch.violations
+    assert "currency" in mismatch.violations
 
 
 def test_budget_rejects_missing_session_currency():
@@ -74,7 +74,7 @@ def test_budget_rejects_missing_session_currency():
         sites=["ebay"],
     )
 
-    assert "budget" in result.violations
+    assert "currency" in result.violations
 
 
 def test_recommend_rejects_over_budget_product():

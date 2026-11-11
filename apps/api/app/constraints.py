@@ -12,6 +12,8 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from app.currency import normalize_currency
+
 FIT_KEY = "fit"
 
 
@@ -93,14 +95,21 @@ def check_eligibility(
         budget = requirements.get("budget")
         budget_min = requirements.get("budget_min")
         has_budget = budget is not None or budget_min is not None
-        currency = str(product.get("currency") or "").upper()
-        session_currency = str(settings.get("currency") or "").upper()
+        currency = normalize_currency(product.get("currency"))
+        session_currency = normalize_currency(settings.get("currency"))
+        budget_currency = normalize_currency(
+            requirements.get("budget_currency") or session_currency
+        )
         if has_budget and (
-            not session_currency
+            not budget_currency
             or not currency
-            or currency != session_currency
+            or currency != budget_currency
+            or (
+                session_currency is not None
+                and session_currency != budget_currency
+            )
         ):
-            violations.append("budget")
+            violations.append("currency")
         else:
             if budget is not None and (
                 price_cap is None or float(price_cap) > float(budget)

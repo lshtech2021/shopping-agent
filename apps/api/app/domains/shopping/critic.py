@@ -82,6 +82,8 @@ class ShoppingCritic:
                     hints.append("移除超预算商品或更正价格")
                 if "budget_min" in eligibility.violations:
                     hints.append("移除低于预算下限的商品")
+                if "currency" in eligibility.violations:
+                    hints.append("商品币种与会话/预算币种不一致，先对齐或清除商品")
                 if any(
                     violation.startswith("must_have:")
                     for violation in eligibility.violations
@@ -103,6 +105,7 @@ class ShoppingCritic:
         hard = {
             "budget",
             "budget_min",
+            "currency",
             "site",
             "category",
             "detail",

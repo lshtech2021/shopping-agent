@@ -28,6 +28,7 @@ from app.auth import (
     tokens_match,
 )
 from app.config import settings
+from app.currency import is_supported_currency, normalize_currency
 from app.logging_setup import setup_logging
 from app.schemas import (
     CreateSessionRequest,
@@ -235,6 +236,7 @@ def patch_session_settings(
     session = store.get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
+    budget_cleared = False
     if payload.site is not None:
         if payload.site not in ALLOWED_SITES:
             raise HTTPException(status_code=422, detail="invalid site")
@@ -246,7 +248,25 @@ def patch_session_settings(
             session.searched_sites.clear()
             session.recommendations.clear()
     if payload.currency is not None:
-        session.settings["currency"] = payload.currency.strip().upper()
+        currency = normalize_currency(payload.currency)
+        if not currency or not is_supported_currency(currency):
+            raise HTTPException(status_code=422, detail="invalid currency")
+        old_currency = normalize_currency(session.settings.get("currency"))
+        if currency != old_currency:
+            requirements = dict(session.requirements or {})
+            if (
+                requirements.get("budget") is not None
+                or requirements.get("budget_min") is not None
+            ):
+                requirements["budget"] = None
+                requirements["budget_min"] = None
+                requirements["budget_currency"] = None
+                session.requirements = requirements
+                budget_cleared = True
+            session.plan = None
+            session.searched_sites.clear()
+            session.recommendations.clear()
+        session.settings["currency"] = currency
         session.settings["currency_source"] = payload.currency_source or "manual"
     if payload.clear_products:
         session.products.clear()
@@ -262,6 +282,7 @@ def patch_session_settings(
             "currency": session.settings.get("currency"),
             "currency_source": session.settings.get("currency_source"),
             "clear_products": payload.clear_products,
+            "budget_cleared": budget_cleared,
         },
         persist=True,
     )
@@ -270,6 +291,7 @@ def patch_session_settings(
         status=session.status,
         sites=session.sites,
         settings=session.settings,
+        budget_cleared=budget_cleared,
     )
 
 

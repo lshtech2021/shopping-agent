@@ -10,7 +10,7 @@ def test_create_sets_singular_site_settings(tmp_path, monkeypatch):
     store = SessionStore("memory")
     session = store.create("买笔记本", "jd")
     assert session.settings["site"] == "jd"
-    assert session.settings.get("currency") is None
+    assert session.settings.get("currency") == "CNY"
     assert session.sites == ["jd"]  # derived mirror for one release of callers
 
 

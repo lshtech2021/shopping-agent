@@ -20,7 +20,7 @@ class CreateSessionResponse(BaseModel):
 
 class PatchSessionSettingsRequest(BaseModel):
     site: Optional[Literal["jd", "ebay"]] = None
-    currency: Optional[str] = Field(None, max_length=16)
+    currency: Optional[str] = Field(None, min_length=1, max_length=16)
     currency_source: Optional[Literal["detected", "manual"]] = None
     clear_products: bool = False
 
@@ -30,6 +30,7 @@ class PatchSessionSettingsResponse(BaseModel):
     status: str
     sites: list[str]
     settings: dict[str, Any] = Field(default_factory=dict)
+    budget_cleared: bool = False
 
 
 class ClarifyQuestion(BaseModel):
