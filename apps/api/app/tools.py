@@ -410,6 +410,7 @@ class ToolBox:
                     "rating": p.get("rating"),
                     "shipping": p.get("shipping"),
                     "shipping_cost": p.get("shipping_cost"),
+                    "shipping_currency": p.get("shipping_currency"),
                     "landed_cost": p.get("landed_cost"),
                     "cost_complete": p.get("cost_complete"),
                     "condition": p.get("condition"),
@@ -615,11 +616,19 @@ class ToolBox:
         )
         product["detail_currency_mismatch"] = currency_mismatch
         product["detail_price_source"] = price_source
-        product["detail_primary_currency"] = primary_currency
-        if primary_price is not None:
-            product["detail_primary_price"] = primary_price
-        else:
-            product.pop("detail_primary_price", None)
+        # Keep both page-rendered amounts. The approximate amount comes from
+        # the page; it is never derived from the primary amount by converting
+        # a currency.
+        for field, value in (
+            ("detail_primary_price", primary_price),
+            ("detail_primary_currency", primary_currency),
+            ("detail_approx_price", approx_price),
+            ("detail_approx_currency", approx_currency),
+        ):
+            if value is None:
+                product.pop(field, None)
+            else:
+                product[field] = value
         if currency_mismatch:
             product["detail_currency"] = chosen_currency
             if chosen_price is not None:
@@ -648,7 +657,6 @@ class ToolBox:
         keys = (
             "condition",
             "shipping",
-            "shipping_cost",
             "returns",
             "location",
             "availability",
@@ -665,40 +673,74 @@ class ToolBox:
             "item_number",
         )
         for key in keys:
-            if key == "shipping_cost" and (
-                currency_mismatch or price_source == "approx"
-            ):
-                continue
             if result.get(key) is not None:
                 product[key] = result[key]
-        if currency_mismatch or product.get("price") is None:
+
+        primary_shipping = result.get("shipping_cost")
+        primary_shipping_currency = normalize_currency(
+            result.get("shipping_currency")
+        )
+        approx_shipping = result.get("shipping_approx_cost")
+        approx_shipping_currency = normalize_currency(
+            result.get("shipping_approx_currency")
+        )
+        # Same rule as the item price: keep both shipping amounts exactly as
+        # rendered on the page and pick the one that already uses the chosen
+        # currency. Never convert the primary amount.
+        for field, value in (
+            ("shipping_primary_cost", primary_shipping),
+            ("shipping_primary_currency", primary_shipping_currency),
+            ("shipping_approx_cost", approx_shipping),
+            ("shipping_approx_currency", approx_shipping_currency),
+        ):
+            if value is None:
+                product.pop(field, None)
+            else:
+                product[field] = value
+
+        chosen_shipping = None
+        shipping_source = None
+        if primary_shipping is not None and float(primary_shipping) == 0:
+            chosen_shipping = 0
+            shipping_source = "free"
+        elif (
+            chosen_currency
+            and approx_shipping is not None
+            and approx_shipping_currency == chosen_currency
+            and primary_shipping_currency != chosen_currency
+        ):
+            chosen_shipping = approx_shipping
+            shipping_source = "approx"
+        elif primary_shipping is not None and (
+            primary_shipping_currency == chosen_currency
+            or (primary_shipping_currency is None and price_source == "primary")
+        ):
+            chosen_shipping = primary_shipping
+            shipping_source = "primary"
+
+        if (
+            currency_mismatch
+            or product.get("price") is None
+            or chosen_shipping is None
+        ):
             product.pop("shipping_cost", None)
+            product.pop("shipping_currency", None)
+            product.pop("shipping_price_source", None)
             product["cost_complete"] = False
             product["landed_cost"] = None
         else:
-            shipping = result.get("shipping_cost")
-            if shipping is None:
-                product.pop("shipping_cost", None)
-                product["cost_complete"] = False
-                product["landed_cost"] = None
-            elif price_source == "approx" and float(shipping) != 0:
-                # The approximate item price is in the session currency while
-                # the shipping amount is in the primary listing currency; do
-                # not add unlike currencies.
-                product.pop("shipping_cost", None)
-                product["cost_complete"] = False
-                product["landed_cost"] = None
-            else:
-                price_cap = (
-                    product.get("price_max")
-                    if product.get("price_is_range")
-                    else product.get("price")
-                )
-                product["shipping_cost"] = shipping
-                product["landed_cost"] = round(
-                    float(price_cap) + float(shipping), 2
-                )
-                product["cost_complete"] = True
+            price_cap = (
+                product.get("price_max")
+                if product.get("price_is_range")
+                else product.get("price")
+            )
+            product["shipping_cost"] = chosen_shipping
+            product["shipping_currency"] = chosen_currency
+            product["shipping_price_source"] = shipping_source
+            product["landed_cost"] = round(
+                float(price_cap) + float(chosen_shipping), 2
+            )
+            product["cost_complete"] = True
         if isinstance(result.get("seller"), dict):
             product["seller"] = result["seller"]
         images = result.get("images")
@@ -864,6 +906,8 @@ def _public_product(product: dict[str, Any]) -> dict[str, Any]:
         "condition": product.get("condition"),
         "shipping": product.get("shipping"),
         "shipping_cost": product.get("shipping_cost"),
+        "shipping_currency": product.get("shipping_currency"),
+        "shipping_price_source": product.get("shipping_price_source"),
         "landed_cost": product.get("landed_cost"),
         "cost_complete": product.get("cost_complete"),
         "availability": product.get("availability"),

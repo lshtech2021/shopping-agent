@@ -42,6 +42,11 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
    - Run `fetch_detail` on the top 3 candidates to verify specs before recommending. If the detail page contradicts the listing, trust the detail page and mention the discrepancy.
    - If a detail result sets `detail_currency_mismatch`, use only its specs;
      keep the listing `price`/`currency` for budget comparisons.
+   - When a detail page renders both a primary price and an approximate price
+     in the session currency, the backend returns the matching price and
+     shipping amount, both taken from the page. Use the returned values; do
+     not convert a currency yourself. `landed_cost` is complete only when
+     price and shipping use the same currency.
    - On `quota_exceeded`: stop calling that tool and proceed with existing data.
 
 4. Plan

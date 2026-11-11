@@ -52,10 +52,12 @@ Each adapter is a UMD module that exports:
 ```
 
 `parseDetail` returns a flat evidence object (`title`, `price`, `price_max`,
-`price_is_range`, `currency`, `attributes`, `condition`, `seller`, `shipping`,
-`shipping_cost`, `returns`, `location`, `quantity_available`, `sold`,
-`watchers`, `availability`, `listing_type`, `best_offer`, `bids`,
-`has_variations`, `variations`, `highlights`, `images`, `item_number`).
+`price_is_range`, `currency`, `approx_price`, `approx_currency`, `attributes`,
+`condition`, `seller`, `shipping`, `shipping_cost`, `shipping_currency`,
+`shipping_approx_cost`, `shipping_approx_currency`, `returns`, `location`,
+`quantity_available`, `sold`, `watchers`, `availability`, `listing_type`,
+`best_offer`, `bids`, `has_variations`, `variations`, `highlights`, `images`,
+`item_number`).
 
 ## eBay listing fields
 
@@ -84,6 +86,10 @@ Quality rules:
   backend keeps the listing price/currency and flags the detail mismatch.
   When eBay also shows an approximate price in the session currency, the
   backend uses that approximate price instead of reporting a mismatch.
+- Shipping follows the same rule: the primary and approximate amounts are
+  both parsed and kept separately. The backend picks the pair already in the
+  session currency, so landed cost is only calculated from page-rendered
+  amounts of the same currency; it never converts a currency itself.
 - `buyItNowOnly` maps to eBay `LH_BIN=1`; hard-budget searches use it to
   avoid auctions whose final price is unknown.
 - Condition values are limited to known eBay labels; a brand subtitle such

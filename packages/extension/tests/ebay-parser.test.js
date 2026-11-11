@@ -127,6 +127,9 @@ test('parseDetail extracts condition, seller, shipping and availability', () => 
   })
   assert.equal(result.shipping, 'Free International Shipping')
   assert.equal(result.shipping_cost, 0)
+  assert.equal(result.shipping_currency, null)
+  assert.equal(result.shipping_approx_cost, null)
+  assert.equal(result.shipping_approx_currency, null)
   assert.match(result.returns, /30 day returns/)
   assert.equal(result.location, 'Shenzhen, China')
   assert.equal(result.quantity_available, 10)
@@ -170,6 +173,24 @@ test('parseDetail keeps primary and approximate prices separately', () => {
           <span class="ux-textspans ux-textspans--BOLD">RMB 2,228.97</span>
         </div>
       </div>
+      <div class="vim d-shipping-minview" data-testid="d-shipping-minview">
+        <div class="ux-layout-section ux-layout-section--shipping">
+          <div class="ux-labels-values col-12 ux-labels-values--shipping">
+            <div class="ux-labels-values__labels">
+              <div><span class="ux-textspans">Shipping:</span></div>
+            </div>
+            <div class="ux-labels-values__values">
+              <div class="ux-labels-values__values-content"><div>
+                <span class="ux-textspans ux-textspans--BOLD">EUR 85.00 </span>
+                <span class="ux-textspans ux-textspans--SECONDARY ux-textspans--BOLD">(approx RMB 633.65)</span>
+                <span class="ux-textspans">&nbsp;</span>
+                <span class="ux-textspans">DHL Paket International</span>
+                <span class="ux-textspans">. </span>
+              </div></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </body></html>`,
     { url: 'https://www.ebay.com/itm/123' },
   )
@@ -178,6 +199,33 @@ test('parseDetail keeps primary and approximate prices separately', () => {
   assert.equal(result.currency, 'EUR')
   assert.equal(result.approx_price, 2228.97)
   assert.equal(result.approx_currency, 'CNY')
+  assert.equal(result.shipping_cost, 85)
+  assert.equal(result.shipping_currency, 'EUR')
+  assert.equal(result.shipping_approx_cost, 633.65)
+  assert.equal(result.shipping_approx_currency, 'CNY')
+})
+
+test('parseDetail splits a plain-text shipping row with an approximate price', () => {
+  const dom = new JSDOM(
+    `<html><body>
+      <h1 class="x-item-title__mainTitle">ThinkPad</h1>
+      <div class="x-price-primary"><span class="ux-textspans">EUR 299.00</span></div>
+      <div class="ux-labels-values ux-labels-values--shipping">
+        <div class="ux-labels-values__labels">Shipping</div>
+        <div class="ux-labels-values__values">
+          <div class="ux-labels-values__values-content">
+            EUR 85.00 (approx RMB 633.65) DHL Paket International
+          </div>
+        </div>
+      </div>
+    </body></html>`,
+    { url: 'https://www.ebay.com/itm/123' },
+  )
+  const result = ebay.parseDetail(dom.window.document, dom.window.location.href)
+  assert.equal(result.shipping_cost, 85)
+  assert.equal(result.shipping_currency, 'EUR')
+  assert.equal(result.shipping_approx_cost, 633.65)
+  assert.equal(result.shipping_approx_currency, 'CNY')
 })
 
 test('parseDetail marks an ended listing unavailable', () => {

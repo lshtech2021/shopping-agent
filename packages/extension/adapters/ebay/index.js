@@ -495,16 +495,91 @@
     }
   }
 
+  /**
+   * Split a shipping row that has no inner span markup into its primary and
+   * approximate amounts, e.g. "EUR 85.00 (approx RMB 633.65) DHL". This only
+   * separates the two page-rendered values; it never converts a currency.
+   */
+  function splitApproxAmounts(raw) {
+    const lower = String(raw || '').toLowerCase()
+    const approxIndex = lower.indexOf('approx')
+    if (approxIndex === -1) return { primaryText: raw, approxText: null }
+    const open = raw.lastIndexOf('(', approxIndex)
+    const close = raw.indexOf(')', approxIndex)
+    if (open !== -1 && close > open) {
+      return {
+        primaryText: clean(raw.slice(0, open)),
+        approxText: clean(raw.slice(open + 1, close)),
+      }
+    }
+    return {
+      primaryText: clean(raw.slice(0, approxIndex)),
+      approxText: clean(raw.slice(approxIndex)),
+    }
+  }
+
   function shippingFrom(root, attributes) {
+    const row =
+      root.querySelector('.ux-labels-values--shipping') ||
+      root.querySelector('.ux-layout-section--shipping .ux-labels-values')
+    const values =
+      row?.querySelector('.ux-labels-values__values-content') ||
+      row?.querySelector('.ux-labels-values__values')
     const raw =
+      clean(values?.textContent) ||
       attributes.Shipping ||
       attributes['Shipping cost'] ||
       attributes.Delivery ||
       text(root, ['.d-shipping-minview', '[data-testid="d-shipping-minview"]'])
-    if (!raw) return { shipping: null, shipping_cost: null }
+    if (!raw) {
+      return {
+        shipping: null,
+        shipping_cost: null,
+        shipping_currency: null,
+        shipping_approx_cost: null,
+        shipping_approx_currency: null,
+      }
+    }
+    if (/free/i.test(raw)) {
+      return {
+        shipping: raw,
+        shipping_cost: 0,
+        shipping_currency: null,
+        shipping_approx_cost: null,
+        shipping_approx_currency: null,
+      }
+    }
+
+    let primaryText = null
+    let approxText = null
+    if (values) {
+      for (const span of values.querySelectorAll('.ux-textspans')) {
+        const spanText = clean(span.textContent)
+        if (!spanText || parseUtils.parsePrice(spanText) === null) continue
+        if (/approx/i.test(spanText)) {
+          if (!approxText) approxText = spanText
+        } else if (!primaryText) {
+          primaryText = spanText
+        }
+      }
+    }
+    if (!primaryText && !approxText) {
+      const split = splitApproxAmounts(raw)
+      primaryText = split.primaryText
+      approxText = split.approxText
+    }
     return {
       shipping: raw,
-      shipping_cost: /free/i.test(raw) ? 0 : parseUtils.parsePrice(raw),
+      shipping_cost: primaryText ? parseUtils.parsePrice(primaryText) : null,
+      shipping_currency: primaryText
+        ? parseUtils.parseCurrency(primaryText, null)
+        : null,
+      shipping_approx_cost: approxText
+        ? parseUtils.parsePrice(approxText)
+        : null,
+      shipping_approx_currency: approxText
+        ? parseUtils.parseCurrency(approxText, null)
+        : null,
     }
   }
 
@@ -639,6 +714,9 @@
       seller,
       shipping: shipping.shipping,
       shipping_cost: shipping.shipping_cost,
+      shipping_currency: shipping.shipping_currency,
+      shipping_approx_cost: shipping.shipping_approx_cost,
+      shipping_approx_currency: shipping.shipping_approx_currency,
       returns:
         attributes.Returns ||
         attributes['Return policy'] ||
