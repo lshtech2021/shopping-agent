@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.store import Session, SessionStore
+from app.store import Session, SessionStore, store
 
 client = TestClient(app)
 
@@ -54,3 +54,40 @@ def test_patch_settings_changes_site():
     assert body["settings"]["site"] == "ebay"
     assert body["settings"]["currency"] == "USD"
     assert body["settings"]["currency_source"] == "manual"
+
+
+def test_patch_clear_products_adopts_detected_currency():
+    created = client.post(
+        "/api/v1/sessions",
+        json={"requirement": "笔记本", "site": "ebay"},
+    ).json()
+    sid = created["session_id"]
+    session = store.get(sid)
+    session.products["ebay:1"] = {
+        "product_id": "ebay:1",
+        "source": "ebay",
+        "source_product_id": "1",
+        "title": "Laptop",
+        "price": 500,
+        "currency": "USD",
+    }
+    session.recommendations = [
+        {"product_id": "ebay:1", "title": "Laptop", "reason": "fit"}
+    ]
+    store.touch(session, durable=True)
+
+    response = client.patch(
+        f"/api/v1/sessions/{sid}/settings",
+        json={
+            "currency": "CAD",
+            "currency_source": "detected",
+            "clear_products": True,
+        },
+    )
+
+    assert response.status_code == 200
+    detail = client.get(f"/api/v1/sessions/{sid}").json()
+    assert detail["products"] == []
+    assert detail["recommendations"] == []
+    assert detail["settings"]["currency"] == "CAD"
+    assert detail["settings"]["currency_source"] == "detected"

@@ -42,6 +42,10 @@ class BrowserGateway:
         return bool(settings.mock_browser)
 
     async def execute(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
+        args = {
+            **args,
+            "settings": dict(self.session.settings),
+        }
         mode = "mock" if settings.mock_browser else "live"
         site = str(args.get("site") or "").lower()
         if not settings.mock_browser and hub.online_count > 0:

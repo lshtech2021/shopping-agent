@@ -1,14 +1,18 @@
 import { createJobLogger } from '../shared/logger.js'
+import { patchSessionSettings } from '../shared/api.js'
 import '../adapters/jd/index.js'
 import '../adapters/ebay/index.js'
 import '../adapters/registry.js'
+import './browse-guards.js'
 
 const { getAdapter } = globalThis.__saAdapters
+const { assertBrowseAllowed } = globalThis.__saBrowseGuards
 
 const SITE_TABS = new Map()
 const SITE_URLS = new Map()
 const SITE_QUERIES = new Map()
 const SITE_PAGES = new Map()
+const SESSION_SETTINGS = new Map()
 const SITE_TABS_KEY = 'siteTabs'
 const JOB_TIMEOUT_MS = 50000
 
@@ -315,6 +319,74 @@ async function parseDetailWithRetry(tabId, deadline, attempts = 3) {
   return response
 }
 
+function sessionSettings(args) {
+  const runId = args.run_id || null
+  if (args.settings && typeof args.settings === 'object') {
+    const value = { ...args.settings }
+    if (runId) SESSION_SETTINGS.set(runId, value)
+    return value
+  }
+  return runId ? SESSION_SETTINGS.get(runId) || null : null
+}
+
+async function guardTab(tabId, args, deadline) {
+  const settings = sessionSettings(args)
+  // Legacy/local callers without a session cannot provide a meaningful
+  // currency precondition. Production jobs always include session settings.
+  if (!settings) return null
+
+  const tab = await chrome.tabs.get(tabId)
+  const siteCheck = assertBrowseAllowed({
+    sessionSite: settings.site,
+    sessionCurrency: settings.currency || 'SITE_CHECK',
+    tabUrl: tab?.url,
+    pageCurrency: settings.currency || 'SITE_CHECK',
+  })
+  if (!siteCheck.ok && siteCheck.error !== 'currency_mismatch') {
+    return { status: 'blocked', ...siteCheck }
+  }
+  const detected = await sendToTab(
+    tabId,
+    { type: 'detect_currency' },
+    { deadline },
+  )
+  const pageCurrency = detected?.ok ? detected.currency : null
+  if (!settings.currency && pageCurrency) {
+    if (!args.run_id) {
+      return {
+        status: 'blocked',
+        error: 'currency_mismatch',
+        page_currency: pageCurrency,
+        session_currency: null,
+      }
+    }
+    try {
+      await patchSessionSettings(args.run_id, {
+        currency: pageCurrency,
+        currency_source: 'detected',
+      })
+    } catch (_) {
+      return {
+        status: 'blocked',
+        error: 'settings_sync_failed',
+        page_currency: pageCurrency,
+        session_currency: null,
+      }
+    }
+    settings.currency = pageCurrency
+    settings.currency_source = 'detected'
+    SESSION_SETTINGS.set(args.run_id, settings)
+  }
+
+  const allowed = assertBrowseAllowed({
+    sessionSite: settings.site,
+    sessionCurrency: settings.currency,
+    tabUrl: tab?.url || detected?.document_url,
+    pageCurrency,
+  })
+  return allowed.ok ? null : { status: 'blocked', ...allowed }
+}
+
 async function _runBrowserJob(tool, args = {}) {
   await tabStateReady
   const log = createJobLogger(tool)
@@ -355,6 +427,8 @@ async function _runBrowserJob(tool, args = {}) {
         deadline,
         siteKey,
       )
+      const refused = await guardTab(tabId, args, deadline)
+      if (refused) return withLogs(refused, log, jobId)
       const probe = await sendToTab(
         tabId,
         { type: 'detect_block' },
@@ -423,6 +497,8 @@ async function _runBrowserJob(tool, args = {}) {
         )
       }
       const expectedUrl = SITE_URLS.get(siteKey) || args.url || null
+      const refused = await guardTab(tabId, args, deadline)
+      if (refused) return withLogs(refused, log, jobId)
       const parsed = await parseListingWithRetry(tabId, expectedUrl, deadline)
       const response = parsed.response
       if (!response?.ok) {
@@ -491,6 +567,8 @@ async function _runBrowserJob(tool, args = {}) {
           jobId,
         )
       }
+      const refused = await guardTab(tabId, args, deadline)
+      if (refused) return withLogs(refused, log, jobId)
       const meta = await sendToTab(
         tabId,
         { type: 'has_next_page' },
@@ -517,6 +595,8 @@ async function _runBrowserJob(tool, args = {}) {
         log.info('extension.next', '跳转下一页', { nextUrl: meta.nextUrl })
         await chrome.tabs.update(tabId, { url: meta.nextUrl })
         await waitComplete(tabId, meta.nextUrl, deadline)
+        const nextRefused = await guardTab(tabId, args, deadline)
+        if (nextRefused) return withLogs(nextRefused, log, jobId)
         const parsed = await parseListingWithRetry(
           tabId,
           meta.nextUrl,
@@ -677,6 +757,8 @@ async function _runBrowserJob(tool, args = {}) {
         deadline,
         scopeKey(detailKey, args),
       )
+      const refused = await guardTab(tabId, args, deadline)
+      if (refused) return withLogs(refused, log, jobId)
       // The content bridge waits for detail hydration before parsing; retry
       // only when eBay still reports a transient "not found" state.
       const response = await parseDetailWithRetry(tabId, deadline)

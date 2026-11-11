@@ -241,8 +241,11 @@ def patch_session_settings(
         session.settings["site"] = payload.site
         session.sites = [payload.site]
     if payload.currency is not None:
-        session.settings["currency"] = payload.currency
-        session.settings["currency_source"] = "manual"
+        session.settings["currency"] = payload.currency.strip().upper()
+        session.settings["currency_source"] = payload.currency_source or "manual"
+    if payload.clear_products:
+        session.products.clear()
+        session.recommendations.clear()
     store.touch(session, durable=True)
     log_event(
         session,
@@ -253,6 +256,7 @@ def patch_session_settings(
             "site": session.settings.get("site"),
             "currency": session.settings.get("currency"),
             "currency_source": session.settings.get("currency_source"),
+            "clear_products": payload.clear_products,
         },
         persist=True,
     )

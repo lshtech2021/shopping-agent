@@ -784,15 +784,23 @@
   }
 
   function detectCurrency(root = document) {
-    const selected = text(root, [
+    const selectors = [
+      '#gh-eb-Geo',
       '[data-testid="currency-selector"]',
       '[aria-label*="currency" i]',
       '.currency-selector',
       '.x-price-primary',
       '.s-item__price',
       '.s-card__price',
-    ])
-    return parseUtils.parseCurrency(selected, 'USD')
+    ]
+    const signals = selectors
+      .map((selector) => clean(root.querySelector(selector)?.textContent))
+      .filter(Boolean)
+    for (const signal of signals) {
+      const detected = parseUtils.parseCurrency(signal, null)
+      if (detected) return detected
+    }
+    return 'USD'
   }
 
   return {

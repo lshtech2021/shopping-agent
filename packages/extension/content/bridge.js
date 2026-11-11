@@ -26,6 +26,13 @@
           })
           return
         }
+        if (message.type === 'detect_currency') {
+          reply({
+            ok: true,
+            currency: adapter.detectCurrency(document, location.href),
+          })
+          return
+        }
         if (message.type === 'parse_listing') {
           if (adapter.matchesUrl && !adapter.matchesUrl(location.href)) {
             reply({

@@ -42,6 +42,13 @@ export function getSession(sessionId) {
   return request(`/api/v1/sessions/${sessionId}`)
 }
 
+export function patchSessionSettings(sessionId, settings) {
+  return request(`/api/v1/sessions/${sessionId}/settings`, {
+    method: 'PATCH',
+    body: JSON.stringify(settings),
+  })
+}
+
 export function getSessionEvents(sessionId, after = 0, limit = 100) {
   const params = new URLSearchParams({
     after: String(after || 0),

@@ -197,6 +197,93 @@ test('restored tab from the wrong host is discarded', async () => {
   assert.equal(result.error, 'no_active_search_tab')
 })
 
+test('search fails closed when the page currency differs from session settings', async () => {
+  const url = 'https://www.ebay.com/sch/i.html?_nkw=laptop&_ipg=60'
+  installChrome({
+    getTab: (tabId) => ({ id: tabId, url, status: 'complete' }),
+    sendMessage: (_tabId, payload) => {
+      if (payload.type === 'detect_currency') {
+        return { ok: true, currency: 'USD', document_url: url }
+      }
+      return { ok: true, block: null, document_url: url }
+    },
+  })
+  const { runBrowserJob } = await loadBrowserJobs()
+
+  const result = await runBrowserJob('search', {
+    site: 'ebay',
+    query: 'laptop',
+    settings: { site: 'ebay', currency: 'CNY' },
+  })
+
+  assert.equal(result.status, 'blocked')
+  assert.equal(result.error, 'currency_mismatch')
+  assert.equal(result.page_currency, 'USD')
+  assert.equal(result.session_currency, 'CNY')
+})
+
+test('search returns site_mismatch before messaging a tab on another site', async () => {
+  let messages = 0
+  installChrome({
+    getTab: (tabId) => ({
+      id: tabId,
+      url: 'https://www.ebay.com/sch/i.html?_nkw=laptop&_ipg=60',
+      status: 'complete',
+    }),
+    sendMessage: () => {
+      messages += 1
+      throw new Error('content bridge unavailable')
+    },
+  })
+  const { runBrowserJob } = await loadBrowserJobs()
+
+  const result = await runBrowserJob('search', {
+    site: 'ebay',
+    query: 'laptop',
+    settings: { site: 'jd', currency: 'CNY' },
+  })
+
+  assert.equal(result.status, 'blocked')
+  assert.equal(result.error, 'site_mismatch')
+  assert.equal(messages, 0)
+})
+
+test('search adopts detected currency when session currency is unset', async () => {
+  const url = 'https://search.jd.com/Search?keyword=x&enc=utf-8'
+  const patches = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (_url, options) => {
+    patches.push(JSON.parse(options.body))
+    return { ok: true, async text() { return '{}' } }
+  }
+  installChrome({
+    getTab: (tabId) => ({ id: tabId, url, status: 'complete' }),
+    sendMessage: (_tabId, payload) => {
+      if (payload.type === 'detect_currency') {
+        return { ok: true, currency: 'CNY', document_url: url }
+      }
+      return { ok: true, block: null, document_url: url }
+    },
+  })
+
+  try {
+    const { runBrowserJob } = await loadBrowserJobs()
+    const result = await runBrowserJob('search', {
+      site: 'jd',
+      query: 'x',
+      run_id: 'session-1',
+      settings: { site: 'jd', currency: null },
+    })
+
+    assert.equal(result.status, 'ok')
+    assert.deepEqual(patches, [
+      { currency: 'CNY', currency_source: 'detected' },
+    ])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('zero-item listing is a parse error, not a successful empty page', async () => {
   installChrome({
     getTab: () => ({ id: 1, url: 'https://search.jd.com/Search?keyword=x', status: 'complete' }),

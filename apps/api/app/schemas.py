@@ -21,6 +21,8 @@ class CreateSessionResponse(BaseModel):
 class PatchSessionSettingsRequest(BaseModel):
     site: Optional[Literal["jd", "ebay"]] = None
     currency: Optional[str] = Field(None, max_length=16)
+    currency_source: Optional[Literal["detected", "manual"]] = None
+    clear_products: bool = False
 
 
 class PatchSessionSettingsResponse(BaseModel):
