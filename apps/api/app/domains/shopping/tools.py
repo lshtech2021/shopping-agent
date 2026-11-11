@@ -270,6 +270,7 @@ def build_shopping_tools(
             for field in args.model_fields_set
             if getattr(args, field) is not None
         }
+        previous_requirements = dict(box.session.requirements or {})
         updated = box.update_requirements(**explicit_fields)
 
         review = await _review_requirements(updated["requirements"])
@@ -336,17 +337,66 @@ def build_shopping_tools(
 
         # Keep the plan's requirement snapshot current; the replanner reads it
         # to choose the next search query.
+        hard_changed = any(
+            previous_requirements.get(field)
+            != updated["requirements"].get(field)
+            for field in (
+                "budget",
+                "budget_min",
+                "budget_unlimited",
+                "category",
+                "use_case",
+                "must_have",
+            )
+        )
         plan = state.get("plan") if isinstance(state, dict) else None
         if isinstance(plan, dict):
             metadata = plan.get("metadata")
             if isinstance(metadata, dict):
                 metadata["requirements"] = updated["requirements"]
+                if hard_changed:
+                    # The old queries were derived from the previous hard
+                    # requirements. Clearing them stops the model from
+                    # following a stale plan; the next search should derive
+                    # its query from the updated requirements.
+                    metadata["search_queries"] = {}
+                    metadata["queries_stale_from_requirements"] = True
+
+        meta = _plan_meta(_context, "requirements_updated")
+        question = updated.get("clarify_question")
+        if (
+            updated.get("needs_clarify")
+            and isinstance(question, dict)
+            and str(question.get("question") or "").strip()
+        ):
+            pending = {
+                "question": str(question["question"]),
+                "reason": "clarify",
+                "options": list(question.get("options") or []),
+                "metadata": {
+                    "field": question.get("field"),
+                    "source": "update_requirements",
+                },
+            }
+            return ToolResult(
+                call_id="",
+                tool="update_requirements",
+                ok=True,
+                data=updated,
+                meta=meta,
+                control="wait_user",
+                output={
+                    "question": pending["question"],
+                    "reason": "clarify",
+                    "pending_user": pending,
+                },
+            )
         return ToolResult(
             call_id="",
             tool="update_requirements",
             ok=True,
             data=updated,
-            meta=_plan_meta(_context, "requirements_updated"),
+            meta=meta,
         )
 
     async def query_inventory(

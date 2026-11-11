@@ -31,7 +31,11 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
 
 2. Data source
    - Check "Current Status". If cached products are sufficient, use `query_inventory` to sort/filter them; do not search again.
-   - Follow the current plan's steps and `search_queries` when one is present. Search again only if the user explicitly asks for a new search or the plan/replan explicitly supplies a new query.
+   - Follow the current plan's steps and `search_queries` when one is present.
+     If the plan has no `search_queries` because requirements changed, derive
+     the query from the current requirements instead of reusing an old query.
+     Search again only if the user explicitly asks for a new search or the
+     plan/replan explicitly supplies a new query.
    - Active site and currency come from session settings; do not change them via tools.
 
 3. Collection (per round, max): 2 `search`, 2 `next_page`, 5 `fetch_detail`.

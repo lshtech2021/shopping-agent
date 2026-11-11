@@ -183,6 +183,43 @@ def test_update_requirements_tool_applies_llm_review(monkeypatch):
     assert result.data["clarify_question"]["question"] == (
         "性能希望达到什么标准？"
     )
+    assert result.control == "wait_user"
+    assert result.output["pending_user"]["question"] == (
+        "性能希望达到什么标准？"
+    )
+    assert result.output["pending_user"]["options"] == ["16G+i5", "32G+i7"]
     assert state["plan"]["metadata"]["requirements"]["must_have"] == [
         "32G内存"
     ]
+
+
+def test_update_requirements_continues_without_question(monkeypatch):
+    session = store.create("需要笔记本", "ebay")
+    specs = {
+        spec.name: spec
+        for spec in build_shopping_tools(
+            shopping_tools.ToolBox(session), {}
+        )
+    }
+    spec = specs["update_requirements"]
+
+    async def fake_review(_requirements):
+        return RequirementReview(
+            hard_must_have=["32G内存"],
+            soft_must_have=[],
+            dropped_must_have=[],
+        )
+
+    monkeypatch.setattr(
+        shopping_tools, "_review_requirements", fake_review
+    )
+
+    result = asyncio.run(
+        spec.handler(
+            spec.args_model(must_have=["32G内存"]),
+            None,
+        )
+    )
+
+    assert result.data["needs_clarify"] is False
+    assert result.control == "continue"
