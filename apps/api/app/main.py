@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from datetime import datetime, timezone
@@ -17,10 +18,10 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import llm
+from app import llm, metrics
 from app.api.actions import router as actions_router
 from app.auth import (
     extension_auth_enabled,
@@ -47,11 +48,24 @@ from app.store import ALLOWED_SITES, store
 from app.trace import log_event
 from app.ws_hub import hub, origin_allowed
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     setup_logging()
     store.reset(settings.database_url)
+    if settings.log_retention_days > 0:
+        try:
+            pruned = store.prune_logs(settings.log_retention_days)
+            logger.info(
+                "pruned old audit logs retention_days=%s run_events=%s artifacts=%s",
+                settings.log_retention_days,
+                pruned["run_events"],
+                pruned["artifacts"],
+            )
+        except Exception:  # noqa: BLE001 — retention is best effort
+            logger.exception("failed to prune old audit logs")
     from app.agent.supervisor import RunSupervisor
 
     supervisor = RunSupervisor(store)
@@ -164,6 +178,16 @@ def health() -> dict:
     }
 
 
+@app.get("/metrics", response_class=PlainTextResponse)
+def prometheus_metrics() -> PlainTextResponse:
+    if not settings.metrics_enabled:
+        raise HTTPException(status_code=404, detail="metrics disabled")
+    return PlainTextResponse(
+        metrics.render_prometheus(),
+        media_type="text/plain; version=0.0.4",
+    )
+
+
 @app.get("/api/v1/sessions", response_model=list[SessionSummary])
 def list_sessions(
     limit: int = Query(default=50, ge=1, le=200),
@@ -218,6 +242,17 @@ def create_session(
         sites=session.sites,
         settings=session.settings,
     )
+
+
+@app.get("/api/v1/artifacts/{artifact_id}")
+def get_artifact(
+    artifact_id: str,
+    _token: None = Depends(require_extension_token_header),
+) -> dict:
+    record = store.get_artifact(artifact_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="artifact not found")
+    return record
 
 
 @app.get("/api/v1/sessions/{session_id}", response_model=SessionDetail)

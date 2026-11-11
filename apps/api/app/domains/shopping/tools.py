@@ -10,13 +10,31 @@ from app import requirement_review
 from app.agent.tools import ToolResult, ToolSpec
 from app.domains.shopping.adapters import get_adapter
 from app.domains.shopping.prompt import blocked_text
-from app.store import store
+from app.store import Session, store
 from app.tools import BLOCKING, ToolBox
+from app.trace import log_event
 
 
-async def _review_requirements(requirements: dict[str, Any]):
+async def _review_requirements(
+    requirements: dict[str, Any],
+    session: Session | None = None,
+):
     """Indirection point so tests can replace the LLM reviewer."""
-    return await requirement_review.review_requirements(requirements)
+
+    def on_event(stage: str, data: dict[str, Any]) -> None:
+        if session is not None:
+            log_event(
+                session,
+                "需求评审降级",
+                stage=stage,
+                source="llm",
+                level="warning",
+                data=data,
+            )
+
+    return await requirement_review.review_requirements(
+        requirements, on_event=on_event
+    )
 
 
 class _NoArgs(BaseModel):
@@ -273,7 +291,9 @@ def build_shopping_tools(
         previous_requirements = dict(box.session.requirements or {})
         updated = box.update_requirements(**explicit_fields)
 
-        review = await _review_requirements(updated["requirements"])
+        review = await _review_requirements(
+            updated["requirements"], box.session
+        )
         if review is not None:
             original = [
                 str(item)

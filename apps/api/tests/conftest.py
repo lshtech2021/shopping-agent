@@ -132,7 +132,7 @@ def fit_judge_double(monkeypatch):
 def requirement_review_double(monkeypatch):
     """Keep tests deterministic; review-specific tests override this."""
 
-    async def _no_review(_requirements):
+    async def _no_review(_requirements, _session=None):
         return None
 
     monkeypatch.setattr(

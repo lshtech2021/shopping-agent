@@ -105,6 +105,7 @@ async def review_requirements(
     requirements: dict[str, Any],
     *,
     model: Any = None,
+    on_event: Any = None,
 ) -> RequirementReview | None:
     """Classify existing must-have items with the LLM.
 
@@ -159,7 +160,25 @@ async def review_requirements(
                     "requirement review structured output unavailable: %s",
                     exc,
                 )
+                if callable(on_event):
+                    on_event(
+                        "provider.fallback",
+                        {
+                            "component": "requirement_review",
+                            "error_code": "provider_structured_output_unsupported",
+                            "error": str(exc)[:300],
+                        },
+                    )
         return _coerce(await model.ainvoke(messages))
     except Exception as exc:  # noqa: BLE001 — review must not kill the turn
         logger.warning("requirement review failed: %s", exc)
+        if callable(on_event):
+            on_event(
+                "provider.error",
+                {
+                    "component": "requirement_review",
+                    "error_code": "requirement_review_failed",
+                    "error": str(exc)[:300],
+                },
+            )
         return None

@@ -244,3 +244,27 @@ def test_ensure_fit_limits_the_judged_candidate_set():
         if isinstance(product.get("fit"), dict)
     ]
     assert len(judged) == 10
+
+
+def test_structured_output_fallback_reports_provider_event():
+    session = seed(category="笔记本")
+    judge = StructuredUnavailableJudge()
+    events = []
+
+    def on_event(stage, data):
+        events.append((stage, data))
+
+    asyncio.run(
+        fit_judge.judge_products(
+            list(session.products.values()),
+            session.requirements,
+            model=judge,
+            on_event=on_event,
+        )
+    )
+
+    assert events
+    stage, data = events[0]
+    assert stage == "provider.fallback"
+    assert data["component"] == "fit_judge"
+    assert data["error_code"] == "provider_structured_output_unsupported"

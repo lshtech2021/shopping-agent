@@ -1,6 +1,7 @@
 """Translate shopping sessions and generic runtime results to API shapes."""
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -9,7 +10,7 @@ from app.agent.runtime import TurnResult
 from app.agent.state import AgentState
 from app.config import settings
 from app.schemas import MessageResponse
-from app.store import Session
+from app.store import Session, store
 from app.tools import ToolBox
 from app.trace import classify_error, log_event
 
@@ -119,6 +120,13 @@ class ShoppingBrowser:
         )
 
 
+def _payload_chars(value: Any) -> int:
+    try:
+        return len(json.dumps(value, ensure_ascii=False, default=str))
+    except (TypeError, ValueError):
+        return 0
+
+
 def _tool_result_summary(result: Any) -> dict[str, Any] | None:
     if not isinstance(result, dict):
         return None
@@ -187,9 +195,19 @@ class ShoppingTrace:
         if name == "llm.tool":
             tool = str(fields.get("tool") or "tool")
             status = str(fields.get("status") or "ok")
-            fields["result_summary"] = _tool_result_summary(
-                fields.get("result")
-            )
+            result = fields.get("result")
+            summary = _tool_result_summary(result)
+            if result is not None and settings.artifact_storage_enabled:
+                payload_chars = _payload_chars(result)
+                if payload_chars >= settings.artifact_threshold_chars:
+                    fields["payload_ref"] = store.save_artifact(
+                        self.session.id,
+                        f"tool.{tool}",
+                        result,
+                    )
+                    fields["payload_chars"] = payload_chars
+                    fields["result"] = summary
+            fields["result_summary"] = summary
             fields["error_code"] = classify_error(
                 status,
                 fields.get("error"),

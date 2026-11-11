@@ -132,7 +132,11 @@ def _structured_unavailable(exc: BaseException) -> bool:
 _NO_STRUCTURED_OUTPUT = "_sa_no_structured_output"
 
 
-async def _invoke_batch(model: Any, messages: list[Any]) -> FitBatch:
+async def _invoke_batch(
+    model: Any,
+    messages: list[Any],
+    on_event: Any = None,
+) -> FitBatch:
     structured_exc: Exception | None = None
     supports_structured = hasattr(model, "with_structured_output") and not getattr(
         model, _NO_STRUCTURED_OUTPUT, False
@@ -153,9 +157,27 @@ async def _invoke_batch(model: Any, messages: list[Any]) -> FitBatch:
                 "fit judge structured output unavailable; falling back to JSON text: %s",
                 exc,
             )
+            if callable(on_event):
+                on_event(
+                    "provider.fallback",
+                    {
+                        "component": "fit_judge",
+                        "error_code": "provider_structured_output_unsupported",
+                        "error": str(exc)[:300],
+                    },
+                )
     try:
         return _coerce(await model.ainvoke(messages))
-    except Exception:
+    except Exception as exc:
+        if callable(on_event):
+            on_event(
+                "provider.error",
+                {
+                    "component": "fit_judge",
+                    "error_code": "fit_judge_failed",
+                    "error": str(exc)[:300],
+                },
+            )
         if structured_exc is not None:
             raise structured_exc
         raise
@@ -166,6 +188,7 @@ async def judge_products(
     requirements: dict[str, Any],
     *,
     model: Any = None,
+    on_event: Any = None,
 ) -> dict[str, Any]:
     """Judge every product lacking a current verdict. Never raises.
 
@@ -199,7 +222,7 @@ async def judge_products(
             ),
         ]
         try:
-            result = await _invoke_batch(model, messages)
+            result = await _invoke_batch(model, messages, on_event)
         except Exception as exc:  # noqa: BLE001 — judging must not kill the turn
             logger.warning("fit judge failed: %s", exc)
             error = f"{type(exc).__name__}: {exc}"

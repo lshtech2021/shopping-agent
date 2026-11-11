@@ -9,7 +9,7 @@ from __future__ import annotations
 import copy
 import uuid
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from app.config import settings
@@ -387,6 +387,35 @@ class SessionStore:
         return self._repo.list_run_events(
             run_id, after_id=after_id, limit=limit
         )
+
+    def save_artifact(
+        self, run_id: str, kind: str, payload: dict[str, Any]
+    ) -> str:
+        artifact_id = uuid.uuid4().hex
+        self._repo.save_artifact(
+            {
+                "artifact_id": artifact_id,
+                "run_id": run_id,
+                "kind": kind,
+                "payload": payload,
+                "created_at": _now(),
+            }
+        )
+        return artifact_id
+
+    def get_artifact(self, artifact_id: str) -> Optional[dict[str, Any]]:
+        return self._repo.get_artifact(artifact_id)
+
+    def prune_logs(self, retention_days: int) -> dict[str, int]:
+        if retention_days <= 0:
+            return {"run_events": 0, "artifacts": 0}
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=retention_days)
+        ).isoformat()
+        return {
+            "run_events": self._repo.prune_run_events(cutoff),
+            "artifacts": self._repo.prune_artifacts(cutoff),
+        }
 
     def touch(
         self,

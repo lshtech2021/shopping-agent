@@ -152,7 +152,7 @@ def test_update_requirements_tool_applies_llm_review(monkeypatch):
     }
     spec = specs["update_requirements"]
 
-    async def fake_review(_requirements):
+    async def fake_review(_requirements, _session=None):
         return RequirementReview(
             hard_must_have=["32G内存", "1TB SSD"],
             soft_must_have=["性能足够高"],
@@ -203,7 +203,7 @@ def test_update_requirements_continues_without_question(monkeypatch):
     }
     spec = specs["update_requirements"]
 
-    async def fake_review(_requirements):
+    async def fake_review(_requirements, _session=None):
         return RequirementReview(
             hard_must_have=["32G内存"],
             soft_must_have=[],
@@ -223,3 +223,24 @@ def test_update_requirements_continues_without_question(monkeypatch):
 
     assert result.data["needs_clarify"] is False
     assert result.control == "continue"
+
+
+def test_review_requirements_reports_provider_fallback():
+    events = []
+
+    def on_event(stage, data):
+        events.append((stage, data))
+
+    asyncio.run(
+        review_requirements(
+            {"must_have": ["32G内存"]},
+            model=StructuredUnavailableReviewModel(),
+            on_event=on_event,
+        )
+    )
+
+    assert events
+    stage, data = events[0]
+    assert stage == "provider.fallback"
+    assert data["component"] == "requirement_review"
+    assert data["error_code"] == "provider_structured_output_unsupported"

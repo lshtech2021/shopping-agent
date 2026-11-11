@@ -10,7 +10,7 @@ import logging
 import time
 from typing import Any
 
-from app import llm
+from app import llm, metrics
 from app.config import settings
 from app.store import Session, store
 from app.tools import ToolBox
@@ -133,6 +133,7 @@ def _turn_summary(
         level="warning" if errors or summary["interrupted"] else "info",
         data=summary,
     )
+    metrics.record_turn(summary)
 
 
 async def run_agent(

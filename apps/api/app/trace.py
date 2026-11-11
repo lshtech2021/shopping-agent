@@ -7,11 +7,13 @@ so clients can fetch only the logs of the turn that just ran.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Iterator, Optional
 
+from app.config import settings
 from app.store import Session, store
 
 logger = logging.getLogger("shopping_agent.trace")
@@ -77,12 +79,27 @@ def classify_error(
     return None
 
 
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+_PHONE_RE = re.compile(
+    r"(?<!\d)(?:\+?\d{1,3}[\s-]?)?"
+    r"(?:1[3-9]\d{9}|\d{3}[- ]\d{3}[- ]\d{4})(?!\d)"
+)
+
+
+def redact_text(text: str) -> str:
+    if not settings.log_redaction_enabled:
+        return text
+    return _PHONE_RE.sub("[phone]", _EMAIL_RE.sub("[email]", text))
+
+
 def _trim(value: Any, limit: int = MAX_DATA_CHARS) -> Any:
     if value is None:
         return None
-    if isinstance(value, (str, int, float, bool)):
-        text = str(value)
-        return value if not isinstance(value, str) or len(text) <= limit else text[: limit - 3] + "..."
+    if isinstance(value, str):
+        text = redact_text(value)
+        return text if len(text) <= limit else text[: limit - 3] + "..."
+    if isinstance(value, (int, float, bool)):
+        return value
     if isinstance(value, dict):
         return {str(k): _trim(v, limit // 2) for k, v in list(value.items())[:40]}
     if isinstance(value, (list, tuple)):

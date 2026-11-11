@@ -39,5 +39,14 @@ class Settings(BaseSettings):
     max_shipping_ratio: float = 0.10
     max_shipping_cost: float | None = None
 
+    # Optional audit/observability features.
+    artifact_storage_enabled: bool = False
+    artifact_threshold_chars: int = 20000
+    metrics_enabled: bool = False
+    otel_enabled: bool = False
+    otel_service_name: str = "shopping-agent"
+    log_redaction_enabled: bool = True
+    log_retention_days: int = 0
+
 
 settings = Settings()

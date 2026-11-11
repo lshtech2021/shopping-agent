@@ -77,6 +77,7 @@ class RunRepository:
     _memory_runs: dict[str, dict[str, Any]] = {}
     _memory_actions: dict[str, dict[str, Any]] = {}
     _memory_observations: dict[str, dict[str, Any]] = {}
+    _memory_artifacts: dict[str, dict[str, Any]] = {}
     _memory_checkpoints: dict[str, dict[str, Any]] = {}
     _memory_receipts: dict[str, dict[str, Any]] = {}
     _memory_locks: set[str] = set()
@@ -120,6 +121,7 @@ class RunRepository:
             self._memory_runs.clear()
             self._memory_actions.clear()
             self._memory_observations.clear()
+            self._memory_artifacts.clear()
             self._memory_checkpoints.clear()
             self._memory_receipts.clear()
             self._memory_locks.clear()
@@ -129,7 +131,7 @@ class RunRepository:
         with self._db() as conn:
             conn.execute(
                 "TRUNCATE runs, actions, observations, run_events, "
-                "checkpoints, request_receipts"
+                "run_artifacts, checkpoints, request_receipts"
             )
 
     @contextmanager
@@ -212,6 +214,23 @@ class RunRepository:
                     payload JSONB NOT NULL,
                     created_at TEXT NOT NULL
                 )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS run_artifacts (
+                    artifact_id TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    payload JSONB NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS run_artifacts_run_idx
+                ON run_artifacts(run_id, created_at)
                 """
             )
             conn.execute(
@@ -825,6 +844,92 @@ class RunRepository:
         if isinstance(stored, str):
             stored = json.loads(stored)
         return stored or payload
+
+    # --- artifacts -----------------------------------------------------------
+
+    def save_artifact(self, record: dict[str, Any]) -> dict[str, Any]:
+        artifact_id = str(record["artifact_id"])
+        stored = {
+            "artifact_id": artifact_id,
+            "run_id": str(record.get("run_id") or ""),
+            "kind": str(record.get("kind") or "tool_result"),
+            "payload": copy.deepcopy(record.get("payload") or {}),
+            "created_at": str(record.get("created_at") or ""),
+        }
+        if self._url is None:
+            self._memory_artifacts[artifact_id] = copy.deepcopy(stored)
+            return copy.deepcopy(stored)
+        with self._db() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO run_artifacts(
+                    artifact_id, run_id, kind, payload, created_at
+                )
+                VALUES (
+                    %(artifact_id)s, %(run_id)s, %(kind)s,
+                    %(payload)s, %(created_at)s
+                )
+                ON CONFLICT (artifact_id) DO NOTHING
+                RETURNING artifact_id, run_id, kind, payload, created_at
+                """,
+                {**stored, "payload": Jsonb(stored["payload"])},
+            ).fetchone()
+            if row is None:
+                row = conn.execute(
+                    """
+                    SELECT artifact_id, run_id, kind, payload, created_at
+                    FROM run_artifacts WHERE artifact_id = %s
+                    """,
+                    (artifact_id,),
+                ).fetchone()
+        return self._decode(row) if row else stored
+
+    def get_artifact(self, artifact_id: str) -> dict[str, Any] | None:
+        if self._url is None:
+            record = self._memory_artifacts.get(artifact_id)
+            return copy.deepcopy(record) if record else None
+        with self._db() as conn:
+            row = conn.execute(
+                """
+                SELECT artifact_id, run_id, kind, payload, created_at
+                FROM run_artifacts WHERE artifact_id = %s
+                """,
+                (artifact_id,),
+            ).fetchone()
+        return self._decode(row) if row else None
+
+    def prune_run_events(self, before_iso: str) -> int:
+        if self._url is None:
+            before = len(self._memory_run_events)
+            self._memory_run_events = [
+                row
+                for row in self._memory_run_events
+                if str(row.get("created_at") or "") >= before_iso
+            ]
+            return before - len(self._memory_run_events)
+        with self._db() as conn:
+            row = conn.execute(
+                "DELETE FROM run_events WHERE created_at < %s",
+                (before_iso,),
+            )
+        return int(row.rowcount or 0)
+
+    def prune_artifacts(self, before_iso: str) -> int:
+        if self._url is None:
+            stale = [
+                key
+                for key, row in self._memory_artifacts.items()
+                if str(row.get("created_at") or "") < before_iso
+            ]
+            for key in stale:
+                self._memory_artifacts.pop(key, None)
+            return len(stale)
+        with self._db() as conn:
+            row = conn.execute(
+                "DELETE FROM run_artifacts WHERE created_at < %s",
+                (before_iso,),
+            )
+        return int(row.rowcount or 0)
 
     @staticmethod
     def _decode(row: dict[str, Any] | None) -> dict[str, Any]:

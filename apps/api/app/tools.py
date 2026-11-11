@@ -337,7 +337,19 @@ class ToolBox:
             products = list(self.session.products.values())
             if limit is not None and limit > 0:
                 products = products[:limit]
-        outcome = await judge_products(products, requirements)
+        def on_event(stage: str, data: dict[str, Any]) -> None:
+            log_event(
+                self.session,
+                "商品匹配评估降级",
+                stage=stage,
+                source="llm",
+                level="warning",
+                data=data,
+            )
+
+        outcome = await judge_products(
+            products, requirements, on_event=on_event
+        )
         if outcome["judged"]:
             store.touch(self.session)
         if outcome["error"]:
