@@ -439,10 +439,40 @@ class ToolBox:
             product["price"] = result["price"]
             product["currency"] = result.get("currency") or product.get("currency")
             product["price_cny"] = to_cny(product["price"], product.get("currency"))
-            product["price_max_cny"] = None
-            product["price_is_range"] = False
+            price_is_range = bool(result.get("price_is_range"))
+            price_max = result.get("price_max") if price_is_range else None
+            product["price_max_cny"] = to_cny(
+                price_max, product.get("currency")
+            )
+            product["price_is_range"] = price_is_range
         if result.get("attributes"):
             product["attributes"] = result["attributes"]
+        for key in (
+            "condition",
+            "shipping",
+            "shipping_cost",
+            "returns",
+            "location",
+            "availability",
+            "listing_type",
+            "best_offer",
+            "bids",
+            "watchers",
+            "sold",
+            "quantity_available",
+            "has_variations",
+            "variations",
+            "highlights",
+            "images",
+            "item_number",
+        ):
+            if result.get(key) is not None:
+                product[key] = result[key]
+        if isinstance(result.get("seller"), dict):
+            product["seller"] = result["seller"]
+        images = result.get("images")
+        if isinstance(images, list) and images:
+            product.setdefault("image_url", images[0])
         store.touch(self.session)
         return {"status": "ok", "product_id": product_id, "product": _public_product(product)}
 

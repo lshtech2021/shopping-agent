@@ -106,6 +106,57 @@ test('parseDetail extracts ebay title and attributes', () => {
   assert.equal(result.attributes['RAM Size'], '32 GB')
 })
 
+test('parseDetail extracts condition, seller, shipping and availability', () => {
+  const dom = loadDom(
+    'ebay-detail-rich.html',
+    'https://www.ebay.com/itm/111222333444',
+  )
+  const result = ebay.parseDetail(dom.window.document, dom.window.location.href)
+
+  assert.equal(result.status, 'ok')
+  assert.match(result.title, /ThinkPad T14/)
+  assert.equal(result.price, 620)
+  assert.equal(result.price_max, 700)
+  assert.equal(result.price_is_range, true)
+  assert.equal(result.currency, 'USD')
+  assert.equal(result.attributes['RAM Size'], '32 GB')
+  assert.equal(result.condition, 'Pre-Owned')
+  assert.deepEqual(result.seller, {
+    name: 'refurb-dealer',
+    feedback_percent: 99.2,
+  })
+  assert.equal(result.shipping, 'Free International Shipping')
+  assert.equal(result.shipping_cost, 0)
+  assert.match(result.returns, /30 day returns/)
+  assert.equal(result.location, 'Shenzhen, China')
+  assert.equal(result.quantity_available, 10)
+  assert.equal(result.sold, 25)
+  assert.equal(result.watchers, 8)
+  assert.equal(result.availability, 'available')
+  assert.equal(result.listing_type, 'buy_it_now')
+  assert.equal(result.best_offer, true)
+  assert.equal(result.has_variations, true)
+  assert.deepEqual(result.variations, ['RAM', 'Storage'])
+  assert.deepEqual(result.highlights, ['14-inch display', '32GB RAM'])
+  assert.deepEqual(result.images, [
+    'https://i.ebayimg.com/images/g/abc/s-l1600.jpg',
+    'https://i.ebayimg.com/images/g/def/s-l1600.jpg',
+  ])
+  assert.equal(result.item_number, '111222333444')
+})
+
+test('parseDetail marks an ended listing unavailable', () => {
+  const dom = loadDom(
+    'ebay-detail-ended.html',
+    'https://www.ebay.com/itm/123',
+  )
+  const result = ebay.parseDetail(dom.window.document, dom.window.location.href)
+  assert.equal(result.status, 'ok')
+  assert.match(result.title, /Dell Latitude/)
+  assert.equal(result.attributes.Brand, 'Dell')
+  assert.equal(result.availability, 'unavailable')
+})
+
 test('classifies eBay error, challenge and login pages', () => {
   const error = loadDom(
     'ebay-error.html',

@@ -68,6 +68,13 @@ def _listing(product: dict[str, Any]) -> dict[str, Any]:
         record["detail_attributes"] = dict(
             list((detail.get("attributes") or {}).items())[:_MAX_ATTRS]
         )
+        if detail.get("condition"):
+            record["detail_condition"] = detail.get("condition")
+        highlights = detail.get("highlights") or []
+        if isinstance(highlights, list) and highlights:
+            record["detail_highlights"] = [
+                str(item)[:200] for item in highlights[:10]
+            ]
     return record
 
 

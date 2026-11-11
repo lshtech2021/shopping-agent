@@ -412,39 +412,219 @@
     }
   }
 
+  function attributesOf(root) {
+    const attributes = {}
+    for (const row of root.querySelectorAll('.ux-labels-values')) {
+      const label = clean(
+        row.querySelector('[class*="ux-labels-values__labels"]')?.textContent,
+      ).replace(/[：:]\s*$/, '')
+      const value = clean(
+        row.querySelector('[class*="ux-labels-values__values"]')?.textContent,
+      )
+      if (label && value && !(label in attributes)) attributes[label] = value
+    }
+    return attributes
+  }
+
+  function conditionFrom(root, attributes) {
+    return (
+      attributes.Condition ||
+      attributes['Item condition'] ||
+      text(root, [
+        '.x-item-condition-text',
+        '.x-item-condition .ux-textspans',
+        '.x-item-condition',
+      ]) ||
+      null
+    )
+  }
+
+  function sellerFrom(root) {
+    const name = text(root, [
+      '.x-sellercard-atf__info__about-seller a .ux-textspans',
+      '.x-sellercard-atf__info__about-seller a',
+      '.x-sellercard-atf__about-seller a',
+      '[data-testid="x-sellercard-atf"] a',
+      '.ux-seller-section__item--seller a',
+    ])
+    const feedbackText = text(root, [
+      '.x-sellercard-atf__data-item',
+      '.x-sellercard-atf__info__feedback',
+      '.ux-seller-section__item--feedback',
+    ])
+    const match = feedbackText?.match(/(\d{1,3}(?:\.\d+)?)\s*%\s*positive/i)
+    if (!name && !match) return null
+    return {
+      name: name || null,
+      feedback_percent: match ? Number(match[1]) : null,
+    }
+  }
+
+  function shippingFrom(root, attributes) {
+    const raw =
+      attributes.Shipping ||
+      attributes['Shipping cost'] ||
+      attributes.Delivery ||
+      text(root, ['.d-shipping-minview', '[data-testid="d-shipping-minview"]'])
+    if (!raw) return { shipping: null, shipping_cost: null }
+    return {
+      shipping: raw,
+      shipping_cost: /free/i.test(raw) ? 0 : parseUtils.parsePrice(raw),
+    }
+  }
+
+  function quantityFrom(root) {
+    const raw = text(root, [
+      '.x-quantity__availability',
+      '[data-testid="x-quantity__availability"]',
+      '.d-quantity__availability',
+    ])
+    if (!raw) return { quantity_available: null, sold: null }
+    const available = raw.match(/([\d,]+)\s*available/i)
+    const sold = raw.match(/([\d,]+)\s*sold/i)
+    return {
+      quantity_available: available
+        ? Number(available[1].replace(/,/g, ''))
+        : null,
+      sold: sold ? Number(sold[1].replace(/,/g, '')) : null,
+    }
+  }
+
+  function availabilityFrom(root) {
+    if (
+      root.querySelector(
+        '.x-item-status--ended, .x-item-status--unavailable, .x-item-status--sold',
+      )
+    ) {
+      return 'unavailable'
+    }
+    const status = text(root, ['.x-item-status'])
+    if (status && /ended|no longer available|out of stock|unavailable/i.test(status)) {
+      return 'unavailable'
+    }
+    return 'available'
+  }
+
+  function listingTypeFromDetail(root) {
+    if (root.querySelector('.x-bid-action, [data-testid="x-bid-action"]')) {
+      return 'auction'
+    }
+    if (root.querySelector('.x-bin-action, [data-testid="x-bin-action"]')) {
+      return 'buy_it_now'
+    }
+    const raw = text(root, ['.x-item-cta', '.vi-atf-buy-box'])
+    if (!raw) return null
+    if (/place bid|bid now|auction/i.test(raw)) return 'auction'
+    if (/buy it now/i.test(raw)) return 'buy_it_now'
+    return null
+  }
+
+  function variationsFrom(root) {
+    const menu = root.querySelector('.x-msku, [data-testid="x-msku"]')
+    if (!menu) return { has_variations: false, variations: [] }
+    const labels = [
+      ...root.querySelectorAll(
+        '.x-msku__label, .x-msku__select-label, .x-msku__label-text',
+      ),
+    ]
+      .map((element) => clean(element.textContent))
+      .filter(Boolean)
+    return { has_variations: true, variations: [...new Set(labels)].slice(0, 10) }
+  }
+
+  function highlightsFrom(root) {
+    const nodes = root.querySelectorAll(
+      '.x-about-this-item li, .ux-layout-section--features li, .x-about-this-item .ux-list-item, [data-testid="x-about-this-item"] li',
+    )
+    return [...new Set([...nodes].map((node) => clean(node.textContent)).filter(Boolean))]
+      .slice(0, 10)
+  }
+
+  function imagesFrom(root) {
+    const nodes = root.querySelectorAll(
+      '.ux-image-carousel-item img, #icImg, .x-photo-viewer img, [data-testid="ux-image-carousel"] img',
+    )
+    const images = []
+    for (const image of nodes) {
+      const src = image.getAttribute('src')
+      const raw = src && !src.startsWith('data:') ? src : image.getAttribute('data-src')
+      const url = upgradeImage(raw)
+      if (url && !images.includes(url)) images.push(url)
+      if (images.length >= 5) break
+    }
+    return images
+  }
+
   function parseDetail(root = document, url = location.href) {
     const problem = classifyPage(root, url)
     if (problem.status) {
       return { status: problem.status, error: problem.error }
     }
 
-    const title = text(root, [
-      'h1.x-item-title__mainTitle',
-      '.x-item-title__mainTitle',
-    ])
+    const title = text(root, DETAIL_TITLE_SELECTORS)
     const priceText = text(root, [
-      '.x-price-primary',
-      '[data-testid="x-price-primary"]',
+      ...DETAIL_PRICE_SELECTORS,
+      '.x-price-approx',
     ])
-    const attributes = {}
-    for (const row of root.querySelectorAll('.ux-labels-values')) {
-      const label = clean(
-        row.querySelector('.ux-labels-values__labels')?.textContent,
-      ).replace(/[：:]\s*$/, '')
-      const value = clean(
-        row.querySelector('.ux-labels-values__values')?.textContent,
-      )
-      if (label && value) attributes[label] = value
-    }
+    const priceRange = parseUtils.parsePriceRange(priceText)
+    const attributes = Object.fromEntries(
+      Object.entries(attributesOf(root)).slice(0, 40),
+    )
     if (!title && !Object.keys(attributes).length) {
       return { status: 'parse_error', error: 'detail_not_found' }
     }
+
+    const condition = conditionFrom(root, attributes)
+    const seller = sellerFrom(root)
+    const shipping = shippingFrom(root, attributes)
+    const quantity = quantityFrom(root)
+    const variations = variationsFrom(root)
+    const bidsText = text(root, ['.x-bid-count', '.vi-bid-count'])
+    const bidsMatch = bidsText?.match(/([\d,]+)/)
+    const watchText = text(root, [
+      '.x-watch__watchers',
+      '[data-testid="x-watch__watchers"]',
+    ])
+
     return {
       status: 'ok',
       title,
-      price: parseUtils.parsePrice(priceText),
+      price: priceRange ? priceRange.min : parseUtils.parsePrice(priceText),
+      price_max: priceRange ? priceRange.max : null,
+      price_is_range: Boolean(priceRange),
       currency: parseUtils.parseCurrency(priceText, 'USD'),
       attributes,
+      condition,
+      seller,
+      shipping: shipping.shipping,
+      shipping_cost: shipping.shipping_cost,
+      returns:
+        attributes.Returns ||
+        attributes['Return policy'] ||
+        text(root, ['.d-returns-title', '[data-testid="d-returns-title"]']),
+      location:
+        attributes['Item location'] ||
+        attributes.Location ||
+        text(root, ['.d-loc']),
+      quantity_available: quantity.quantity_available,
+      sold: quantity.sold,
+      watchers: parseUtils.parseWatchers(watchText),
+      availability: availabilityFrom(root),
+      listing_type: listingTypeFromDetail(root),
+      best_offer: Boolean(
+        root.querySelector(
+          '.x-best-offer, [data-testid="x-best-offer"], .x-best-offer-action',
+        ),
+      ),
+      bids: bidsMatch ? Number(bidsMatch[1].replace(/,/g, '')) : null,
+      has_variations: variations.has_variations,
+      variations: variations.variations,
+      highlights: highlightsFrom(root),
+      images: imagesFrom(root),
+      item_number:
+        attributes['eBay item number'] ||
+        attributes['Item number'] ||
+        text(root, ['#descItemNumber']),
     }
   }
 
