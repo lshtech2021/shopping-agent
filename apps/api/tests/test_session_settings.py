@@ -20,12 +20,21 @@ def test_from_dict_migrates_legacy_sites_list():
         "requirement": "x",
         "sites": ["ebay", "jd"],
         "requirements": {"budget_cny": 5000, "must_have": []},
+        "plan": {
+            "metadata": {
+                "requirements": {"budget_cny": 5000, "category": "笔记本"}
+            }
+        },
+        "recommendations": [{"product_id": "p1", "price_cny": 999}],
         "products": {},
     }
     session = Session.from_dict(raw)
     assert session.settings["site"] == "ebay"  # first entry
     assert session.requirements.get("budget") == 5000
     assert "budget_cny" not in session.requirements
+    assert session.plan["metadata"]["requirements"]["budget"] == 5000
+    assert "budget_cny" not in session.plan["metadata"]["requirements"]
+    assert "price_cny" not in session.recommendations[0]
 
 
 def test_list_sessions_includes_settings_site():

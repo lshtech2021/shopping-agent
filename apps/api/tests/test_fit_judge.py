@@ -182,3 +182,44 @@ def test_structured_output_unavailable_falls_back_to_json_text():
         settings=session.settings,
         sites=["jd"],
     ).ok
+
+
+def test_structured_output_failure_is_cached_per_model():
+    session = seed(category="笔记本")
+    judge = StructuredUnavailableJudge()
+
+    asyncio.run(
+        fit_judge.judge_products(
+            list(session.products.values()), session.requirements, model=judge
+        )
+    )
+    session.products["ok2"] = _product("ok2", "ThinkPad T14 笔记本 32G")
+    session.products["acc2"] = _product("acc2", "笔记本贴膜 配件")
+    asyncio.run(
+        fit_judge.judge_products(
+            [session.products["ok2"], session.products["acc2"]],
+            session.requirements,
+            model=judge,
+        )
+    )
+
+    assert judge.structured_calls == 1
+    assert judge.text_calls >= 2
+
+
+def test_ensure_fit_limits_the_judged_candidate_set():
+    session = seed(category="笔记本")
+    for index in range(70):
+        session.products[f"p{index}"] = _product(
+            f"p{index}", f"ThinkPad T14 笔记本 {index}"
+        )
+    box = ToolBox(session)
+
+    asyncio.run(box.ensure_fit(limit=10))
+
+    judged = [
+        product
+        for product in session.products.values()
+        if isinstance(product.get("fit"), dict)
+    ]
+    assert len(judged) == 10

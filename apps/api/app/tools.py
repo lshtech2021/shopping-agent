@@ -318,20 +318,24 @@ class ToolBox:
         }
 
     async def ensure_fit(
-        self, product_ids: list[str] | None = None
+        self,
+        product_ids: list[str] | None = None,
+        *,
+        limit: int | None = None,
     ) -> Optional[str]:
         """Have the LLM judge category/must-have fit for products lacking a
         current verdict. Returns an error string when judging failed."""
         requirements = self.session.requirements or {}
-        products = (
-            [
+        if product_ids is not None:
+            products = [
                 self.session.products[pid]
                 for pid in product_ids
                 if pid in self.session.products
             ]
-            if product_ids is not None
-            else list(self.session.products.values())
-        )
+        else:
+            products = list(self.session.products.values())
+            if limit is not None and limit > 0:
+                products = products[:limit]
         outcome = await judge_products(products, requirements)
         if outcome["judged"]:
             store.touch(self.session)

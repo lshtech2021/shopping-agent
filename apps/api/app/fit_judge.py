@@ -116,9 +116,15 @@ def _structured_unavailable(exc: BaseException) -> bool:
     return "response_format" in text or "invalid_request_error" in text
 
 
+_NO_STRUCTURED_OUTPUT = "_sa_no_structured_output"
+
+
 async def _invoke_batch(model: Any, messages: list[Any]) -> FitBatch:
     structured_exc: Exception | None = None
-    if hasattr(model, "with_structured_output"):
+    supports_structured = hasattr(model, "with_structured_output") and not getattr(
+        model, _NO_STRUCTURED_OUTPUT, False
+    )
+    if supports_structured:
         try:
             structured = model.with_structured_output(FitBatch)
             return _coerce(await structured.ainvoke(messages))
@@ -126,6 +132,10 @@ async def _invoke_batch(model: Any, messages: list[Any]) -> FitBatch:
             structured_exc = exc
             if not _structured_unavailable(exc):
                 raise
+            try:
+                setattr(model, _NO_STRUCTURED_OUTPUT, True)
+            except Exception:  # noqa: BLE001 — some wrappers are immutable
+                pass
             logger.warning(
                 "fit judge structured output unavailable; falling back to JSON text: %s",
                 exc,

@@ -64,6 +64,39 @@ def normalize_session_dict(data: dict) -> dict:
         p.pop("price_max_cny", None)
         products[pid] = p
     data["products"] = products
+
+    plan = data.get("plan")
+    if isinstance(plan, dict):
+        metadata = plan.get("metadata")
+        if isinstance(metadata, dict):
+            plan_req = metadata.get("requirements")
+            if isinstance(plan_req, dict):
+                plan_req = dict(plan_req)
+                if "budget_cny" in plan_req:
+                    legacy = plan_req.pop("budget_cny")
+                    if plan_req.get("budget") is None:
+                        plan_req["budget"] = legacy
+                plan_req.pop("price_cny", None)
+                plan_currency = normalize_currency(
+                    plan_req.get("budget_currency")
+                )
+                if (
+                    plan_req.get("budget") is not None
+                    or plan_req.get("budget_min") is not None
+                ) and not plan_currency:
+                    plan_currency = normalize_currency(
+                        settings.get("currency")
+                    )
+                plan_req["budget_currency"] = plan_currency
+                metadata["requirements"] = plan_req
+
+    recommendations = []
+    for item in data.get("recommendations") or []:
+        recommendation = dict(item)
+        recommendation.pop("price_cny", None)
+        recommendation.pop("price_max_cny", None)
+        recommendations.append(recommendation)
+    data["recommendations"] = recommendations
     return data
 
 

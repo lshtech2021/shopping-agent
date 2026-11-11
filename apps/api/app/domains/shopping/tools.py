@@ -352,7 +352,9 @@ def build_shopping_tools(
     async def query_inventory(
         args: _QueryInv, _context: Any
     ) -> ToolResult:
-        judge_error = await box.ensure_fit()
+        judge_error = await box.ensure_fit(
+            limit=max(60, args.limit * 2)
+        )
         result = box.query_inventory(limit=args.limit)
         if judge_error:
             result["judge_error"] = judge_error
