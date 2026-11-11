@@ -1,7 +1,7 @@
 # Post-Validation Quality Hardening Plan
 
 Status: implemented in four phases on `fix/ebay-scraping-quality`
-(2026-11-12). Verification: extension 75 tests passed; API 305 passed,
+(2026-11-12). Verification: extension 75 tests passed; API 306 passed,
 2 skipped.
 
 Implementation commits:
@@ -10,6 +10,7 @@ Implementation commits:
 - `5465cd5` enforce configurable shipping caps
 - `82a9a1b` link recommendations to the original listing
 - `6c523b7` complete eBay listing and landed-cost evidence
+- `285dd82` scope shipping caps to eBay evidence (JD has no shipping amount)
 
 Scope: remaining issues from the real eBay session log, plus shipping caps and
 clickable recommendation links.
