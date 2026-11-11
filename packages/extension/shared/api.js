@@ -17,9 +17,20 @@ async function request(path, options = {}) {
   return text ? JSON.parse(text) : null
 }
 
-export function createSession(requirement, site, currency = null) {
+export function createSession(
+  requirement,
+  site,
+  currency = null,
+  shippingLimits = {},
+) {
   const payload = { requirement, site }
   if (currency) payload.currency = currency
+  if ('max_shipping_ratio' in shippingLimits) {
+    payload.max_shipping_ratio = shippingLimits.max_shipping_ratio
+  }
+  if ('max_shipping_cost' in shippingLimits) {
+    payload.max_shipping_cost = shippingLimits.max_shipping_cost
+  }
   return request('/api/v1/sessions', {
     method: 'POST',
     body: JSON.stringify(payload),

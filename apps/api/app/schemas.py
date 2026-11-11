@@ -10,6 +10,8 @@ class CreateSessionRequest(BaseModel):
     site: Literal["jd", "ebay"] = "jd"
     currency: Optional[str] = Field(None, min_length=1, max_length=16)
     currency_source: Optional[Literal["detected", "manual"]] = None
+    max_shipping_ratio: Optional[float] = Field(None, ge=0, le=1)
+    max_shipping_cost: Optional[float] = Field(None, ge=0)
 
 
 class CreateSessionResponse(BaseModel):
@@ -24,6 +26,8 @@ class PatchSessionSettingsRequest(BaseModel):
     site: Optional[Literal["jd", "ebay"]] = None
     currency: Optional[str] = Field(None, min_length=1, max_length=16)
     currency_source: Optional[Literal["detected", "manual"]] = None
+    max_shipping_ratio: Optional[float] = Field(None, ge=0, le=1)
+    max_shipping_cost: Optional[float] = Field(None, ge=0)
     clear_products: bool = False
 
 
@@ -33,6 +37,7 @@ class PatchSessionSettingsResponse(BaseModel):
     sites: list[str]
     settings: dict[str, Any] = Field(default_factory=dict)
     budget_cleared: bool = False
+    recommendations_cleared: bool = False
 
 
 class ClarifyQuestion(BaseModel):

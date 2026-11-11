@@ -190,6 +190,13 @@ def create_session(
         currency=currency,
         currency_source=currency_source,
     )
+    shipping_changed = False
+    for field in ("max_shipping_ratio", "max_shipping_cost"):
+        if field in payload.model_fields_set:
+            session.settings[field] = getattr(payload, field)
+            shipping_changed = True
+    if shipping_changed:
+        store.touch(session, durable=True)
     log_event(
         session,
         "创建会话",
@@ -199,6 +206,8 @@ def create_session(
             "requirement": payload.requirement,
             "site": payload.site,
             "currency": session.settings.get("currency"),
+            "max_shipping_ratio": session.settings.get("max_shipping_ratio"),
+            "max_shipping_cost": session.settings.get("max_shipping_cost"),
         },
         persist=True,
     )
@@ -253,6 +262,7 @@ def patch_session_settings(
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
     budget_cleared = False
+    recommendations_cleared = False
     if payload.site is not None:
         if payload.site not in ALLOWED_SITES:
             raise HTTPException(status_code=422, detail="invalid site")
@@ -284,6 +294,14 @@ def patch_session_settings(
             session.recommendations.clear()
         session.settings["currency"] = currency
         session.settings["currency_source"] = payload.currency_source or "manual"
+    shipping_changed = False
+    for field in ("max_shipping_ratio", "max_shipping_cost"):
+        if field in payload.model_fields_set:
+            session.settings[field] = getattr(payload, field)
+            shipping_changed = True
+    if shipping_changed and session.recommendations:
+        session.recommendations.clear()
+        recommendations_cleared = True
     if payload.clear_products:
         session.products.clear()
         session.recommendations.clear()
@@ -297,8 +315,11 @@ def patch_session_settings(
             "site": session.settings.get("site"),
             "currency": session.settings.get("currency"),
             "currency_source": session.settings.get("currency_source"),
+            "max_shipping_ratio": session.settings.get("max_shipping_ratio"),
+            "max_shipping_cost": session.settings.get("max_shipping_cost"),
             "clear_products": payload.clear_products,
             "budget_cleared": budget_cleared,
+            "recommendations_cleared": recommendations_cleared,
         },
         persist=True,
     )
@@ -308,6 +329,7 @@ def patch_session_settings(
         sites=session.sites,
         settings=session.settings,
         budget_cleared=budget_cleared,
+        recommendations_cleared=recommendations_cleared,
     )
 
 

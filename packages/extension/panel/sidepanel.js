@@ -44,7 +44,11 @@ const els = {
   turnStatus: document.getElementById('turnStatus'),
   settingsSummary: document.getElementById('settingsSummary'),
   newCurrencySelect: document.getElementById('newCurrencySelect'),
+  newMaxShippingRatio: document.getElementById('newMaxShippingRatio'),
+  newMaxShippingCost: document.getElementById('newMaxShippingCost'),
   currencySelect: document.getElementById('currencySelect'),
+  maxShippingRatio: document.getElementById('maxShippingRatio'),
+  maxShippingCost: document.getElementById('maxShippingCost'),
   currencyMismatch: document.getElementById('currencyMismatch'),
   currencyMismatchText: document.getElementById('currencyMismatchText'),
   alignCurrencyBtn: document.getElementById('alignCurrencyBtn'),
@@ -63,6 +67,35 @@ function syncNewCurrencyControl() {
   const jd = selectedSite() === 'jd'
   if (jd) els.newCurrencySelect.value = 'CNY'
   els.newCurrencySelect.disabled = state.busy || jd
+}
+
+function parseShippingLimits(ratioEl, costEl) {
+  const ratioText = String(ratioEl.value || '').trim()
+  const costText = String(costEl.value || '').trim()
+  const limits = {
+    max_shipping_ratio: null,
+    max_shipping_cost: null,
+  }
+  if (ratioText) {
+    const percent = Number(ratioText)
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+      return null
+    }
+    limits.max_shipping_ratio = percent / 100
+  }
+  if (costText) {
+    const cost = Number(costText)
+    if (!Number.isFinite(cost) || cost < 0) return null
+    limits.max_shipping_cost = cost
+  }
+  return limits
+}
+
+function selectedShippingLimits() {
+  return parseShippingLimits(
+    els.newMaxShippingRatio,
+    els.newMaxShippingCost,
+  )
 }
 
 function ensureCurrencyOption(currency) {
@@ -84,6 +117,11 @@ function renderSettings(settings = state.settings) {
   if (activeSite) activeSite.checked = true
   ensureCurrencyOption(state.settings.currency)
   els.currencySelect.value = state.settings.currency || ''
+  const ratio = state.settings.max_shipping_ratio
+  const cost = state.settings.max_shipping_cost
+  els.maxShippingRatio.value =
+    ratio == null ? '' : String(Math.round(Number(ratio) * 10000) / 100)
+  els.maxShippingCost.value = cost == null ? '' : String(cost)
 }
 
 function renderCurrencyMismatch(mismatch) {
@@ -278,7 +316,11 @@ function setBusy(busy) {
   els.startBtn.disabled = busy
   els.followup.disabled = busy
   els.newCurrencySelect.disabled = busy || selectedSite() === 'jd'
+  els.newMaxShippingRatio.disabled = busy
+  els.newMaxShippingCost.disabled = busy
   els.currencySelect.disabled = busy
+  els.maxShippingRatio.disabled = busy
+  els.maxShippingCost.disabled = busy
   els.alignCurrencyBtn.disabled = busy
   els.adoptCurrencyBtn.disabled = busy || !state.currencyMismatch?.pageCurrency
   for (const input of document.querySelectorAll('input[name="activeSite"]')) {
@@ -450,8 +492,13 @@ els.startBtn.addEventListener('click', async () => {
   const requirement = els.requirement.value.trim()
   const site = selectedSite()
   const currency = selectedNewCurrency()
+  const shippingLimits = selectedShippingLimits()
   if (!requirement || !site) {
     alert('请填写需求并选择一个站点')
+    return
+  }
+  if (!shippingLimits) {
+    alert('运费上限格式不正确')
     return
   }
   const generation = beginRequest()
@@ -459,9 +506,15 @@ els.startBtn.addEventListener('click', async () => {
     requirement,
     site,
     currency,
+    ...shippingLimits,
   })
   try {
-    const created = await createSession(requirement, site, currency)
+    const created = await createSession(
+      requirement,
+      site,
+      currency,
+      shippingLimits,
+    )
     if (!isCurrentGeneration(generation, state.requestGeneration)) return
     state.sessionId = created.session_id
     renderSessionState(created)
@@ -556,6 +609,45 @@ for (const input of document.querySelectorAll('input[name="activeSite"]')) {
       if (isCurrentGeneration(generation, state.requestGeneration)) setBusy(false)
     }
   })
+}
+
+async function applyShippingLimits() {
+  if (!state.sessionId || state.busy) return
+  const limits = parseShippingLimits(
+    els.maxShippingRatio,
+    els.maxShippingCost,
+  )
+  if (!limits) {
+    appendLocal('ui.error', '运费上限格式不正确')
+    renderSettings(state.settings)
+    return
+  }
+  const previous = state.settings
+  setBusy(true)
+  appendLocal('ui.settings', '更新运费上限', limits)
+  try {
+    const updated = await patchSessionSettings(
+      state.sessionId,
+      limits,
+    )
+    renderSessionState(updated)
+    if (updated?.recommendations_cleared) {
+      appendBubble(
+        'assistant',
+        '运费上限已更新，原推荐已清除，请重新查询或推荐。',
+      )
+    }
+  } catch (error) {
+    renderSettings(previous)
+    appendBubble('assistant', `错误：${error.message || error}`)
+    appendLocal('ui.error', String(error.message || error))
+  } finally {
+    setBusy(false)
+  }
+}
+
+for (const input of [els.maxShippingRatio, els.maxShippingCost]) {
+  input.addEventListener('change', applyShippingLimits)
 }
 
 els.currencySelect.addEventListener('change', async () => {

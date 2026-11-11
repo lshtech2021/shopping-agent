@@ -33,5 +33,11 @@ class Settings(BaseSettings):
     browse_jitter_s: float = 0.6
     job_timeout_s: float = 60.0
 
+    # Shipping caps. Ratio is relative to item price (0.10 = 10%); the
+    # absolute cap is in the session currency. A session may override either
+    # value, including clearing it with an explicit null.
+    max_shipping_ratio: float = 0.10
+    max_shipping_cost: float | None = None
+
 
 settings = Settings()

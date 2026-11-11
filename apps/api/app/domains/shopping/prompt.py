@@ -63,9 +63,10 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
      budget means filter/price, currency means align the page/session
      currency, unjudged/must_have means verify or clarify, category means
      the search is too broad, auction means switch to Buy It Now,
-     cost_incomplete means confirm shipping, parts means exclude the item,
-     and availability means the listing ended. Use those reasons to decide
-     the next tool call.
+     cost_incomplete means confirm shipping, shipping means the configured
+     shipping cap is exceeded, parts means exclude the item, and
+     availability means the listing ended. Use those reasons to decide the
+     next tool call.
    - Justify each pick with its specific `price`, `landed_cost` (when present),
      and `currency`, plus verified specs. Mark any unverified spec as
      unverified. If `cost_complete=false`, say that shipping/tax is not fully

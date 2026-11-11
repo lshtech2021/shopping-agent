@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from app.config import settings
+from app.config import settings as app_settings
 from app.currency import normalize_currency
 
 # Warm the in-process working set with recent runs only; older runs lazy-load
@@ -33,6 +34,10 @@ def normalize_session_dict(data: dict) -> dict:
     settings["currency"] = normalize_currency(settings.get("currency"))
     if "currency_source" not in settings:
         settings["currency_source"] = None
+    if "max_shipping_ratio" not in settings:
+        settings["max_shipping_ratio"] = app_settings.max_shipping_ratio
+    if "max_shipping_cost" not in settings:
+        settings["max_shipping_cost"] = app_settings.max_shipping_cost
     # JD always prices in CNY; eBay currency is detected before money is used.
     if site == "jd" and not settings["currency"]:
         settings["currency"] = "CNY"
@@ -280,6 +285,8 @@ class SessionStore:
                     if currency
                     else ("detected" if site == "jd" else None)
                 ),
+                "max_shipping_ratio": app_settings.max_shipping_ratio,
+                "max_shipping_cost": app_settings.max_shipping_cost,
             },
             requirements={
                 "raw": requirement.strip(),

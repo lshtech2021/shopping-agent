@@ -23,6 +23,18 @@ test('new session view exposes a currency selector', () => {
   )
 })
 
+test('new session view exposes shipping caps', () => {
+  const document = loadPanel()
+  const ratio = document.querySelector('#newSession #newMaxShippingRatio')
+  const cost = document.querySelector('#newSession #newMaxShippingCost')
+  assert.ok(ratio)
+  assert.ok(cost)
+  assert.equal(ratio.value, '10')
+  assert.equal(cost.value, '')
+  assert.ok(document.querySelector('#chat #maxShippingRatio'))
+  assert.ok(document.querySelector('#chat #maxShippingCost'))
+})
+
 test('chat and new-session currency selectors stay in sync', () => {
   const document = loadPanel()
   const newSession = document.querySelector('#newCurrencySelect')

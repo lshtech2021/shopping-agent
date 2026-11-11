@@ -34,6 +34,15 @@
           <option value="NZD">NZD</option>
         </select>
       </div>
+      <div class="settings-controls">
+        <label for="newMaxShippingRatio">最大运费占比</label>
+        <input id="newMaxShippingRatio" type="number" min="0" max="100" step="1" value="10" />
+        <span>%</span>
+        <label for="newMaxShippingCost">最大运费</label>
+        <input id="newMaxShippingCost" type="number" min="0" step="1" placeholder="不限制" />
+        <span>会话币种</span>
+      </div>
+      <p class="muted">运费超过任一上限即排除；同时填写时取更严格的上限。</p>
       <button id="startBtn" type="button">开始选品</button>
     </section>
 
@@ -58,6 +67,12 @@
             <option value="SGD">SGD</option>
             <option value="NZD">NZD</option>
           </select>
+          <label for="maxShippingRatio">最大运费占比</label>
+          <input id="maxShippingRatio" type="number" min="0" max="100" step="1" />
+          <span>%</span>
+          <label for="maxShippingCost">最大运费</label>
+          <input id="maxShippingCost" type="number" min="0" step="1" placeholder="不限制" />
+          <span>会话币种</span>
         </div>
       </div>
       <div id="currencyMismatch" class="mismatch-banner" hidden>

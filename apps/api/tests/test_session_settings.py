@@ -44,9 +44,66 @@ def test_create_without_currency_keeps_site_default():
     jd = store.create("笔记本", "jd")
     assert jd.settings["currency"] == "CNY"
     assert jd.settings["currency_source"] == "detected"
+    assert jd.settings["max_shipping_ratio"] == 0.10
+    assert jd.settings["max_shipping_cost"] is None
     ebay = store.create("笔记本", "ebay")
     assert ebay.settings["currency"] is None
     assert ebay.settings["currency_source"] is None
+
+
+def test_create_accepts_shipping_limits():
+    created = client.post(
+        "/api/v1/sessions",
+        json={
+            "requirement": "笔记本",
+            "site": "ebay",
+            "currency": "CNY",
+            "max_shipping_ratio": 0.2,
+            "max_shipping_cost": 100,
+        },
+    ).json()
+    assert created["settings"]["max_shipping_ratio"] == 0.2
+    assert created["settings"]["max_shipping_cost"] == 100
+
+
+def test_create_rejects_invalid_shipping_ratio():
+    response = client.post(
+        "/api/v1/sessions",
+        json={
+            "requirement": "笔记本",
+            "site": "ebay",
+            "max_shipping_ratio": 1.5,
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_patch_shipping_limits_clears_recommendations_and_allows_null():
+    created = client.post(
+        "/api/v1/sessions",
+        json={"requirement": "笔记本", "site": "ebay"},
+    ).json()
+    sid = created["session_id"]
+    session = store.get(sid)
+    session.recommendations = [
+        {"product_id": "ebay:1", "title": "Laptop", "reason": "fit"}
+    ]
+    store.touch(session, durable=True)
+
+    response = client.patch(
+        f"/api/v1/sessions/{sid}/settings",
+        json={"max_shipping_cost": 100},
+    )
+    body = response.json()
+    assert body["recommendations_cleared"] is True
+    assert body["settings"]["max_shipping_cost"] == 100
+    assert store.get(sid).recommendations == []
+
+    cleared = client.patch(
+        f"/api/v1/sessions/{sid}/settings",
+        json={"max_shipping_cost": None},
+    ).json()
+    assert cleared["settings"]["max_shipping_cost"] is None
 
 
 def test_from_dict_migrates_legacy_sites_list():

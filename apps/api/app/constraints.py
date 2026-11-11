@@ -23,6 +23,62 @@ _PARTS_CONDITIONS = {
 }
 
 
+def _number(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _shipping_caps_configured(settings: dict[str, Any]) -> bool:
+    return (
+        _number(settings.get("max_shipping_ratio")) is not None
+        or _number(settings.get("max_shipping_cost")) is not None
+    )
+
+
+def _shipping_cap_exceeded(product: dict[str, Any], settings: dict[str, Any]) -> bool:
+    """Apply both caps independently; either one excludes the product.
+
+    An absolute cap is a hard veto even when the percentage check passes.
+    """
+    ratio = _number(settings.get("max_shipping_ratio"))
+    absolute = _number(settings.get("max_shipping_cost"))
+    if ratio is None and absolute is None:
+        return False
+    shipping = _number(product.get("shipping_cost"))
+    if shipping is None:
+        return False
+    price = _number(
+        product.get("price_max")
+        if product.get("price_is_range")
+        else product.get("price")
+    )
+    product_currency = normalize_currency(product.get("currency"))
+    shipping_currency = normalize_currency(product.get("shipping_currency"))
+    session_currency = normalize_currency(settings.get("currency"))
+
+    if (
+        ratio is not None
+        and price is not None
+        and price > 0
+        and shipping_currency in (None, product_currency)
+        and shipping > price * ratio
+    ):
+        return True
+    if (
+        absolute is not None
+        and session_currency is not None
+        and product_currency == session_currency
+        and shipping_currency in (None, product_currency)
+        and shipping > absolute
+    ):
+        return True
+    return False
+
+
 @dataclass(frozen=True)
 class EligibilityResult:
     ok: bool
@@ -95,6 +151,16 @@ def check_eligibility(
     if condition in _PARTS_CONDITIONS:
         violations.append("parts")
 
+    shipping_caps_configured = _shipping_caps_configured(settings)
+    if _shipping_cap_exceeded(product, settings):
+        violations.append("shipping")
+
+    budget = requirements.get("budget")
+    budget_min = requirements.get("budget_min")
+    has_budget = (
+        not requirements.get("budget_unlimited")
+        and (budget is not None or budget_min is not None)
+    )
     if not requirements.get("budget_unlimited"):
         price = product.get("price")
         landed = product.get("landed_cost")
@@ -105,9 +171,6 @@ def check_eligibility(
                 if product.get("price_is_range")
                 else price
             )
-        budget = requirements.get("budget")
-        budget_min = requirements.get("budget_min")
-        has_budget = budget is not None or budget_min is not None
         currency = normalize_currency(product.get("currency"))
         session_currency = normalize_currency(settings.get("currency"))
         budget_currency = normalize_currency(
@@ -137,6 +200,13 @@ def check_eligibility(
                 violations.append("auction")
             if has_budget and product.get("cost_complete") is False:
                 violations.append("cost_incomplete")
+
+    if (
+        shipping_caps_configured
+        and not has_budget
+        and product.get("cost_complete") is False
+    ):
+        violations.append("cost_incomplete")
 
     if needs_fit(requirements):
         fit = _current_fit(product, requirements)
