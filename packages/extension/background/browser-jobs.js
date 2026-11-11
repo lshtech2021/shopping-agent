@@ -1,4 +1,9 @@
 import { createJobLogger } from '../shared/logger.js'
+import '../adapters/jd/index.js'
+import '../adapters/ebay/index.js'
+import '../adapters/registry.js'
+
+const { getAdapter } = globalThis.__saAdapters
 
 const SITE_TABS = new Map()
 const SITE_URLS = new Map()
@@ -126,83 +131,14 @@ function scopeKey(site, args = {}) {
 function isAllowedSiteUrl(site, url) {
   try {
     const parsed = new URL(url)
-    if (parsed.protocol !== 'https:') return false
-    const host = parsed.hostname
-    if (site === 'jd') {
-      return host === 'jd.com' || host.endsWith('.jd.com')
-    }
-    if (site === 'ebay') {
-      return host === 'ebay.com' || host.endsWith('.ebay.com')
-    }
-    return false
+    return parsed.protocol === 'https:' && getAdapter(site).matchUrl(url)
   } catch (_) {
     return false
   }
 }
 
-/**
- * eBay treats every token in `_nkw` as required. Exclusion terms must carry a
- * leading "-", and models sometimes send plain words such as "book".
- */
-function splitTermText(value) {
-  const parts = []
-  let current = ''
-  for (const char of String(value || '')) {
-    if (
-      char === ',' ||
-      char === ' ' ||
-      char === '\t' ||
-      char === '\n' ||
-      char === '\r'
-    ) {
-      if (current) {
-        parts.push(current)
-        current = ''
-      }
-    } else {
-      current += char
-    }
-  }
-  if (current) parts.push(current)
-  return parts
-}
-
-function normalizeExcludeTerms(value) {
-  const entries = Array.isArray(value) ? value : [value]
-  const terms = []
-  for (const entry of entries) {
-    for (const term of splitTermText(entry)) {
-      let text = term
-      while (text.startsWith('-')) text = text.slice(1)
-      if (text) terms.push(`-${text}`)
-    }
-  }
-  return [...new Set(terms)].join(' ')
-}
-
 export function buildSearchUrl(site, query, options = {}) {
-  const baseQuery = String(query || '').trim()
-  if (site === 'jd') {
-    return `https://search.jd.com/Search?keyword=${encodeURIComponent(baseQuery)}&enc=utf-8`
-  }
-  if (site === 'ebay') {
-    const exclusions = normalizeExcludeTerms(options.excludeTerms)
-    const keywordText = exclusions ? `${baseQuery} ${exclusions}` : baseQuery
-    let url = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(keywordText)}`
-    if (options.categoryId) {
-      url += `&_sacat=${encodeURIComponent(options.categoryId)}`
-    }
-    if (options.maxPrice != null) {
-      url += `&_udhi=${encodeURIComponent(options.maxPrice)}`
-    }
-    if (options.sort === 'price_asc') {
-      url += '&_sop=15'
-    } else if (options.sort === 'price_desc') {
-      url += '&_sop=16'
-    }
-    return `${url}&_ipg=60`
-  }
-  throw new Error(`unsupported site ${site}`)
+  return getAdapter(site).buildSearchUrl(query, options)
 }
 
 function detailUrl(site, sourceProductId, explicitUrl) {
@@ -392,12 +328,15 @@ async function _runBrowserJob(tool, args = {}) {
   const deadline = Date.now() + timeoutMs
   log.info('extension.job', `开始任务 ${tool}`, { site, args })
 
-  if (site !== 'jd' && site !== 'ebay') {
+  let adapter
+  try {
+    adapter = getAdapter(site)
+  } catch (error) {
     log.error('extension.job', `不支持站点 ${site}`)
     return withLogs(
       {
         status: 'blocked',
-        error: 'site_not_implemented',
+        error: error.code || 'adapter_missing',
         site,
       },
       log,
@@ -407,7 +346,7 @@ async function _runBrowserJob(tool, args = {}) {
 
   try {
     if (tool === 'search') {
-      const url = buildSearchUrl(site, args.query || '', args)
+      const url = adapter.buildSearchUrl(args.query || '', args)
       const siteKey = scopeKey(site, args)
       const tabId = await ensureTab(
         site,
