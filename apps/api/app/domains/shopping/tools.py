@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from app import requirement_review
 from app.agent.tools import ToolResult, ToolSpec
+from app.domains.shopping.adapters import get_adapter
 from app.domains.shopping.prompt import blocked_text
 from app.store import store
 from app.tools import BLOCKING, ToolBox
@@ -46,21 +47,10 @@ class _QueryInv(BaseModel):
 
 
 class _Search(BaseModel):
-    site: str = Field(description="jd 或 ebay")
     query: str = Field(
-        description=(
-            "该站点的搜索词。eBay 使用 AND 匹配：1-3 个短关键词"
-            "（如 laptop、thinkpad laptop），不要写自然语言句子。"
-        )
+        description="当前会话站点的搜索词。遵循系统提示中的站点搜索规则。"
     )
     category_id: Optional[str] = Field(None, description="eBay 品类 ID，如 177")
-    max_price: Optional[float] = Field(
-        None,
-        description=(
-            "预算上限（目标站点币种）。eBay 按汇率向下取整，"
-            "并预留运费/税费空间。"
-        ),
-    )
     exclude_terms: list[str] = Field(
         default_factory=list,
         description="排除词；传 book 或 -book 均可，后端会补 -",
@@ -69,12 +59,11 @@ class _Search(BaseModel):
 
 
 class _Scrape(BaseModel):
-    site: Optional[str] = Field(None, description="默认当前搜索站点")
     page: Optional[int] = Field(None, ge=1)
 
 
 class _NextPage(BaseModel):
-    site: Optional[str] = None
+    pass
 
 
 class _Detail(BaseModel):
@@ -364,17 +353,22 @@ def build_shopping_tools(
         )
 
     async def search(args: _Search, _context: Any) -> ToolResult:
-        filters: dict[str, Any] = {}
+        site = str(box.session.settings.get("site") or "")
+        adapter = get_adapter(site)
+        filters = adapter.build_search_filters(
+            query=args.query,
+            requirements=box.session.requirements,
+            settings=box.session.settings,
+            max_price=None,
+        )
         if args.category_id:
             filters["categoryId"] = args.category_id
-        if args.max_price is not None:
-            filters["maxPrice"] = args.max_price
         if args.exclude_terms:
             filters["excludeTerms"] = args.exclude_terms
         if args.sort:
             filters["sort"] = args.sort
         return _browse_result(
-            await box.search(args.site, args.query, **filters),
+            await box.search(site, args.query, **filters),
             "search",
             _context,
             step_id=step_for("search"),
@@ -383,8 +377,9 @@ def build_shopping_tools(
     async def scrape_listing(
         args: _Scrape, _context: Any
     ) -> ToolResult:
+        site = str(box.session.settings.get("site") or "")
         return _browse_result(
-            await box.scrape_listing(args.site, args.page),
+            await box.scrape_listing(site, args.page),
             "scrape_listing",
             _context,
             step_id=step_for("scrape_listing"),
@@ -392,8 +387,9 @@ def build_shopping_tools(
         )
 
     async def next_page(args: _NextPage, _context: Any) -> ToolResult:
+        site = str(box.session.settings.get("site") or "")
         return _browse_result(
-            await box.next_page(args.site),
+            await box.next_page(site),
             "next_page",
             _context,
             step_id=step_for("next_page"),

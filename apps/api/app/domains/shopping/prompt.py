@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.domains.shopping.adapters import get_adapter
+
 SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: clarify requirements → (reuse cache | search) → compare → recommend.
 
 ## Workflow
@@ -24,16 +26,12 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
 
 2. Data source
    - Check "Current Status". If cached products are sufficient, use `query_inventory` to sort/filter them; do not search again.
-   - Follow the current plan's steps and `search_queries` when one is present. Search again only if the user explicitly asks for a new search or the plan/replan explicitly supplies a new query. Sites come from the session (Side Panel selection); do not invent or drop sites.
+   - Follow the current plan's steps and `search_queries` when one is present. Search again only if the user explicitly asks for a new search or the plan/replan explicitly supplies a new query.
+   - Active site and currency come from session settings; do not change them via tools.
 
-3. Collection (per site, per round, max): 2 `search`, 2 `next_page`, 5 `fetch_detail`.
+3. Collection (per round, max): 2 `search`, 2 `next_page`, 5 `fetch_detail`.
    - Every `search`/`next_page` must be followed by `scrape_listing`.
-   - eBay ANDs every keyword. Use 1-3 short keywords (for example `laptop`,
-     `thinkpad laptop`, `laptop 16GB`); never pass a use-case sentence.
-     Express constraints with `category_id`/`max_price`, and prefix exclusion
-     terms with `-`.
-   - The budget and `max_price` are in the session currency. Never convert
-     currencies.
+   - The host builds search price filters from the budget in the session currency.
    - Run `fetch_detail` on the top 3 candidates to verify specs before recommending. If the detail page contradicts the listing, trust the detail page and mention the discrepancy.
    - On `quota_exceeded`: stop calling that tool and proceed with existing data.
 
@@ -61,11 +59,23 @@ End with exactly one of:
 - `ask_user`: requirements are missing, a decision is needed, or no products satisfy the constraints. Ask all needed questions together."""
 
 
+def system_prompt(
+    settings: dict[str, Any], requirements: dict[str, Any]
+) -> str:
+    extra = get_adapter(str(settings.get("site") or "")).system_prompt_extra(
+        settings, requirements
+    )
+    return f"{SYSTEM_PROMPT}\n\n{extra}" if extra else SYSTEM_PROMPT
+
+
 def context_block(box: Any) -> str:
     info = box.get_session()
+    site = str(box.session.settings.get("site") or "")
+    currency = str(box.session.settings.get("currency") or "")
     return (
         "Current Status:\n"
-        f"- 站点：{info['sites']}（已搜索：{box.session.searched_sites}）\n"
+        f"- 站点：{site}（已搜索：{'是' if site in box.session.searched_sites else '否'}）\n"
+        f"- 币种：{currency or '未设置'}\n"
         f"- 需求：{json.dumps(info['requirements'], ensure_ascii=False)}\n"
         f"- {info['inventory_summary']}\n"
         f"- 配额使用：{json.dumps(info['quotas'], ensure_ascii=False)}\n"

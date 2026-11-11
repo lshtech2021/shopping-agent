@@ -24,7 +24,7 @@ from app.domains.shopping.adapter import (
 from app.domains.shopping.critic import ShoppingCritic
 from app.domains.shopping.memory import ShoppingMemory
 from app.domains.shopping.planner import ShoppingPlanner, ShoppingReplanner
-from app.domains.shopping.prompt import SYSTEM_PROMPT
+from app.domains.shopping.prompt import system_prompt
 from app.domains.shopping.tools import (
     build_shopping_tools,
     to_langchain_tools,
@@ -149,7 +149,9 @@ async def run_llm_policy(
         tools=registry,
         context_builder=ContextBuilder(),
         max_steps=settings.agent_max_steps,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=system_prompt(
+            session.settings, session.requirements
+        ),
         memory=memory,
         tool_context=context,
         critic=ShoppingCritic(session, box),

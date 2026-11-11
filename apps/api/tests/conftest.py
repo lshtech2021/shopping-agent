@@ -1,4 +1,3 @@
-import ast
 import json
 import os
 import re
@@ -346,16 +345,16 @@ def _trailing_tool_messages(messages) -> list[ToolMessage]:
 def _parse_status(messages) -> dict:
     sys = next((m for m in messages if isinstance(m, SystemMessage)), None)
     text = str(sys.content) if sys else ""
-    sites_m = re.search(r"站点：(.*?)（已搜索：(.*?)）", text)
-    sites = ast.literal_eval(sites_m.group(1)) if sites_m else ["jd"]
-    searched = ast.literal_eval(sites_m.group(2)) if sites_m else []
+    site_m = re.search(r"站点：([^（\n]+)（已搜索：(是|否)）", text)
+    site = site_m.group(1).strip() if site_m else "jd"
+    searched = [site] if site_m and site_m.group(2) == "是" else []
     req_m = re.search(r"需求：(\{.*\})", text)
     requirements = json.loads(req_m.group(1)) if req_m else {}
     count_m = re.search(r"总计=(\d+)", text)
     product_count = int(count_m.group(1)) if count_m else (0 if "无已抓商品" in text else 0)
     return {
-        "sites": list(sites),
-        "searched": list(searched),
+        "sites": [site],
+        "searched": searched,
         "requirements": requirements,
         "product_count": product_count,
     }
