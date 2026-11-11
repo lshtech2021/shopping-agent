@@ -43,6 +43,7 @@ const els = {
   clearLogsBtn: document.getElementById('clearLogsBtn'),
   turnStatus: document.getElementById('turnStatus'),
   settingsSummary: document.getElementById('settingsSummary'),
+  newCurrencySelect: document.getElementById('newCurrencySelect'),
   currencySelect: document.getElementById('currencySelect'),
   currencyMismatch: document.getElementById('currencyMismatch'),
   currencyMismatchText: document.getElementById('currencyMismatchText'),
@@ -52,6 +53,16 @@ const els = {
 
 function selectedSite() {
   return document.querySelector('input[name="site"]:checked')?.value || null
+}
+
+function selectedNewCurrency() {
+  return els.newCurrencySelect?.value || null
+}
+
+function syncNewCurrencyControl() {
+  const jd = selectedSite() === 'jd'
+  if (jd) els.newCurrencySelect.value = 'CNY'
+  els.newCurrencySelect.disabled = state.busy || jd
 }
 
 function ensureCurrencyOption(currency) {
@@ -266,6 +277,7 @@ function setBusy(busy) {
   els.resumeBtn.disabled = busy
   els.startBtn.disabled = busy
   els.followup.disabled = busy
+  els.newCurrencySelect.disabled = busy || selectedSite() === 'jd'
   els.currencySelect.disabled = busy
   els.alignCurrencyBtn.disabled = busy
   els.adoptCurrencyBtn.disabled = busy || !state.currencyMismatch?.pageCurrency
@@ -403,6 +415,7 @@ function showNew() {
   els.chat.hidden = true
   els.newSession.hidden = false
   els.resumeBtn.hidden = true
+  syncNewCurrencyControl()
   clearPersistedSession()
   appendLocal('ui.reset', '开始新会话视图')
 }
@@ -436,14 +449,19 @@ els.clearLogsBtn.addEventListener('click', () => {
 els.startBtn.addEventListener('click', async () => {
   const requirement = els.requirement.value.trim()
   const site = selectedSite()
+  const currency = selectedNewCurrency()
   if (!requirement || !site) {
     alert('请填写需求并选择一个站点')
     return
   }
   const generation = beginRequest()
-  appendLocal('ui.start', '创建会话并开始选品', { requirement, site })
+  appendLocal('ui.start', '创建会话并开始选品', {
+    requirement,
+    site,
+    currency,
+  })
   try {
-    const created = await createSession(requirement, site)
+    const created = await createSession(requirement, site, currency)
     if (!isCurrentGeneration(generation, state.requestGeneration)) return
     state.sessionId = created.session_id
     renderSessionState(created)
@@ -494,6 +512,16 @@ els.sendBtn.addEventListener('click', async () => {
     if (generation === state.requestGeneration) setBusy(false)
   }
 })
+
+for (const input of document.querySelectorAll('input[name="site"]')) {
+  input.addEventListener('change', () => {
+    if (!input.checked) return
+    if (input.value === 'ebay' && els.newCurrencySelect.disabled) {
+      els.newCurrencySelect.value = ''
+    }
+    syncNewCurrencyControl()
+  })
+}
 
 for (const input of document.querySelectorAll('input[name="activeSite"]')) {
   input.addEventListener('change', async () => {
@@ -645,6 +673,7 @@ els.resumeBtn.addEventListener('click', async () => {
 
 els.resetBtn.addEventListener('click', showNew)
 
+syncNewCurrencyControl()
 refreshWsStatus()
 setInterval(refreshWsStatus, 3000)
 restoreSession()

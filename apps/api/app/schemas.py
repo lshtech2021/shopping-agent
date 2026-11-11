@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field, model_validator
 class CreateSessionRequest(BaseModel):
     requirement: str = Field(min_length=1, max_length=4000)
     site: Literal["jd", "ebay"] = "jd"
+    currency: Optional[str] = Field(None, min_length=1, max_length=16)
+    currency_source: Optional[Literal["detected", "manual"]] = None
 
 
 class CreateSessionResponse(BaseModel):

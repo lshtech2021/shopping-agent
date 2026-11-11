@@ -17,10 +17,12 @@ async function request(path, options = {}) {
   return text ? JSON.parse(text) : null
 }
 
-export function createSession(requirement, site) {
+export function createSession(requirement, site, currency = null) {
+  const payload = { requirement, site }
+  if (currency) payload.currency = currency
   return request('/api/v1/sessions', {
     method: 'POST',
-    body: JSON.stringify({ requirement, site }),
+    body: JSON.stringify(payload),
   })
 }
 

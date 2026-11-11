@@ -253,17 +253,33 @@ class SessionStore:
 
     # --- public API ----------------------------------------------------------
 
-    def create(self, requirement: str, site: str) -> Session:
+    def create(
+        self,
+        requirement: str,
+        site: str,
+        *,
+        currency: str | None = None,
+        currency_source: str | None = None,
+    ) -> Session:
         if site not in ALLOWED_SITES:
             site = "jd"
+        currency = normalize_currency(currency)
+        # A currency chosen before the first page load is explicit user input.
+        # Otherwise JD keeps its known CNY default and eBay stays undetected.
         session = Session(
             id=uuid.uuid4().hex,
             requirement=requirement.strip(),
             sites=[site],
             settings={
                 "site": site,
-                "currency": "CNY" if site == "jd" else None,
-                "currency_source": "detected" if site == "jd" else None,
+                "currency": currency
+                or ("CNY" if site == "jd" else None),
+                "currency_source": currency_source
+                or (
+                    "manual"
+                    if currency
+                    else ("detected" if site == "jd" else None)
+                ),
             },
             requirements={
                 "raw": requirement.strip(),

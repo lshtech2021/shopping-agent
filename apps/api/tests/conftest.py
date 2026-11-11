@@ -23,10 +23,13 @@ def isolated_store(monkeypatch):
     store.reset("memory")
     original_create = store.create
 
-    def create_with_mock_currency(requirement, site):
-        session = original_create(requirement, site)
-        session.settings["currency"] = "CNY" if site == "jd" else "USD"
-        session.settings["currency_source"] = "detected"
+    def create_with_mock_currency(requirement, site, **kwargs):
+        session = original_create(requirement, site, **kwargs)
+        # Simulate the first page detecting a currency, but never override a
+        # currency the caller chose before starting the session.
+        if not session.settings.get("currency"):
+            session.settings["currency"] = "CNY" if site == "jd" else "USD"
+            session.settings["currency_source"] = "detected"
         return session
 
     # Mock browsing stands in for opening a site whose currency was detected.

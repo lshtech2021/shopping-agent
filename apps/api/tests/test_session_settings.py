@@ -14,6 +14,34 @@ def test_create_sets_singular_site_settings(tmp_path, monkeypatch):
     assert session.sites == ["jd"]  # derived mirror for one release of callers
 
 
+def test_create_accepts_currency_before_first_message():
+    created = client.post(
+        "/api/v1/sessions",
+        json={"requirement": "笔记本", "site": "ebay", "currency": "eur"},
+    ).json()
+    assert created["settings"]["site"] == "ebay"
+    assert created["settings"]["currency"] == "EUR"
+    assert created["settings"]["currency_source"] == "manual"
+
+
+def test_create_rejects_unsupported_currency():
+    response = client.post(
+        "/api/v1/sessions",
+        json={"requirement": "笔记本", "site": "ebay", "currency": "BTC"},
+    )
+    assert response.status_code == 422
+
+
+def test_create_without_currency_keeps_site_default():
+    store = SessionStore("memory")
+    jd = store.create("笔记本", "jd")
+    assert jd.settings["currency"] == "CNY"
+    assert jd.settings["currency_source"] == "detected"
+    ebay = store.create("笔记本", "ebay")
+    assert ebay.settings["currency"] is None
+    assert ebay.settings["currency_source"] is None
+
+
 def test_from_dict_migrates_legacy_sites_list():
     raw = {
         "id": "abc",

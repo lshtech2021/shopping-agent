@@ -177,13 +177,29 @@ def create_session(
     payload: CreateSessionRequest,
     _token: None = Depends(require_extension_token_header),
 ) -> CreateSessionResponse:
-    session = store.create(payload.requirement, payload.site)
+    currency = None
+    currency_source = None
+    if payload.currency is not None:
+        currency = normalize_currency(payload.currency)
+        if not currency or not is_supported_currency(currency):
+            raise HTTPException(status_code=422, detail="invalid currency")
+        currency_source = payload.currency_source or "manual"
+    session = store.create(
+        payload.requirement,
+        payload.site,
+        currency=currency,
+        currency_source=currency_source,
+    )
     log_event(
         session,
         "创建会话",
         stage="api.create_session",
         source="api",
-        data={"requirement": payload.requirement, "site": payload.site},
+        data={
+            "requirement": payload.requirement,
+            "site": payload.site,
+            "currency": session.settings.get("currency"),
+        },
         persist=True,
     )
     return CreateSessionResponse(
