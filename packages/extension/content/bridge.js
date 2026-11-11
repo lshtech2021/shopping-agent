@@ -27,16 +27,30 @@
           return
         }
         if (message.type === 'parse_listing') {
+          const ready = adapter.waitForListing
+            ? await adapter.waitForListing(document, location.href)
+            : true
           reply({
             ok: true,
-            result: adapter.parseListing(document, location.href),
+            result: ready
+              ? adapter.parseListing(document, location.href)
+              : {
+                  status: 'parse_error',
+                  error: 'listing_not_ready',
+                  items: [],
+                },
           })
           return
         }
         if (message.type === 'parse_detail') {
+          const ready = adapter.waitForDetail
+            ? await adapter.waitForDetail(document, location.href)
+            : true
           reply({
             ok: true,
-            result: adapter.parseDetail(document, location.href),
+            result: ready
+              ? adapter.parseDetail(document, location.href)
+              : { status: 'parse_error', error: 'detail_not_found' },
           })
           return
         }

@@ -26,6 +26,158 @@
     return null
   }
 
+  const DETAIL_TITLE_SELECTORS = [
+    'h1.x-item-title__mainTitle',
+    'h1.x-item-title',
+    '.x-item-title__mainTitle',
+  ]
+  const DETAIL_PRICE_SELECTORS = [
+    '.x-price-primary',
+    '[data-testid="x-price-primary"]',
+  ]
+
+  function itemLink(node) {
+    return (
+      node.querySelector('a.s-item__link[href*="/itm/"]') ||
+      node.querySelector('a.su-link[href*="/itm/"]') ||
+      node.querySelector('a[href*="/itm/"]')
+    )
+  }
+
+  function hasListingCards(root) {
+    return Boolean(root?.querySelector?.(ITEM_SELECTORS))
+  }
+
+  function usableCard(node) {
+    const link = itemLink(node)
+    const sourceProductId = extractItemId(link?.getAttribute('href'))
+    const title = clean(text(node, ['.s-item__title', '.s-card__title']))
+    if (!sourceProductId || !title || /^shop on ebay$/i.test(title)) {
+      return false
+    }
+    return Boolean(text(node, ['.s-item__price', '.s-card__price']))
+  }
+
+  function hasUsableListing(root) {
+    return [...root.querySelectorAll(ITEM_SELECTORS)].some(usableCard)
+  }
+
+  function hasDetailSignal(root) {
+    return Boolean(
+      text(root, DETAIL_TITLE_SELECTORS) ||
+        text(root, DETAIL_PRICE_SELECTORS) ||
+        root.querySelector('.ux-labels-values, .x-item-condition') ||
+        text(root, ['.x-item-status']),
+    )
+  }
+
+  function isDetailReady(root) {
+    const title = text(root, DETAIL_TITLE_SELECTORS)
+    const price = text(root, DETAIL_PRICE_SELECTORS)
+    const specifics = root.querySelector('.ux-labels-values')
+    const status = text(root, ['.x-item-status'])
+    return Boolean(title && (price || specifics || status))
+  }
+
+  function bodyTextOf(root) {
+    return root.body?.innerText || root.body?.textContent || ''
+  }
+
+  function hasNoResults(root) {
+    const bodyText = bodyTextOf(root)
+    return /no exact matches found|no results found|did not match any|(?<![\d,])0 results/i.test(
+      bodyText,
+    )
+  }
+
+  function blockedByUrl(url) {
+    try {
+      const parsed = new URL(url)
+      if (
+        parsed.hostname.includes('signin.ebay.com') ||
+        parsed.pathname.startsWith('/signin')
+      ) {
+        return 'login_required'
+      }
+      if (
+        parsed.pathname.includes('/splashui/challenge') ||
+        parsed.pathname.includes('/challenge') ||
+        parsed.pathname.includes('/captcha')
+      ) {
+        return 'captcha'
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    return null
+  }
+
+  /**
+   * Classify why a page has no usable content. Keeping the status and the
+   * diagnostic code separate lets callers preserve the existing risk contract
+   * while still logging a precise cause.
+   */
+  function classifyPage(root = document, url = location.href) {
+    const byUrl = blockedByUrl(url)
+    if (byUrl) return { status: byUrl, error: byUrl }
+    if (hasListingCards(root) || hasDetailSignal(root)) {
+      return { status: null, error: null }
+    }
+
+    const bodyText = clean(bodyTextOf(root))
+    if (!bodyText) return { status: 'rate_limited', error: 'empty_body' }
+    if (
+      /pardon our interruption|verify you are a human|security measure|checking your browser|just a moment|unusual activity|verify yourself/i.test(
+        bodyText,
+      )
+    ) {
+      return { status: 'captcha', error: 'challenge' }
+    }
+    if (/access denied|request blocked|too many requests|rate limit|blocked by/i.test(bodyText)) {
+      return { status: 'rate_limited', error: 'access_denied' }
+    }
+    if (
+      /error page\s*\|\s*ebay|something went wrong on our end|please go back and try again|technical error/i.test(
+        bodyText,
+      )
+    ) {
+      return { status: 'rate_limited', error: 'ebay_error_page' }
+    }
+    if (
+      /please sign in to continue|you must sign in|sign in to (?:ebay|continue)/i.test(
+        bodyText,
+      ) ||
+      root.querySelector('form[action*="signin"], #signin, .signin')
+    ) {
+      return { status: 'login_required', error: 'login' }
+    }
+    return { status: null, error: null }
+  }
+
+  function waitUntil(check, timeoutMs, intervalMs = 100) {
+    return new Promise((resolve) => {
+      const started = Date.now()
+      const poll = () => {
+        let ready = false
+        try {
+          ready = Boolean(check())
+        } catch (_) {
+          ready = false
+        }
+        if (ready) {
+          resolve(true)
+          return
+        }
+        if (Date.now() - started >= timeoutMs) {
+          resolve(false)
+          return
+        }
+        setTimeout(poll, intervalMs)
+      }
+      poll()
+    })
+  }
+
   function categoryOf(root) {
     const links = [...root.querySelectorAll('.breadcrumbs a, .se-crumb a')]
     if (!links.length) return null
@@ -41,42 +193,14 @@
   }
 
   function detectBlock(root = document, url = location.href) {
-    try {
-      const parsed = new URL(url)
-      if (
-        parsed.hostname.includes('signin.ebay.com') ||
-        parsed.pathname.startsWith('/signin')
-      ) {
-        return 'login_required'
-      }
-      if (
-        parsed.pathname.includes('/splashui/challenge') ||
-        parsed.pathname.includes('/challenge')
-      ) {
-        return 'captcha'
-      }
-    } catch (_) {
-      /* ignore */
-    }
-    const hasListing = Boolean(root.querySelector(ITEM_SELECTORS))
-    const hasDetail = Boolean(
-      root.querySelector(
-        'h1.x-item-title__mainTitle, .x-item-title__mainTitle, .x-price-primary',
-      ),
-    )
-    if (hasListing || hasDetail) return null
-
-    const bodyText = root.body?.innerText || root.body?.textContent || ''
-    if (!bodyText.trim()) return 'rate_limited'
-    if (/pardon our interruption|verify you are a human|security measure/i.test(bodyText)) {
-      return 'captcha'
-    }
-    return null
+    return classifyPage(root, url).status
   }
 
   function parseListing(root = document, baseUrl = location.href) {
-    const blocked = detectBlock(root, baseUrl)
-    if (blocked) return { status: blocked, items: [] }
+    const problem = classifyPage(root, baseUrl)
+    if (problem.status) {
+      return { status: problem.status, error: problem.error, items: [] }
+    }
 
     const category = categoryOf(root)
     const items = []
@@ -154,8 +278,10 @@
   }
 
   function parseDetail(root = document, url = location.href) {
-    const blocked = detectBlock(root, url)
-    if (blocked) return { status: blocked }
+    const problem = classifyPage(root, url)
+    if (problem.status) {
+      return { status: problem.status, error: problem.error }
+    }
 
     const title = text(root, [
       'h1.x-item-title__mainTitle',
@@ -185,6 +311,45 @@
       currency: parseUtils.parseCurrency(priceText, 'USD'),
       attributes,
     }
+  }
+
+  function matchesUrl(url = '') {
+    try {
+      const parsed = new URL(url)
+      const host = parsed.hostname
+      const isEbay = host === 'ebay.com' || host.endsWith('.ebay.com')
+      return (
+        isEbay &&
+        (parsed.pathname === '/sch' ||
+          parsed.pathname.startsWith('/sch/') ||
+          parsed.pathname.startsWith('/b/'))
+      )
+    } catch (_) {
+      return false
+    }
+  }
+
+  function waitForListing(
+    root = document,
+    url = location.href,
+    timeoutMs = 8000,
+  ) {
+    return waitUntil(() => {
+      if (hasUsableListing(root)) return true
+      if (classifyPage(root, url).status) return true
+      return hasNoResults(root)
+    }, timeoutMs)
+  }
+
+  function waitForDetail(
+    root = document,
+    url = location.href,
+    timeoutMs = 6000,
+  ) {
+    return waitUntil(() => {
+      if (isDetailReady(root)) return true
+      return Boolean(classifyPage(root, url).status)
+    }, timeoutMs)
   }
 
   function nextPageUrl(root = document, url = location.href) {
@@ -223,6 +388,10 @@
   return {
     site: 'ebay',
     detectBlock,
+    classifyPage,
+    matchesUrl,
+    waitForListing,
+    waitForDetail,
     parseListing,
     parseDetail,
     hasNextPage,

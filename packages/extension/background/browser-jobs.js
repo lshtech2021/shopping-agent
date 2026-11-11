@@ -298,6 +298,49 @@ function emptyListingError(result) {
   return 'empty_listing'
 }
 
+const PARSE_RETRY_DELAYS_MS = [500, 1000]
+
+function isTransientParseError(error) {
+  return [
+    'listing_not_ready',
+    'empty_listing',
+    'parse_failed',
+    'detail_not_found',
+  ].includes(String(error || ''))
+}
+
+async function parseListingWithRetry(tabId, expectedUrl, deadline) {
+  let response = null
+  let result = null
+  for (let attempt = 0; attempt <= PARSE_RETRY_DELAYS_MS.length; attempt += 1) {
+    response = await sendToTab(tabId, { type: 'parse_listing' }, { deadline })
+    if (!response?.ok) return { response, result: null, stale: false }
+    if (isStaleDocument(response, expectedUrl)) {
+      return { response, result: null, stale: true }
+    }
+    result = response.result || {}
+    if (!emptyListingError(result) && !isTransientParseError(result.error)) {
+      return { response, result, stale: false }
+    }
+    if (attempt < PARSE_RETRY_DELAYS_MS.length) {
+      await delay(PARSE_RETRY_DELAYS_MS[attempt])
+    }
+  }
+  return { response, result, stale: false }
+}
+
+async function parseDetailWithRetry(tabId, deadline, attempts = 3) {
+  let response = null
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (Date.now() > deadline) throw timeoutError('job_deadline_exceeded')
+    response = await sendToTab(tabId, { type: 'parse_detail' }, { deadline })
+    if (!response?.ok) return response
+    if (!isTransientParseError(response.result?.error)) return response
+    if (attempt + 1 < attempts) await delay(600 * (attempt + 1))
+  }
+  return response
+}
+
 async function _runBrowserJob(tool, args = {}) {
   await tabStateReady
   const log = createJobLogger(tool)
@@ -335,7 +378,6 @@ async function _runBrowserJob(tool, args = {}) {
         deadline,
         siteKey,
       )
-      await delay(800)
       const probe = await sendToTab(
         tabId,
         { type: 'detect_block' },
@@ -403,13 +445,9 @@ async function _runBrowserJob(tool, args = {}) {
           jobId,
         )
       }
-      await delay(500)
       const expectedUrl = SITE_URLS.get(siteKey) || args.url || null
-      const response = await sendToTab(
-        tabId,
-        { type: 'parse_listing' },
-        { deadline },
-      )
+      const parsed = await parseListingWithRetry(tabId, expectedUrl, deadline)
+      const response = parsed.response
       if (!response?.ok) {
         log.error('extension.scrape', '列表解析失败', response)
         return withLogs(
@@ -418,7 +456,7 @@ async function _runBrowserJob(tool, args = {}) {
           jobId,
         )
       }
-      if (isStaleDocument(response, expectedUrl)) {
+      if (parsed.stale) {
         log.error('extension.scrape', '列表页文档不匹配', {
           expectedUrl,
           documentUrl: response.document_url,
@@ -429,7 +467,7 @@ async function _runBrowserJob(tool, args = {}) {
           jobId,
         )
       }
-      const result = response.result || {}
+      const result = parsed.result || {}
       const itemCount = (result.items || []).length
       const emptyError = emptyListingError(result)
       if (emptyError) {
@@ -498,12 +536,12 @@ async function _runBrowserJob(tool, args = {}) {
         log.info('extension.next', '跳转下一页', { nextUrl: meta.nextUrl })
         await chrome.tabs.update(tabId, { url: meta.nextUrl })
         await waitComplete(tabId, meta.nextUrl, deadline)
-        await delay(800)
-        const response = await sendToTab(
+        const parsed = await parseListingWithRetry(
           tabId,
-          { type: 'parse_listing' },
-          { deadline },
+          meta.nextUrl,
+          deadline,
         )
+        const response = parsed.response
         if (!response?.ok) {
           return withLogs(
             { status: 'parse_error', error: response?.error || 'parse_failed' },
@@ -511,14 +549,14 @@ async function _runBrowserJob(tool, args = {}) {
             jobId,
           )
         }
-        if (isStaleDocument(response, meta.nextUrl)) {
+        if (parsed.stale) {
           return withLogs(
             { status: 'parse_error', error: 'stale_document' },
             log,
             jobId,
           )
         }
-        const result = response.result || {}
+        const result = parsed.result || {}
         const emptyError = emptyListingError(result)
         if (emptyError) {
           return withLogs(
@@ -658,36 +696,9 @@ async function _runBrowserJob(tool, args = {}) {
         deadline,
         scopeKey(detailKey, args),
       )
-      await delay(1200)
-      let response = await sendToTab(
-        tabId,
-        { type: 'parse_detail' },
-        { deadline },
-      )
-      // SPA detail pages often hydrate after "complete"; retry briefly.
-      if (
-        response?.ok &&
-        response?.result?.status === 'parse_error' &&
-        response?.result?.error === 'detail_not_found'
-      ) {
-        for (let i = 0; i < 4 && Date.now() < deadline; i += 1) {
-          await delay(700)
-          response = await sendToTab(
-            tabId,
-            { type: 'parse_detail' },
-            { deadline },
-          )
-          if (
-            !(
-              response?.ok &&
-              response?.result?.status === 'parse_error' &&
-              response?.result?.error === 'detail_not_found'
-            )
-          ) {
-            break
-          }
-        }
-      }
+      // The content bridge waits for detail hydration before parsing; retry
+      // only when eBay still reports a transient "not found" state.
+      const response = await parseDetailWithRetry(tabId, deadline)
       if (!response?.ok) {
         log.error('extension.detail', '详情解析失败', response)
         return withLogs(

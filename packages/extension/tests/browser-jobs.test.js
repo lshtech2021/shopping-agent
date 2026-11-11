@@ -218,6 +218,53 @@ test('zero-item listing is a parse error, not a successful empty page', async ()
   assert.equal(result.error, 'empty_listing')
 })
 
+test('scrape_listing retries a transient listing_not_ready result', async () => {
+  const url = 'https://www.ebay.com/sch/i.html?_nkw=laptop'
+  let parseCalls = 0
+  const calls = installChrome({
+    getTab: () => ({ id: 1, url, status: 'complete' }),
+    sendMessage: (_tabId, payload) => {
+      if (payload.type === 'detect_block') {
+        return { ok: true, block: null, document_url: url }
+      }
+      if (payload.type !== 'parse_listing') return { ok: true }
+      parseCalls += 1
+      if (parseCalls < 3) {
+        return {
+          ok: true,
+          document_url: url,
+          result: {
+            status: 'parse_error',
+            error: 'listing_not_ready',
+            items: [],
+          },
+        }
+      }
+      return {
+        ok: true,
+        document_url: url,
+        result: {
+          status: 'ok',
+          items: [
+            { source_product_id: '1', title: 'Laptop', price: 620 },
+          ],
+          result_count: 1,
+          page: 1,
+        },
+      }
+    },
+  })
+  const { runBrowserJob } = await loadBrowserJobs()
+  await runBrowserJob('search', { site: 'ebay', query: 'laptop' })
+
+  const result = await runBrowserJob('scrape_listing', { site: 'ebay' })
+
+  assert.equal(result.status, 'ok')
+  assert.equal(result.items.length, 1)
+  assert.equal(parseCalls, 3)
+  assert.equal(calls.sendMessage, 4)
+})
+
 test('job results carry job_id, document_url and page', async () => {
   const documentUrl = 'https://search.jd.com/Search?keyword=x'
   installChrome({
