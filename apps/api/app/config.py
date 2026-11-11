@@ -32,18 +32,6 @@ class Settings(BaseSettings):
     browse_min_interval_s: float = 2.0
     browse_jitter_s: float = 0.6
     job_timeout_s: float = 60.0
-    fx_rates: dict[str, float] = {
-        "CNY": 1.0,
-        "USD": 7.2,
-        "EUR": 7.8,
-        "GBP": 9.1,
-        "CAD": 5.25,
-        "AUD": 4.7,
-        "HKD": 0.92,
-        "SGD": 5.35,
-        "NZD": 4.3,
-        "JPY": 0.048,
-    }
 
 
 settings = Settings()

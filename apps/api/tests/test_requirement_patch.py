@@ -13,7 +13,6 @@ def test_apply_sets_budget_and_category():
     )
     out = apply_requirement_patch(req, patch)
     assert out["budget"] == 5000
-    assert "budget_cny" not in out
     assert out["category"] == "笔记本"
     assert out.get("budget_unlimited") is False
 
