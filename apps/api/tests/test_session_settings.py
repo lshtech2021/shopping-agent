@@ -28,6 +28,17 @@ def test_from_dict_migrates_legacy_sites_list():
     assert "budget_cny" not in session.requirements
 
 
+def test_list_sessions_includes_settings_site():
+    created = client.post(
+        "/api/v1/sessions",
+        json={"requirement": "笔记本", "site": "ebay"},
+    ).json()
+    sid = created["session_id"]
+    listed = client.get("/api/v1/sessions").json()
+    match = next(item for item in listed if item["session_id"] == sid)
+    assert match["settings"]["site"] == "ebay"
+
+
 def test_patch_settings_changes_site():
     created = client.post(
         "/api/v1/sessions",

@@ -82,6 +82,7 @@ class SessionSummary(BaseModel):
     session_id: str
     requirement: str
     sites: list[str]
+    settings: dict[str, Any] = Field(default_factory=dict)
     status: str
     product_count: int = 0
     recommendation_count: int = 0
