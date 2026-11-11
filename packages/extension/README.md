@@ -54,7 +54,8 @@ Each adapter is a UMD module that exports:
 `parseDetail` returns a flat evidence object (`title`, `price`, `price_max`,
 `price_is_range`, `currency`, `approx_price`, `approx_currency`, `attributes`,
 `condition`, `seller`, `shipping`, `shipping_cost`, `shipping_currency`,
-`shipping_approx_cost`, `shipping_approx_currency`, `returns`, `location`,
+`shipping_approx_cost`, `shipping_approx_currency`, `import_charges`,
+`import_charges_currency`, `customs_may_apply`, `returns`, `location`,
 `quantity_available`, `sold`, `watchers`, `availability`, `listing_type`,
 `best_offer`, `bids`, `has_variations`, `variations`, `highlights`, `images`,
 `item_number`).
@@ -87,9 +88,16 @@ Quality rules:
   back to the listing currency. `Free delivery` becomes `0`.
 - `shop_name` falls back to the seller name in the secondary attribute row
   when the card has no dedicated seller element.
+- `location` reads dedicated location elements as well as `from ...` and
+  `located in: ...` attribute rows.
+- `listing_type` falls back to `buy_it_now` when the search URL has `LH_BIN=1`
+  and the card has no purchase-option row; an explicit bid row still wins.
 - `sponsored` requires an explicit `Sponsored` badge/label, including eBay's
-  footer label whose DOM text is reversed (`derosnopS`). Top-rated-seller
-  badges are not treated as sponsored.
+  footer separator whose DOM text is reversed (`derosnopS`) or painted as a
+  background image. An ordinary footer is not treated as sponsored.
+- `import_charges` is parsed when the detail page shows an import-charge row;
+  `customs_may_apply` records a customs/duties warning without inventing an
+  amount.
 - `¥` maps to JPY; `RMB`/`CNY` map to CNY. Unsupported currency symbols keep
   the raw price but do not silently become USD.
 - Currency detection samples up to five price nodes, treats a bare `$` on

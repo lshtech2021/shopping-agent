@@ -110,6 +110,61 @@ test('parseListing reads repeated SRP attribute rows', () => {
   assert.equal(item.sponsored, true)
 })
 
+test('listing type falls back to LH_BIN when the card has no option row', () => {
+  const dom = new JSDOM(
+    `<html><body><ul><li class="s-card">
+      <a class="s-card__link" href="/itm/123"></a>
+      <div class="s-card__title">Laptop</div>
+      <span class="s-card__price">US $500.00</span>
+    </li></ul></body></html>`,
+    { url: 'https://www.ebay.com/sch/i.html?_nkw=laptop&LH_BIN=1' },
+  )
+  const result = ebay.parseListing(dom.window.document, dom.window.location.href)
+  assert.equal(result.items[0].listing_type, 'buy_it_now')
+})
+
+test('an explicit bid row still marks an LH_BIN card as auction', () => {
+  const dom = new JSDOM(
+    `<html><body><ul><li class="s-card">
+      <a class="s-card__link" href="/itm/123"></a>
+      <div class="s-card__title">Laptop</div>
+      <span class="s-card__price">US $500.00</span>
+      <div class="s-card__attribute-row">10 bids</div>
+    </li></ul></body></html>`,
+    { url: 'https://www.ebay.com/sch/i.html?_nkw=laptop&LH_BIN=1' },
+  )
+  const result = ebay.parseListing(dom.window.document, dom.window.location.href)
+  assert.equal(result.items[0].listing_type, 'auction')
+})
+
+test('location selector is parsed from legacy cards', () => {
+  const dom = new JSDOM(
+    `<html><body><ul><li class="s-item">
+      <a class="s-item__link" href="/itm/321"></a>
+      <div class="s-item__title">Laptop</div>
+      <span class="s-item__price">US $500.00</span>
+      <span class="s-item__location">from Japan</span>
+    </li></ul></body></html>`,
+    { url: 'https://www.ebay.com/sch/i.html?_nkw=laptop' },
+  )
+  const result = ebay.parseListing(dom.window.document, dom.window.location.href)
+  assert.equal(result.items[0].location, 'Japan')
+})
+
+test('organic footer text is not treated as sponsored', () => {
+  const dom = new JSDOM(
+    `<html><body><ul><li class="s-card">
+      <a class="s-card__link" href="/itm/123"></a>
+      <div class="s-card__title">Laptop</div>
+      <span class="s-card__price">US $500.00</span>
+      <div class="s-card__footer"><span>Free returns</span></div>
+    </li></ul></body></html>`,
+    { url: 'https://www.ebay.com/sch/i.html?_nkw=laptop' },
+  )
+  const result = ebay.parseListing(dom.window.document, dom.window.location.href)
+  assert.equal(result.items[0].sponsored, false)
+})
+
 test('nextPageUrl falls back to the result count without a next anchor', () => {
   const dom = new JSDOM(
     '<html><body><div class="srp-controls__count-heading">1,234 results</div></body></html>',
@@ -285,6 +340,27 @@ test('parseDetail splits a plain-text shipping row with an approximate price', (
   assert.equal(result.shipping_currency, 'EUR')
   assert.equal(result.shipping_approx_cost, 633.65)
   assert.equal(result.shipping_approx_currency, 'CNY')
+})
+
+test('parseDetail extracts import charges and customs warning', () => {
+  const dom = new JSDOM(
+    `<html><body>
+      <h1 class="x-item-title__mainTitle">ThinkPad</h1>
+      <div class="x-price-primary"><span class="ux-textspans">US $500.00</span></div>
+      <div class="ux-labels-values ux-labels-values--importCharges">
+        <div class="ux-labels-values__labels">Import charges</div>
+        <div class="ux-labels-values__values">
+          <div class="ux-labels-values__values-content">US $50.00</div>
+        </div>
+      </div>
+      <p>International shipment of items may be subject to customs processing and additional charges.</p>
+    </body></html>`,
+    { url: 'https://www.ebay.com/itm/123' },
+  )
+  const result = ebay.parseDetail(dom.window.document, dom.window.location.href)
+  assert.equal(result.import_charges, 50)
+  assert.equal(result.import_charges_currency, 'USD')
+  assert.equal(result.customs_may_apply, true)
 })
 
 test('parseDetail marks an ended listing unavailable', () => {

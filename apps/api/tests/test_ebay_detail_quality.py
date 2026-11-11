@@ -277,6 +277,102 @@ def test_detail_approx_shipping_is_used_when_item_price_is_primary(monkeypatch):
     assert product["cost_complete"] is True
 
 
+def test_detail_import_charges_are_included_in_landed_cost(monkeypatch):
+    session = store.create("需要笔记本", "ebay")
+    session.settings["currency"] = "CNY"
+    session.products["p1"] = {
+        **_ebay_product(),
+        "price": 1000,
+        "currency": "CNY",
+    }
+    box = ToolBox(session)
+
+    async def fake_browse(tool, args):
+        return {
+            "status": "ok",
+            "title": "ThinkPad T14",
+            "price": 1000,
+            "currency": "CNY",
+            "shipping_cost": 50,
+            "shipping_currency": "CNY",
+            "import_charges": 100,
+            "import_charges_currency": "CNY",
+            "customs_may_apply": True,
+        }
+
+    monkeypatch.setattr(box, "_browse", fake_browse)
+    asyncio.run(box.fetch_detail("p1"))
+
+    product = session.products["p1"]
+    assert product["import_charges"] == 100
+    assert product["import_charges_currency"] == "CNY"
+    assert product["customs_may_apply"] is True
+    assert product["landed_cost"] == 1150
+    assert product["cost_complete"] is True
+
+
+def test_detail_foreign_import_charges_make_cost_incomplete(monkeypatch):
+    session = store.create("需要笔记本", "ebay")
+    session.settings["currency"] = "CNY"
+    session.products["p1"] = {
+        **_ebay_product(),
+        "price": 1000,
+        "currency": "CNY",
+    }
+    box = ToolBox(session)
+
+    async def fake_browse(tool, args):
+        return {
+            "status": "ok",
+            "title": "ThinkPad T14",
+            "price": 1000,
+            "currency": "CNY",
+            "shipping_cost": 50,
+            "shipping_currency": "CNY",
+            "import_charges": 10,
+            "import_charges_currency": "EUR",
+        }
+
+    monkeypatch.setattr(box, "_browse", fake_browse)
+    asyncio.run(box.fetch_detail("p1"))
+
+    product = session.products["p1"]
+    assert product["shipping_cost"] == 50
+    assert product["import_charges"] == 10
+    assert product["cost_complete"] is False
+    assert product["landed_cost"] is None
+
+
+def test_detail_customs_warning_keeps_cost_complete(monkeypatch):
+    session = store.create("需要笔记本", "ebay")
+    session.settings["currency"] = "CNY"
+    session.products["p1"] = {
+        **_ebay_product(),
+        "price": 1000,
+        "currency": "CNY",
+    }
+    box = ToolBox(session)
+
+    async def fake_browse(tool, args):
+        return {
+            "status": "ok",
+            "title": "ThinkPad T14",
+            "price": 1000,
+            "currency": "CNY",
+            "shipping_cost": 50,
+            "shipping_currency": "CNY",
+            "customs_may_apply": True,
+        }
+
+    monkeypatch.setattr(box, "_browse", fake_browse)
+    asyncio.run(box.fetch_detail("p1"))
+
+    product = session.products["p1"]
+    assert product["customs_may_apply"] is True
+    assert product["landed_cost"] == 1050
+    assert product["cost_complete"] is True
+
+
 def test_fit_judge_payload_includes_detail_evidence():
     record = _listing(
         {

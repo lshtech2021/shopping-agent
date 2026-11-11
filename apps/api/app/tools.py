@@ -412,6 +412,9 @@ class ToolBox:
                     "shipping": p.get("shipping"),
                     "shipping_cost": p.get("shipping_cost"),
                     "shipping_currency": p.get("shipping_currency"),
+                    "import_charges": p.get("import_charges"),
+                    "import_charges_currency": p.get("import_charges_currency"),
+                    "customs_may_apply": p.get("customs_may_apply", False),
                     "landed_cost": p.get("landed_cost"),
                     "cost_complete": p.get("cost_complete"),
                     "condition": p.get("condition"),
@@ -685,6 +688,20 @@ class ToolBox:
         approx_shipping_currency = normalize_currency(
             result.get("shipping_approx_currency")
         )
+        import_charges = result.get("import_charges")
+        import_charges_currency = normalize_currency(
+            result.get("import_charges_currency")
+        )
+        customs_may_apply = bool(result.get("customs_may_apply"))
+        for field, value in (
+            ("import_charges", import_charges),
+            ("import_charges_currency", import_charges_currency),
+        ):
+            if value is None:
+                product.pop(field, None)
+            else:
+                product[field] = value
+        product["customs_may_apply"] = customs_may_apply
         # Same rule as the item price: keep both shipping amounts exactly as
         # rendered on the page and pick the one that already uses the chosen
         # currency. Never convert the primary amount.
@@ -738,10 +755,24 @@ class ToolBox:
             product["shipping_cost"] = chosen_shipping
             product["shipping_currency"] = chosen_currency
             product["shipping_price_source"] = shipping_source
-            product["landed_cost"] = round(
-                float(price_cap) + float(chosen_shipping), 2
-            )
-            product["cost_complete"] = True
+            extra = 0.0
+            import_complete = True
+            if import_charges is not None:
+                if (
+                    float(import_charges) == 0
+                    or import_charges_currency == chosen_currency
+                ):
+                    extra = float(import_charges)
+                else:
+                    import_complete = False
+            if not import_complete:
+                product["cost_complete"] = False
+                product["landed_cost"] = None
+            else:
+                product["landed_cost"] = round(
+                    float(price_cap) + float(chosen_shipping) + extra, 2
+                )
+                product["cost_complete"] = True
         if isinstance(result.get("seller"), dict):
             product["seller"] = result["seller"]
         images = result.get("images")
@@ -909,6 +940,9 @@ def _public_product(product: dict[str, Any]) -> dict[str, Any]:
         "shipping_cost": product.get("shipping_cost"),
         "shipping_currency": product.get("shipping_currency"),
         "shipping_price_source": product.get("shipping_price_source"),
+        "import_charges": product.get("import_charges"),
+        "import_charges_currency": product.get("import_charges_currency"),
+        "customs_may_apply": product.get("customs_may_apply", False),
         "landed_cost": product.get("landed_cost"),
         "cost_complete": product.get("cost_complete"),
         "availability": product.get("availability"),

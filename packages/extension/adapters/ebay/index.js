@@ -329,7 +329,7 @@
     }
   }
 
-  function listingTypeOf(node, rows = []) {
+  function listingTypeOf(node, rows = [], buyItNowOnly = false) {
     const direct = allTexts(node, [
       '.s-item__purchase-options-with-icon',
       '.s-item__purchase-options',
@@ -344,7 +344,9 @@
       return 'auction'
     }
     if (values.some((value) => /buy it now/i.test(value))) return 'buy_it_now'
-    return null
+    // LH_BIN=1 constrains the whole result page to Buy It Now listings even
+    // when a card does not render a purchase-option row.
+    return buyItNowOnly ? 'buy_it_now' : null
   }
 
   function shopNameOf(node) {
@@ -364,7 +366,16 @@
     return name
   }
 
-  function locationOf(rows) {
+  function locationOf(node, rows = []) {
+    const direct = text(node, [
+      '.s-item__location',
+      '.s-item__itemLocation',
+      '[data-testid="item-location"]',
+      '.s-card__location',
+    ])
+    if (direct) {
+      return clean(direct.replace(/^(?:from|located in:?)\s*/i, ''))
+    }
     for (const row of rows) {
       const match =
         row.match(/^from\s+(.+)$/i) ||
@@ -390,9 +401,16 @@
     )
     if (badge && /sponsored/i.test(clean(badge.textContent))) return true
     // eBay renders the sponsored footer label with its text reversed in the
-    // DOM and paints the real label as a background image.
-    const footer = clean(node.querySelector('.s-card__footer')?.textContent)
-    if (/derosnops/i.test(footer)) return true
+    // DOM and paints the real label as a background image. Require the
+    // dedicated separator element so an organic footer cannot match.
+    const separator = node.querySelector('.s-card__footer .s-card__sep b')
+    if (separator) {
+      const text = clean(separator.textContent)
+      const style = separator.getAttribute('style') || ''
+      if (/derosnops/i.test(text) || /background-image/i.test(style)) {
+        return true
+      }
+    }
     return [...node.querySelectorAll('span, div')].some(
       (element) =>
         element.children.length === 0 &&
@@ -450,6 +468,12 @@
     }
 
     const category = categoryOf(root)
+    let buyItNowOnly = false
+    try {
+      buyItNowOnly = new URL(baseUrl).searchParams.get('LH_BIN') === '1'
+    } catch (_) {
+      /* ignore malformed document URLs */
+    }
     const items = []
     for (const node of root.querySelectorAll(ITEM_SELECTORS)) {
       const link = itemLink(node)
@@ -499,8 +523,8 @@
         condition,
         badges: condition ? [condition] : [],
         category,
-        location: locationOf(rows),
-        listing_type: listingTypeOf(node, rows),
+        location: locationOf(node, rows),
+        listing_type: listingTypeOf(node, rows, buyItNowOnly),
       })
     }
 
@@ -687,6 +711,42 @@
     }
   }
 
+  function importChargesFrom(root, attributes = {}) {
+    const row =
+      root.querySelector('.ux-labels-values--importCharges') ||
+      root.querySelector('[data-testid="import-charges"]') ||
+      root.querySelector('.d-import-charges')
+    const attributeKey = Object.keys(attributes).find((key) =>
+      /import\s*charges?/i.test(key),
+    )
+    const raw =
+      clean(row?.textContent) ||
+      (attributeKey ? clean(attributes[attributeKey]) : null)
+    const body = clean(root.body?.textContent || '')
+    const customsMayApply =
+      /customs processing|import duties|customs duties|additional charges/i.test(
+        body,
+      )
+    if (!raw) {
+      return {
+        import_charges: null,
+        import_charges_currency: null,
+        customs_may_apply: customsMayApply,
+      }
+    }
+    const importCharges = /free|not applicable|no import/i.test(raw)
+      ? 0
+      : parseUtils.parsePrice(raw)
+    return {
+      import_charges: importCharges,
+      import_charges_currency:
+        importCharges !== null
+          ? parseUtils.parseCurrency(raw, null)
+          : null,
+      customs_may_apply: customsMayApply,
+    }
+  }
+
   function quantityFrom(root) {
     const raw = text(root, [
       '.x-quantity__availability',
@@ -793,6 +853,7 @@
     const condition = conditionFrom(root, attributes)
     const seller = sellerFrom(root)
     const shipping = shippingFrom(root, attributes)
+    const importCharges = importChargesFrom(root, attributes)
     const quantity = quantityFrom(root)
     const variations = variationsFrom(root)
     const bidsText = text(root, ['.x-bid-count', '.vi-bid-count'])
@@ -821,6 +882,9 @@
       shipping_currency: shipping.shipping_currency,
       shipping_approx_cost: shipping.shipping_approx_cost,
       shipping_approx_currency: shipping.shipping_approx_currency,
+      import_charges: importCharges.import_charges,
+      import_charges_currency: importCharges.import_charges_currency,
+      customs_may_apply: importCharges.customs_may_apply,
       returns:
         attributes.Returns ||
         attributes['Return policy'] ||

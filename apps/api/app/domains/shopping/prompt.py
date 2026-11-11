@@ -70,7 +70,8 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
    - Justify each pick with its specific `price`, `landed_cost` (when present),
      and `currency`, plus verified specs. Mark any unverified spec as
      unverified. If `cost_complete=false`, say that shipping/tax is not fully
-     verified.
+     verified. If `customs_may_apply=true`, mention that import duties or
+     customs fees may be added.
    - Mention soft observations (e.g., few reviews) in the justification only; never use them as filters.
 
 ## Hard stops
