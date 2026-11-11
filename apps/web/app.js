@@ -25,6 +25,21 @@ function escapeHtml(value) {
     .replaceAll('"', '&quot;')
 }
 
+function safeProductUrl(url) {
+  if (!url) return null
+  try {
+    const parsed = new URL(String(url))
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null
+    const host = parsed.hostname.toLowerCase()
+    const allowed = ['ebay.com', 'jd.com'].some(
+      (domain) => host === domain || host.endsWith(`.${domain}`),
+    )
+    return allowed ? parsed.href : null
+  } catch (_) {
+    return null
+  }
+}
+
 async function loadHealth() {
   try {
     const data = await api('/health')
@@ -64,15 +79,19 @@ async function loadSessions() {
 async function loadDetail(sessionId) {
   const data = await api(`/api/v1/sessions/${sessionId}`)
   const recs = (data.recommendations || [])
-    .map(
-      (item) => `
+    .map((item) => {
+      const url = safeProductUrl(item.url)
+      const title = url
+        ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>`
+        : escapeHtml(item.title)
+      return `
       <article class="card">
-        <strong>${escapeHtml(item.title)}</strong>
+        <strong>${title}</strong>
         <div class="muted">${escapeHtml(item.reason)}</div>
-        <div class="muted">${escapeHtml(item.currency || '')} ${escapeHtml(item.price ?? '')} · ${escapeHtml(item.url || '')}</div>
+        <div class="muted">${escapeHtml(item.currency || '')} ${escapeHtml(item.price ?? '')}${url ? ` · <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">原始商品</a>` : ''}</div>
       </article>
-    `,
-    )
+    `
+    })
     .join('')
 
   const products = (data.products || [])

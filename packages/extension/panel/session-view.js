@@ -16,6 +16,23 @@ export function formatAnswersAsMessage(answers) {
     .join('\n')
 }
 
+const PRODUCT_HOSTS = ['ebay.com', 'jd.com']
+
+export function safeProductUrl(url) {
+  if (!url) return null
+  try {
+    const parsed = new URL(String(url))
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null
+    const host = parsed.hostname.toLowerCase()
+    const allowed = PRODUCT_HOSTS.some(
+      (domain) => host === domain || host.endsWith(`.${domain}`),
+    )
+    return allowed ? parsed.href : null
+  } catch (_) {
+    return null
+  }
+}
+
 export function formatSessionSettings(settings = {}) {
   const site = settings.site === 'ebay' ? 'eBay' : '京东'
   return `站点: ${site} · 货币: ${settings.currency || '待检测'}`

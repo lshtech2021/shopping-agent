@@ -154,6 +154,32 @@ button.linkish {
   padding-left: 18px;
 }
 
+.recs li {
+  margin-bottom: 8px;
+  white-space: normal;
+}
+
+.recs a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.recs a:hover {
+  text-decoration: underline;
+}
+
+.rec-price {
+  color: #57534e;
+  font-size: 0.85rem;
+}
+
+.rec-reason {
+  color: #78716c;
+  font-size: 0.85rem;
+  margin-top: 2px;
+}
+
 .log-panel {
   margin-top: 16px;
   border: 1px solid var(--line);

@@ -13,6 +13,7 @@ import {
   formatSessionSettings,
   isCurrentGeneration,
   progressText,
+  safeProductUrl,
   shouldShowResume,
 } from './session-view.js'
 
@@ -147,7 +148,31 @@ function appendBubble(role, text, recommendations = []) {
     list.className = 'recs'
     for (const item of recommendations) {
       const li = document.createElement('li')
-      li.textContent = `${item.title || item.product_id}: ${item.reason || ''}`
+      const url = safeProductUrl(item.url)
+      if (url) {
+        const link = document.createElement('a')
+        link.href = url
+        link.target = '_blank'
+        link.rel = 'noopener noreferrer'
+        link.textContent = item.title || item.product_id || '商品'
+        li.appendChild(link)
+      } else {
+        const title = document.createElement('span')
+        title.textContent = item.title || item.product_id || '商品'
+        li.appendChild(title)
+      }
+      if (item.price != null) {
+        const price = document.createElement('span')
+        price.className = 'rec-price'
+        price.textContent = ` ${item.currency || ''} ${item.price}`
+        li.appendChild(price)
+      }
+      if (item.reason) {
+        const reason = document.createElement('div')
+        reason.className = 'rec-reason'
+        reason.textContent = item.reason
+        li.appendChild(reason)
+      }
       list.appendChild(li)
     }
     div.appendChild(list)

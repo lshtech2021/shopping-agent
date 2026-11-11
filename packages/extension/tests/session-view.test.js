@@ -189,3 +189,18 @@ test('currency mismatch is ignored after current settings match the page', async
     null,
   )
 })
+
+test('product links only allow eBay and JD URLs', async () => {
+  const view = await load()
+  assert.equal(
+    view.safeProductUrl('https://www.ebay.com/itm/123'),
+    'https://www.ebay.com/itm/123',
+  )
+  assert.equal(
+    view.safeProductUrl('https://item.jd.com/123.html'),
+    'https://item.jd.com/123.html',
+  )
+  assert.equal(view.safeProductUrl('javascript:alert(1)'), null)
+  assert.equal(view.safeProductUrl('https://evil.example/itm/123'), null)
+  assert.equal(view.safeProductUrl(null), null)
+})
