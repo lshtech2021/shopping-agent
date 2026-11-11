@@ -87,12 +87,17 @@ def test_reconnected_extension_can_redeliver_a_pending_job_result():
             {
                 "type": "job_result",
                 "job_id": "job-1",
+                "extension_version": "0.3.0",
                 "result": {"status": "ok", "items": [1]},
             },
         )
 
         assert reply["type"] == "ack"
-        assert await fut == {"status": "ok", "items": [1]}
+        assert await fut == {
+            "status": "ok",
+            "items": [1],
+            "extension_version": "0.3.0",
+        }
 
     asyncio.run(scenario())
 

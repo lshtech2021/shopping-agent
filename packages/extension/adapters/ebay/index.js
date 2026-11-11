@@ -847,7 +847,16 @@
       Object.entries(attributesOf(root)).slice(0, 40),
     )
     if (!title && !Object.keys(attributes).length) {
-      return { status: 'parse_error', error: 'detail_not_found' }
+      return {
+        status: 'parse_error',
+        error: 'detail_not_found',
+        diagnostics: {
+          url,
+          title_found: false,
+          price_found: Boolean(primaryPriceText || approxPriceText),
+          attribute_count: 0,
+        },
+      }
     }
 
     const condition = conditionFrom(root, attributes)
@@ -866,6 +875,11 @@
     return {
       status: 'ok',
       title,
+      diagnostics: {
+        title_found: Boolean(title),
+        price_found: Boolean(primaryPriceText || approxPriceText),
+        attribute_count: Object.keys(attributes).length,
+      },
       price: priceRange ? priceRange.min : parseUtils.parsePrice(priceText),
       price_max: priceRange ? priceRange.max : null,
       price_is_range: Boolean(priceRange),

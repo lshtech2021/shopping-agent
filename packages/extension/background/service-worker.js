@@ -184,6 +184,8 @@ async function connectWs() {
         type: 'job_result',
         job_id: data.job_id,
         action_id: actionId,
+        extension_version:
+          chrome.runtime.getManifest?.().version || null,
         result,
       }
       if (

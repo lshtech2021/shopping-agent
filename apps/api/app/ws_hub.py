@@ -132,11 +132,14 @@ class ExtensionHub:
                 self._pending_conn[job_id] = conn_id
             fut = self._pending.get(job_id)
             result = message.get("result") or {}
+            if message.get("extension_version"):
+                result["extension_version"] = message["extension_version"]
             logger.info(
-                "job_result job_id=%s status=%s logs=%s",
+                "job_result job_id=%s status=%s logs=%s extension=%s",
                 job_id[:8],
                 result.get("status"),
                 len(result.get("extension_logs") or []),
+                message.get("extension_version"),
             )
             if fut and not fut.done():
                 fut.set_result(result)

@@ -98,6 +98,8 @@ class BrowserGateway:
             "mode": mode,
             "error": result.get("error"),
         }
+        if result.get("extension_version"):
+            summary["extension_version"] = result["extension_version"]
         if "items" in result:
             summary["item_count"] = len(result.get("items") or [])
         if result.get("extension_logs"):
