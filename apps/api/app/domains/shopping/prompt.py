@@ -51,9 +51,12 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
 5. Recommendation
    - Use `query_inventory` to rank, then call `recommend` with 1–3 `product_ids` returned by `query_inventory` only.
    - If `query_inventory` returns `count=0`, read its `excluded` reasons:
-     budget means filter/price, unjudged/must_have means verify or clarify,
-     category means the search is too broad, and availability means the
-     listing ended. Use those reasons to decide the next tool call.
+     budget means filter/price, currency means align the page/session
+     currency, unjudged/must_have means verify or clarify, category means
+     the search is too broad, auction means switch to Buy It Now,
+     cost_incomplete means confirm shipping, parts means exclude the item,
+     and availability means the listing ended. Use those reasons to decide
+     the next tool call.
    - Justify each pick with its specific `price`, `landed_cost` (when present),
      and `currency`, plus verified specs. Mark any unverified spec as
      unverified. If `cost_complete=false`, say that shipping/tax is not fully
