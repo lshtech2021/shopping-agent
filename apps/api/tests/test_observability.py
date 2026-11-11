@@ -89,6 +89,17 @@ def test_turn_summary_aggregates_llm_tools_and_exclusions():
         source="llm",
         data={"status": "ok"},
     )
+    log_event(
+        session,
+        "需求评审降级",
+        stage="provider.fallback",
+        source="llm",
+        level="warning",
+        data={
+            "component": "requirement_review",
+            "error_code": "provider_structured_output_unsupported",
+        },
+    )
 
     _turn_summary(
         session,
@@ -109,6 +120,7 @@ def test_turn_summary_aggregates_llm_tools_and_exclusions():
     assert data["tools"]["recommend"] == 1
     assert data["inventory"]["excluded"] == {"parts": 3, "shipping": 2}
     assert data["recommendations"] == 1
+    assert data["llm"]["structured_fallbacks"] == 1
     assert data["versions"]["llm_model"] == "test-model"
 
 

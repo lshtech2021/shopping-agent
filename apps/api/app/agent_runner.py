@@ -97,7 +97,9 @@ def _turn_summary(
             "structured_fallbacks": sum(
                 1
                 for item in warnings
-                if "structured output" in item["message"].lower()
+                if item.get("error_code")
+                == "provider_structured_output_unsupported"
+                or "structured output" in item["message"].lower()
             ),
         },
         "tools": tool_counts,
