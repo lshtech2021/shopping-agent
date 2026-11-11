@@ -74,9 +74,10 @@
   function isDetailReady(root) {
     const title = text(root, DETAIL_TITLE_SELECTORS)
     const price = text(root, DETAIL_PRICE_SELECTORS)
-    const specifics = root.querySelector('.ux-labels-values')
-    const status = text(root, ['.x-item-status'])
-    return Boolean(title && (price || specifics || status))
+    const signal =
+      root.querySelector('.ux-labels-values, .x-item-condition, .x-sellercard-atf') ||
+      text(root, ['.x-item-status'])
+    return Boolean(title && (price || signal))
   }
 
   function bodyTextOf(root) {
@@ -277,7 +278,7 @@
       '.s-item__ad-badge, .s-card__ad-badge, [data-testid="s-card__ad-badge"]',
     )
     if (badge && /sponsored/i.test(clean(badge.textContent))) return true
-    return [...node.querySelectorAll('span')].some(
+    return [...node.querySelectorAll('span, div')].some(
       (element) =>
         element.children.length === 0 &&
         /^sponsored$/i.test(clean(element.textContent)),
