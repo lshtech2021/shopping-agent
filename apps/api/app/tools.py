@@ -31,6 +31,8 @@ class ToolBox:
         self.active_site: Optional[str] = None
         self.active_query: Optional[str] = None
         self.page_by_site: dict[str, int] = {}
+        self.search_url_by_site: dict[str, str] = {}
+        self.search_seq = 0
         self.last_ask: Optional[str] = None
         self._product_index: dict[tuple[str, str], str] = {}
         self._browser = BrowserGateway(session)
@@ -252,16 +254,29 @@ class ToolBox:
     ) -> dict[str, Any]:
         products = list(self.session.products.values())
         requirements = self.session.requirements or {}
-        eligible = [
-            product
-            for product in products
-            if check_product(
+        eligible: list[dict[str, Any]] = []
+        excluded: dict[str, int] = {}
+        excluded_samples: list[dict[str, Any]] = []
+        for product in products:
+            eligibility = check_product(
                 product,
                 requirements,
                 sites=self.session.sites,
                 require_detail=prefer_detail,
-            ).ok
-        ]
+            )
+            if eligibility.ok:
+                eligible.append(product)
+                continue
+            for violation in eligibility.violations:
+                excluded[violation] = excluded.get(violation, 0) + 1
+            if len(excluded_samples) < 3:
+                excluded_samples.append(
+                    {
+                        "product_id": product.get("product_id"),
+                        "title": product.get("title"),
+                        "violations": eligibility.violations[:5],
+                    }
+                )
         samples = select_diverse_products(
             eligible,
             requirements,
@@ -273,6 +288,8 @@ class ToolBox:
             "sort": "diverse",
             "count": len(eligible),
             "total_cached": len(products),
+            "excluded": excluded,
+            "excluded_samples": excluded_samples,
             "items": [
                 {
                     "product_id": p["product_id"],
@@ -363,7 +380,19 @@ class ToolBox:
             self.active_site = site
             self.active_query = query
             self.page_by_site[site] = int(result.get("page") or 1)
+            url = result.get("document_url") or result.get("url")
+            if url:
+                self.search_url_by_site[site] = str(url)
+            self.search_seq += 1
         return result
+
+    def _search_context(self, site: str) -> dict[str, Any]:
+        """Identity of the active search page for action idempotency."""
+        return {
+            "query": self.active_query if self.active_site == site else None,
+            "search_url": self.search_url_by_site.get(site),
+            "search_seq": self.search_seq,
+        }
 
     async def scrape_listing(self, site: str | None = None, page: int | None = None) -> dict[str, Any]:
         site = (site or self.active_site or (self.session.sites[0] if self.session.sites else "")).lower()
@@ -371,7 +400,10 @@ class ToolBox:
         if refused:
             return refused
         page = int(page or self.page_by_site.get(site) or 1)
-        result = await self._browse("scrape_listing", {"site": site, "page": page})
+        result = await self._browse(
+            "scrape_listing",
+            {"site": site, "page": page, **self._search_context(site)},
+        )
         if result.get("status") != "ok":
             return result
         accepted = 0
@@ -403,7 +435,8 @@ class ToolBox:
         current_page = int(self.page_by_site.get(site) or 1)
         next_page = current_page + 1
         result = await self._browse(
-            "next_page", {"site": site, "page": next_page}
+            "next_page",
+            {"site": site, "page": next_page, **self._search_context(site)},
         )
         self._bump_quota(site, "next_page")
         if result.get("status") != "ok":

@@ -89,6 +89,37 @@ def test_shopping_replanner_uses_site_appropriate_queries():
     assert "-book" in adjusted.metadata["search_queries"]["ebay"][0]
 
 
+def test_shopping_replanner_does_not_invent_used_exclusion():
+    state = _state(poor=True)
+    plan = Plan.model_validate(state["plan"])
+    metadata = dict(plan.metadata)
+    metadata["search_queries"] = {"ebay": ["laptop"]}
+    metadata["requirements"] = {
+        "category": "笔记本",
+        "preferences": ["不限二手"],
+    }
+    state["plan"] = plan.model_copy(update={"metadata": metadata}).model_dump()
+
+    first = asyncio.run(
+        ShoppingReplanner().replan(
+            state=state, output={}, critique=Critique(ok=True)
+        )
+    )
+
+    assert first is not None
+    query = first.metadata["search_queries"]["ebay"][0]
+    assert "-book" in query
+    assert "-used" not in query
+
+    state["plan"] = first.model_dump()
+    second = asyncio.run(
+        ShoppingReplanner().replan(
+            state=state, output={}, critique=Critique(ok=True)
+        )
+    )
+    assert second is None
+
+
 def test_shopping_replanner_returns_none_for_good_result():
     plan = asyncio.run(
         ShoppingReplanner().replan(

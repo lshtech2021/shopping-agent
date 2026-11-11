@@ -20,7 +20,34 @@ PLANNER_PROMPT = """You plan a shopping selection run. Return a generic Plan:
 Do not add fields to the generic Plan schema. Use only user-stated requirements
 from the supplied context; never invent a budget, brand, or specification.
 Plan steps must not be skipped: order them so each step has observable evidence.
+
+Search query rules:
+- eBay matches all keywords (AND). Use 1-3 short keywords such as "laptop",
+  "thinkpad laptop", or "laptop 16GB". Never pass a sentence or use-case
+  phrase such as "laptop for software development"; express constraints with
+  category/price filters instead. Prefix exclusion terms with "-".
+- Convert CNY budgets to site currency conservatively (round down and leave
+  room for shipping/tax).
+- JD uses concise Chinese keywords.
+- Provide 2-4 keyword variants per site when useful.
 """
+
+_EBAY_CATEGORY_QUERIES = {
+    "笔记本": "laptop",
+    "笔记本电脑": "laptop",
+    "手机": "smartphone",
+    "智能手机": "smartphone",
+    "平板": "tablet",
+    "平板电脑": "tablet",
+    "耳机": "headphones",
+    "显示器": "monitor",
+    "跑鞋": "running shoes",
+    "相机": "camera",
+    "键盘": "keyboard",
+    "鼠标": "mouse",
+    "显卡": "graphics card",
+    "主机": "desktop computer",
+}
 
 
 def requirements_complete(
@@ -194,13 +221,31 @@ class ShoppingPlanner:
         return roles
 
     @staticmethod
+    def _fallback_query(
+        site: str, category: str, use_case: str, goal: str
+    ) -> str:
+        if site == "ebay":
+            mapped = _EBAY_CATEGORY_QUERIES.get(category)
+            if mapped:
+                return mapped
+            if category and category.isascii():
+                return category
+            # Do not append a Chinese use-case phrase to an eBay query.
+            return category or goal
+        return " ".join(part for part in (category, use_case) if part) or goal
+
+    @staticmethod
     def _fallback_plan(goal: str, context: dict[str, Any]) -> Plan:
         sites = [str(site) for site in context.get("sites") or ["jd"]]
         req = dict(context.get("requirements") or {})
         category = str(req.get("category") or "").strip()
         use_case = str(req.get("use_case") or "").strip()
-        query = " ".join(part for part in (category, use_case) if part) or goal
-        queries = {site: [query] for site in sites}
+        queries = {
+            site: [
+                ShoppingPlanner._fallback_query(site, category, use_case, goal)
+            ]
+            for site in sites
+        }
         steps = [
             PlanStep(id="search", description="search"),
             PlanStep(id="verify", description="verify"),
@@ -303,7 +348,10 @@ class ShoppingReplanner:
         if site == "ebay":
             if category in {"书", "图书", "配件"}:
                 return f"{base} {'new' if used == 0 else 'reviewed'}"
-            return f"{base} {'-book -accessory' if used == 0 else '-used'}"
+            # Do not exclude used items unless the user asked for it. The
+            # accessory suffix is harmless and is not re-applied on the next
+            # replan because the marker above is stripped first.
+            return f"{base} -book -accessory"
         return f"{base} {category or '商品'} {'推荐' if used == 0 else '优选'}"
 
     @staticmethod

@@ -113,3 +113,23 @@ def test_query_inventory_reports_diverse_mode():
     assert result["sort"] == "diverse"
     assert result["count"] == 1
     assert result["total_cached"] == 1
+    assert result["excluded"] == {}
+    assert result["excluded_samples"] == []
+
+
+def test_query_inventory_reports_exclusion_reasons():
+    session = seed_session(budget_cny=500)
+    session.products["p1"] = seed_product("p1", price_cny=900)
+
+    result = ToolBox(session).query_inventory(limit=10)
+
+    assert result["count"] == 0
+    assert result["total_cached"] == 1
+    assert result["excluded"]["budget"] == 1
+    assert result["excluded_samples"] == [
+        {
+            "product_id": "p1",
+            "title": "商品",
+            "violations": ["budget"],
+        }
+    ]

@@ -16,6 +16,11 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
    - Read each new user message and save every constraint it states (budget, category, memory, ...) with `update_requirements` before searching.
    - If the user message contains an ambiguous bare number that might be a budget, call `ask_user` for budget — never write it via `update_requirements` yourself.
    - Save only confirmed hard constraints (budget, memory, etc.) via `update_requirements`. Compare prices only in RMB using `price_cny`.
+   - `must_have` is only for objective, listing-verifiable attributes such as
+     `32G内存` or `防水`. Vague goals such as `性能足够高`, `好用`, or
+     `性价比高` belong in `preferences`; if they must filter candidates, call
+     `ask_user` for a measurable threshold before searching. When
+     `update_requirements` returns a `clarify_question`, ask it.
 
 2. Data source
    - Check "Current Status". If cached products are sufficient, use `query_inventory` to sort/filter them; do not search again.
@@ -23,6 +28,12 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
 
 3. Collection (per site, per round, max): 2 `search`, 2 `next_page`, 5 `fetch_detail`.
    - Every `search`/`next_page` must be followed by `scrape_listing`.
+   - eBay ANDs every keyword. Use 1-3 short keywords (for example `laptop`,
+     `thinkpad laptop`, `laptop 16GB`); never pass a use-case sentence.
+     Express constraints with `category_id`/`max_price`, and prefix exclusion
+     terms with `-`.
+   - Convert a CNY budget to the site currency by rounding down, leaving a
+     shipping/tax buffer. `max_price` filters the item price only.
    - Run `fetch_detail` on the top 3 candidates to verify specs before recommending. If the detail page contradicts the listing, trust the detail page and mention the discrepancy.
    - On `quota_exceeded`: stop calling that tool and proceed with existing data.
 
@@ -32,6 +43,10 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
 
 5. Recommendation
    - Use `query_inventory` to rank, then call `recommend` with 1–3 `product_ids` returned by `query_inventory` only.
+   - If `query_inventory` returns `count=0`, read its `excluded` reasons:
+     budget means filter/price, unjudged/must_have means verify or clarify,
+     category means the search is too broad, and availability means the
+     listing ended. Use those reasons to decide the next tool call.
    - Justify each pick with its specific price (`price_cny`) and verified specs. Mark any unverified spec as unverified.
    - Mention soft observations (e.g., few reviews) in the justification only; never use them as filters.
 

@@ -56,4 +56,24 @@ def test_planner_uses_template_when_requirements_complete():
     assert plan.goal
     assert [step.id for step in plan.steps] == ["search", "verify", "recommend"]
     assert plan.metadata["search_queries"]["jd"]
-    assert plan.metadata["search_queries"]["ebay"]
+    assert plan.metadata["search_queries"]["ebay"] == ["laptop"]
+
+
+def test_template_plan_uses_short_ebay_query_without_use_case():
+    planner = ShoppingPlanner(model=CountingModel())
+    plan = asyncio.run(
+        planner.plan(
+            goal="预算5000的笔记本电脑，用于软件开发",
+            context={
+                "requirements": {
+                    "category": "笔记本电脑",
+                    "use_case": "软件开发",
+                    "budget_cny": 5000,
+                    "budget_unlimited": False,
+                },
+                "sites": ["ebay"],
+            },
+        )
+    )
+
+    assert plan.metadata["search_queries"]["ebay"] == ["laptop"]
