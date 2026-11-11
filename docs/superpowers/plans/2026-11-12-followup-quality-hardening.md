@@ -1,6 +1,16 @@
 # Post-Validation Quality Hardening Plan
 
-Status: planned (2026-11-12)
+Status: implemented in four phases on `fix/ebay-scraping-quality`
+(2026-11-12). Verification: extension 75 tests passed; API 305 passed,
+2 skipped.
+
+Implementation commits:
+
+- `1824267` enforce requirement clarification and refresh plan queries
+- `5465cd5` enforce configurable shipping caps
+- `82a9a1b` link recommendations to the original listing
+- `6c523b7` complete eBay listing and landed-cost evidence
+
 Scope: remaining issues from the real eBay session log, plus shipping caps and
 clickable recommendation links.
 
