@@ -63,6 +63,10 @@ class _Search(BaseModel):
         description="排除词；传 book 或 -book 均可，后端会补 -",
     )
     sort: Optional[str] = Field(None, description="price_asc / price_desc")
+    buy_it_now_only: bool = Field(
+        True,
+        description="eBay 硬预算搜索默认只看 Buy It Now，避免最终价未知的拍卖",
+    )
 
 
 class _Scrape(BaseModel):
@@ -373,6 +377,7 @@ def build_shopping_tools(
             requirements=box.session.requirements,
             settings=box.session.settings,
             max_price=None,
+            buy_it_now_only=args.buy_it_now_only,
         )
         if args.category_id:
             filters["categoryId"] = args.category_id

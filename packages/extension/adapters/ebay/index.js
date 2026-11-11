@@ -35,6 +35,32 @@
     '.x-price-primary',
     '[data-testid="x-price-primary"]',
   ]
+  const CONDITION_LABELS = new Set([
+    'new',
+    'brand new',
+    'pre-owned',
+    'used',
+    'refurbished',
+    'seller refurbished',
+    'manufacturer refurbished',
+    'certified refurbished',
+    'open box',
+    'new other',
+    'for parts',
+    'for parts or not working',
+    'parts only',
+    'not working',
+    'used - good',
+    'used - very good',
+    'used - acceptable',
+  ])
+
+  function knownCondition(value) {
+    const textValue = clean(value)
+    if (!textValue) return null
+    const first = clean(textValue.split('·')[0].split('|')[0])
+    return CONDITION_LABELS.has(first.toLowerCase()) ? first : null
+  }
 
   function itemLink(node) {
     return (
@@ -238,18 +264,10 @@
       '.s-card__subtitle',
       '.SECONDARY_INFO',
     ])
-    if (direct) {
-      const first = clean(direct.split(/[·|]/)[0])
-      return first || direct
-    }
+    const directCondition = knownCondition(direct)
+    if (directCondition) return directCondition
     const row = text(node, ['.s-card__attribute-row'])
-    if (!row) return null
-    const first = clean(row.split(/[·|]/)[0])
-    return /^(new|brand new|pre-owned|used|refurbished|open box|for parts|new other)/i.test(
-      first,
-    )
-      ? first
-      : null
+    return knownCondition(row)
   }
 
   function shippingOf(node) {
@@ -440,16 +458,20 @@
   }
 
   function conditionFrom(root, attributes) {
-    return (
-      attributes.Condition ||
-      attributes['Item condition'] ||
+    const candidates = [
+      attributes.Condition,
+      attributes['Item condition'],
       text(root, [
         '.x-item-condition-text',
         '.x-item-condition .ux-textspans',
         '.x-item-condition',
-      ]) ||
-      null
-    )
+      ]),
+    ]
+    for (const candidate of candidates) {
+      const condition = knownCondition(candidate)
+      if (condition) return condition
+    }
+    return null
   }
 
   function sellerFrom(root) {
@@ -770,6 +792,9 @@
       url += '&_sop=15'
     } else if (filters.sort === 'price_desc') {
       url += '&_sop=16'
+    }
+    if (filters.buyItNowOnly) {
+      url += '&LH_BIN=1'
     }
     return `${url}&_ipg=60`
   }

@@ -542,6 +542,12 @@ els.currencySelect.addEventListener('change', async () => {
       currency_source: 'manual',
     })
     renderSessionState(updated)
+    if (updated?.budget_cleared) {
+      appendBubble(
+        'assistant',
+        '货币已切换，原预算已清除；请在下一轮重新说明预算金额。',
+      )
+    }
   } catch (error) {
     renderSettings(previous)
     appendBubble('assistant', `错误：${error.message || error}`)
@@ -588,6 +594,12 @@ els.adoptCurrencyBtn.addEventListener('click', async () => {
     })
     if (!isCurrentGeneration(generation, state.requestGeneration)) return
     renderSessionState(updated)
+    if (updated?.budget_cleared) {
+      appendBubble(
+        'assistant',
+        '已采用页面货币，原预算已清除；请在下一轮重新说明预算金额。',
+      )
+    }
     startPolling(state.sessionId, generation)
     handleResult(
       await resumeSession(

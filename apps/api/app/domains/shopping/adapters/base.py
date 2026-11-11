@@ -18,12 +18,33 @@ class SiteAdapter(Protocol):
         requirements: dict[str, Any],
         settings: dict[str, Any],
         max_price: float | None,
+        buy_it_now_only: bool | None = None,
     ) -> dict[str, Any]: ...
 
+
+# The item price cap leaves room for shipping and import costs. The exact
+# landed cost is checked again after fetch_detail.
+SEARCH_PRICE_BUFFER_RATIO = 0.85
+
+
 def budget_search_filters(
-    requirements: dict[str, Any], max_price: float | None
+    requirements: dict[str, Any],
+    max_price: float | None,
+    *,
+    buy_it_now_only: bool | None = None,
 ) -> dict[str, Any]:
-    cap = max_price
-    if cap is None and not requirements.get("budget_unlimited"):
-        cap = requirements.get("budget")
-    return {"maxPrice": cap} if cap is not None else {}
+    budget = None
+    if not requirements.get("budget_unlimited"):
+        budget = requirements.get("budget")
+    caps: list[float] = []
+    if max_price is not None:
+        caps.append(float(max_price))
+    if budget is not None:
+        caps.append(float(budget) * SEARCH_PRICE_BUFFER_RATIO)
+    cap = min(caps) if caps else None
+    filters: dict[str, Any] = {}
+    if cap is not None:
+        filters["maxPrice"] = round(cap, 2)
+    if buy_it_now_only:
+        filters["buyItNowOnly"] = True
+    return filters

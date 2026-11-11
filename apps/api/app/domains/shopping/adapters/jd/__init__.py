@@ -26,6 +26,7 @@ class JDAdapter:
         requirements: dict[str, Any],
         settings: dict[str, Any],
         max_price: float | None,
+        buy_it_now_only: bool | None = None,
     ) -> dict[str, Any]:
         return {}
 

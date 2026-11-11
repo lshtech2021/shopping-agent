@@ -15,6 +15,12 @@ from typing import Any
 from app.currency import normalize_currency
 
 FIT_KEY = "fit"
+_PARTS_CONDITIONS = {
+    "for parts",
+    "for parts or not working",
+    "parts only",
+    "not working",
+}
 
 
 @dataclass(frozen=True)
@@ -85,13 +91,20 @@ def check_eligibility(
     if product.get("availability") == "unavailable":
         violations.append("availability")
 
+    condition = str(product.get("condition") or "").strip().lower()
+    if condition in _PARTS_CONDITIONS:
+        violations.append("parts")
+
     if not requirements.get("budget_unlimited"):
         price = product.get("price")
-        price_cap = (
-            product.get("price_max")
-            if product.get("price_is_range")
-            else price
-        )
+        landed = product.get("landed_cost")
+        price_cap = landed
+        if price_cap is None:
+            price_cap = (
+                product.get("price_max")
+                if product.get("price_is_range")
+                else price
+            )
         budget = requirements.get("budget")
         budget_min = requirements.get("budget_min")
         has_budget = budget is not None or budget_min is not None
@@ -115,10 +128,15 @@ def check_eligibility(
                 price_cap is None or float(price_cap) > float(budget)
             ):
                 violations.append("budget")
+            min_value = landed if landed is not None else price
             if budget_min is not None and (
-                price is None or float(price) < float(budget_min)
+                min_value is None or float(min_value) < float(budget_min)
             ):
                 violations.append("budget_min")
+            if has_budget and product.get("listing_type") == "auction":
+                violations.append("auction")
+            if has_budget and product.get("cost_complete") is False:
+                violations.append("cost_incomplete")
 
     if needs_fit(requirements):
         fit = _current_fit(product, requirements)

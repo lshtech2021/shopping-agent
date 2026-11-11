@@ -77,6 +77,73 @@ def test_budget_rejects_missing_session_currency():
     assert "currency" in result.violations
 
 
+def test_budget_uses_landed_cost_when_available():
+    product = {
+        "source": "ebay",
+        "price": 600,
+        "landed_cost": 650,
+        "currency": "CNY",
+        "availability": "available",
+        "cost_complete": True,
+    }
+
+    too_tight = check_eligibility(
+        product,
+        {"budget": 620, "budget_currency": "CNY", "must_have": []},
+        settings={"site": "ebay", "currency": "CNY"},
+        sites=["ebay"],
+        require_detail=True,
+    )
+    assert "budget" in too_tight.violations
+
+    roomy = check_eligibility(
+        product,
+        {"budget": 700, "budget_currency": "CNY", "must_have": []},
+        settings={"site": "ebay", "currency": "CNY"},
+        sites=["ebay"],
+        require_detail=True,
+    )
+    assert "budget" not in roomy.violations
+
+
+def test_auction_and_incomplete_cost_are_ineligible_for_hard_budget():
+    product = {
+        "source": "ebay",
+        "price": 100,
+        "currency": "CNY",
+        "availability": "available",
+        "listing_type": "auction",
+        "cost_complete": False,
+    }
+
+    result = check_eligibility(
+        product,
+        {"budget": 1000, "budget_currency": "CNY", "must_have": []},
+        settings={"site": "ebay", "currency": "CNY"},
+        sites=["ebay"],
+        require_detail=True,
+    )
+
+    assert "auction" in result.violations
+    assert "cost_incomplete" in result.violations
+
+
+def test_parts_condition_is_ineligible():
+    result = check_eligibility(
+        {
+            "source": "ebay",
+            "price": 100,
+            "currency": "CNY",
+            "availability": "available",
+            "condition": "Parts Only",
+        },
+        {"must_have": []},
+        settings={"site": "ebay", "currency": "CNY"},
+        sites=["ebay"],
+    )
+    assert "parts" in result.violations
+
+
 def test_recommend_rejects_over_budget_product():
     session = seed_session(budget=5000)
     session.products["p1"] = seed_product("p1", price=9000)

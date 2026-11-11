@@ -64,6 +64,8 @@ def test_fetch_detail_keeps_range_and_metadata(monkeypatch):
     assert product["price_max"] == 700
     assert product["currency"] == "USD"
     assert product["price_is_range"] is True
+    assert product["landed_cost"] == 700
+    assert product["cost_complete"] is True
     assert product["attributes"]["RAM Size"] == "32 GB"
     assert product["condition"] == "Pre-Owned"
     assert product["seller"]["feedback_percent"] == 99.2
@@ -114,6 +116,8 @@ def test_detail_currency_mismatch_keeps_listing_price(monkeypatch):
     assert product["detail_currency"] == "USD"
     assert product["detail_currency_mismatch"] is True
     assert product.get("shipping_cost") is None
+    assert product["cost_complete"] is False
+    assert product["landed_cost"] is None
     assert product["attributes"]["RAM Size"] == "16 GB"
 
 

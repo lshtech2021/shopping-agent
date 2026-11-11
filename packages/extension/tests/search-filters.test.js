@@ -46,6 +46,17 @@ test('buildSearchUrl prefixes plain eBay exclusion terms', async () => {
   )
 })
 
+test('buildSearchUrl adds the eBay Buy It Now filter', async () => {
+  const { buildSearchUrl } = await load()
+  assert.equal(
+    buildSearchUrl('ebay', 'laptop', {
+      maxPrice: 425,
+      buyItNowOnly: true,
+    }),
+    'https://www.ebay.com/sch/i.html?_nkw=laptop&_udhi=425&LH_BIN=1&_ipg=60',
+  )
+})
+
 test('buildSearchUrl keeps the plain eBay URL without filters', async () => {
   const { buildSearchUrl } = await load()
   assert.equal(

@@ -30,7 +30,12 @@ class EbayAdapter:
         requirements: dict[str, Any],
         settings: dict[str, Any],
         max_price: float | None,
+        buy_it_now_only: bool | None = None,
     ) -> dict[str, Any]:
-        return budget_search_filters(requirements, max_price)
+        return budget_search_filters(
+            requirements,
+            max_price,
+            buy_it_now_only=buy_it_now_only,
+        )
 
 adapter = EbayAdapter()

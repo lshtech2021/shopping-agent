@@ -406,6 +406,8 @@ class ToolBox:
                     "rating": p.get("rating"),
                     "shipping": p.get("shipping"),
                     "shipping_cost": p.get("shipping_cost"),
+                    "landed_cost": p.get("landed_cost"),
+                    "cost_complete": p.get("cost_complete"),
                     "condition": p.get("condition"),
                     "sponsored": p.get("sponsored", False),
                     "category": p.get("category"),
@@ -628,6 +630,26 @@ class ToolBox:
                 continue
             if result.get(key) is not None:
                 product[key] = result[key]
+        if currency_mismatch or product.get("price") is None:
+            product["cost_complete"] = False
+            product["landed_cost"] = None
+        else:
+            shipping = result.get("shipping_cost")
+            if shipping is None:
+                product.pop("shipping_cost", None)
+                product["cost_complete"] = False
+                product["landed_cost"] = None
+            else:
+                price_cap = (
+                    product.get("price_max")
+                    if product.get("price_is_range")
+                    else product.get("price")
+                )
+                product["shipping_cost"] = shipping
+                product["landed_cost"] = round(
+                    float(price_cap) + float(shipping), 2
+                )
+                product["cost_complete"] = True
         if isinstance(result.get("seller"), dict):
             product["seller"] = result["seller"]
         images = result.get("images")
@@ -792,6 +814,9 @@ def _public_product(product: dict[str, Any]) -> dict[str, Any]:
         "image_url": product.get("image_url"),
         "condition": product.get("condition"),
         "shipping": product.get("shipping"),
+        "shipping_cost": product.get("shipping_cost"),
+        "landed_cost": product.get("landed_cost"),
+        "cost_complete": product.get("cost_complete"),
         "availability": product.get("availability"),
         "listing_type": product.get("listing_type"),
         "seller": product.get("seller"),

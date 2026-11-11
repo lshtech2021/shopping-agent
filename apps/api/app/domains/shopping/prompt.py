@@ -36,7 +36,9 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
 
 3. Collection (per round, max): 2 `search`, 2 `next_page`, 5 `fetch_detail`.
    - Every `search`/`next_page` must be followed by `scrape_listing`.
-   - The host builds search price filters from the budget in the session currency.
+   - The host builds search price filters from the budget in the session currency,
+     leaving room for shipping/tax. For a hard budget keep
+     `buy_it_now_only=true`; an auction's current bid is not its final price.
    - Run `fetch_detail` on the top 3 candidates to verify specs before recommending. If the detail page contradicts the listing, trust the detail page and mention the discrepancy.
    - If a detail result sets `detail_currency_mismatch`, use only its specs;
      keep the listing `price`/`currency` for budget comparisons.
@@ -52,7 +54,10 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
      budget means filter/price, unjudged/must_have means verify or clarify,
      category means the search is too broad, and availability means the
      listing ended. Use those reasons to decide the next tool call.
-   - Justify each pick with its specific `price` and `currency`, plus verified specs. Mark any unverified spec as unverified.
+   - Justify each pick with its specific `price`, `landed_cost` (when present),
+     and `currency`, plus verified specs. Mark any unverified spec as
+     unverified. If `cost_complete=false`, say that shipping/tax is not fully
+     verified.
    - Mention soft observations (e.g., few reviews) in the justification only; never use them as filters.
 
 ## Hard stops

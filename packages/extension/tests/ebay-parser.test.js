@@ -145,6 +145,20 @@ test('parseDetail extracts condition, seller, shipping and availability', () => 
   assert.equal(result.item_number, '111222333444')
 })
 
+test('brand subtitles are not treated as item condition', () => {
+  const dom = new JSDOM(
+    `<html><body><ul><li class="s-card">
+      <a class="su-link" href="/itm/123"></a>
+      <div class="s-card__title">Dell Latitude</div>
+      <span class="s-card__price">$500.00</span>
+      <span class="s-card__subtitle">Dell</span>
+    </li></ul></body></html>`,
+    { url: 'https://www.ebay.com/sch/i.html?_nkw=laptop' },
+  )
+  const result = ebay.parseListing(dom.window.document, dom.window.location.href)
+  assert.equal(result.items[0].condition, null)
+})
+
 test('parseDetail marks an ended listing unavailable', () => {
   const dom = loadDom(
     'ebay-detail-ended.html',
@@ -155,6 +169,20 @@ test('parseDetail marks an ended listing unavailable', () => {
   assert.match(result.title, /Dell Latitude/)
   assert.equal(result.attributes.Brand, 'Dell')
   assert.equal(result.availability, 'unavailable')
+})
+
+test('parseDetail ignores a brand-like condition element', () => {
+  const dom = new JSDOM(
+    `<html><body>
+      <h1 class="x-item-title__mainTitle">Dell Latitude</h1>
+      <div class="x-price-primary">US $500.00</div>
+      <div class="x-item-condition"><span class="ux-textspans">Dell</span></div>
+    </body></html>`,
+    { url: 'https://www.ebay.com/itm/123' },
+  )
+  const result = ebay.parseDetail(dom.window.document, dom.window.location.href)
+  assert.equal(result.status, 'ok')
+  assert.equal(result.condition, null)
 })
 
 test('classifies eBay error, challenge and login pages', () => {

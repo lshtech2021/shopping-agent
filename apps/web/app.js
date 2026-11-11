@@ -81,7 +81,7 @@ async function loadDetail(sessionId) {
       (item) => `
       <article class="card">
         <strong>${escapeHtml(item.title)}</strong>
-        <div class="muted">${escapeHtml(item.source)} · ${escapeHtml(item.currency || '')} ${escapeHtml(item.price ?? '')} · CNY ${escapeHtml(item.price_cny ?? '')}</div>
+        <div class="muted">${escapeHtml(item.source)} · ${escapeHtml(item.currency || '')} ${escapeHtml(item.price ?? '')}</div>
       </article>
     `,
     )

@@ -41,7 +41,9 @@ def select_diverse_products(
 
     bands: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for product in ordered:
-        price = float(product.get("price") or 0)
+        price = float(
+            product.get("landed_cost") or product.get("price") or 0
+        )
         index = min(3, max(0, int(price / budget * 4)))
         bands[index].append(product)
 
@@ -71,9 +73,11 @@ def _rank_key(
 ) -> tuple:
     return (
         not bool(product.get("detail_fetched")),
+        product.get("cost_complete") is False,
+        product.get("listing_type") == "auction",
         -must_have_match_count(product, requirements),
         -(int(product.get("sales") or 0)),
-        float(product.get("price") or 0),
+        float(product.get("landed_cost") or product.get("price") or 0),
         str(product.get("product_id") or ""),
     )
 
@@ -185,6 +189,8 @@ def upsert_listing(
         "sold": _pick("sold"),
         "quantity_available": _pick("quantity_available"),
         "shipping_cost": _pick("shipping_cost"),
+        "landed_cost": _pick("landed_cost"),
+        "cost_complete": _pick("cost_complete"),
         "returns": _pick("returns"),
         "best_offer": _pick("best_offer"),
         "bids": _pick("bids"),

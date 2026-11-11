@@ -30,7 +30,7 @@ def test_ebay_build_search_filters_uses_session_currency_budget():
         max_price=None,
     )
 
-    assert filters.get("maxPrice") == 5000
+    assert filters.get("maxPrice") == 4250.0
 
 
 def test_jd_build_search_filters_preserves_plain_keyword_search():
@@ -44,7 +44,7 @@ def test_jd_build_search_filters_preserves_plain_keyword_search():
     assert filters == {}
 
 
-def test_explicit_max_price_takes_precedence_over_budget():
+def test_explicit_max_price_is_capped_by_budget_buffer():
     filters = get_adapter("ebay").build_search_filters(
         query="laptop",
         requirements={"budget": 5000},
@@ -52,7 +52,7 @@ def test_explicit_max_price_takes_precedence_over_budget():
         max_price=4500,
     )
 
-    assert filters["maxPrice"] == 4500
+    assert filters["maxPrice"] == 4250.0
 
 
 def test_adapter_surface_has_no_duplicate_budget_rules():
@@ -119,5 +119,5 @@ def test_search_uses_session_site_and_adapter_owned_budget(monkeypatch):
     assert seen == {
         "site": "ebay",
         "query": "laptop",
-        "filters": {"maxPrice": 500},
+        "filters": {"maxPrice": 425.0, "buyItNowOnly": True},
     }

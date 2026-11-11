@@ -84,6 +84,12 @@ class ShoppingCritic:
                     hints.append("移除低于预算下限的商品")
                 if "currency" in eligibility.violations:
                     hints.append("商品币种与会话/预算币种不一致，先对齐或清除商品")
+                if "auction" in eligibility.violations:
+                    hints.append("硬预算下不要推荐最终价未知的拍卖，改用一口价商品")
+                if "cost_incomplete" in eligibility.violations:
+                    hints.append("先确认运费/落地价，再判断是否在预算内")
+                if "parts" in eligibility.violations:
+                    hints.append("配件/故障机不能作为正常商品推荐")
                 if any(
                     violation.startswith("must_have:")
                     for violation in eligibility.violations
@@ -111,6 +117,9 @@ class ShoppingCritic:
             "detail",
             "unjudged",
             "availability",
+            "auction",
+            "cost_incomplete",
+            "parts",
         }
         hard_violations = [
             violation
