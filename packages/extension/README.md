@@ -81,6 +81,12 @@ Quality rules:
 - `result_count` comes from the results heading when available. If the next
   anchor is missing, pagination falls back to `_pgn + 1` only when the total
   proves another page exists.
+- A zero result count or a "no exact matches" marker discards eBay's
+  "results matching fewer words" fallback cards instead of ingesting them.
+- Parsing waits until the card count is stable for a few polls, not just
+  until the first card appears.
+- Exclusion terms are normalized to `-term`, because eBay treats every
+  `_nkw` token as required.
 - `matchesUrl` rejects detail/account pages before a listing parse.
 
 ## Block and parse signals
@@ -122,7 +128,8 @@ npm test
 1. Load `packages/extension` in Chrome and confirm `WS: connected`.
 2. Run a shopping turn with `SA_MOCK_BROWSER=false`.
 3. Check the Side Panel/log timeline for `browse:scrape_listing`:
-   `item_count`, `result_count`, and `has_next` should match the page.
+   `item_count`, `result_count`, `page_item_count`, and `has_next` should
+   match the page; `fallback_item_count` must not be ingested.
 4. Open one candidate and check `browse:fetch_detail`: condition, attributes,
    seller, shipping, and availability should be present when visible.
 5. Trigger a challenge or sign-in page only by normal browsing; the session
