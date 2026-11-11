@@ -55,19 +55,11 @@ def test_explicit_max_price_takes_precedence_over_budget():
     assert filters["maxPrice"] == 4500
 
 
-def test_adapter_budget_eligibility_requires_matching_currency():
-    adapter = get_adapter("jd")
-    settings = {"site": "jd", "currency": "CNY"}
-
-    assert adapter.eligible_for_budget(
-        {"price": 4999, "currency": "CNY"}, settings, 5000
-    )
-    assert not adapter.eligible_for_budget(
-        {"price": 4999, "currency": "USD"}, settings, 5000
-    )
-    assert not adapter.eligible_for_budget(
-        {"price": 5001, "currency": "CNY"}, settings, 5000
-    )
+def test_adapter_surface_has_no_duplicate_budget_rules():
+    for site in ("jd", "ebay"):
+        adapter = get_adapter(site)
+        assert not hasattr(adapter, "eligible_for_budget")
+        assert not hasattr(adapter, "prefilter")
 
 
 def test_ebay_prompt_extra_has_no_fx_instruction():

@@ -86,7 +86,7 @@ function renderCurrencyMismatch(mismatch) {
 
 function renderSessionState(payload = {}) {
   if (payload.settings) renderSettings(payload.settings)
-  renderCurrencyMismatch(findCurrencyMismatch(payload))
+  renderCurrencyMismatch(findCurrencyMismatch(payload, state.settings))
 }
 
 function appendBubble(role, text, recommendations = []) {
@@ -499,21 +499,28 @@ for (const input of document.querySelectorAll('input[name="activeSite"]')) {
   input.addEventListener('change', async () => {
     const site = input.value
     if (!input.checked || !state.sessionId || site === state.settings.site) return
-    const previous = state.settings
     const generation = beginRequest()
     appendLocal('ui.settings', '切换站点', { site })
     try {
-      const updated = await patchSessionSettings(state.sessionId, { site })
+      await patchSessionSettings(state.sessionId, { site })
+      const detail = await getSession(state.sessionId)
       if (!isCurrentGeneration(generation, state.requestGeneration)) return
-      renderSessionState(updated)
-      startPolling(state.sessionId, generation)
-      handleResult(
-        await resumeSession(state.sessionId, 'site changed', state.clientId),
-        generation,
-      )
+      renderSessionState(detail)
+      els.resumeBtn.hidden = !shouldShowResume(detail)
+      if (shouldShowResume(detail)) {
+        startPolling(state.sessionId, generation)
+        handleResult(
+          await resumeSession(state.sessionId, 'site changed', state.clientId),
+          generation,
+        )
+      }
     } catch (error) {
       if (isCurrentGeneration(generation, state.requestGeneration)) {
-        renderSettings(previous)
+        try {
+          renderSessionState(await getSession(state.sessionId))
+        } catch (_) {
+          // Keep the last server-confirmed settings when refresh also fails.
+        }
         appendBubble('assistant', `错误：${error.message || error}`)
         appendLocal('ui.error', String(error.message || error))
       }

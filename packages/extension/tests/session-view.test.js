@@ -28,6 +28,10 @@ test('resume is only shown for an interrupted session without pending questions'
     }),
     false,
   )
+  assert.equal(
+    view.shouldShowResume({ status: 'blocked', pending_questions: [] }),
+    true,
+  )
   assert.equal(view.shouldShowResume({ status: 'done' }), false)
 })
 
@@ -77,6 +81,8 @@ test('currency mismatch is extracted from a tool result log', async () => {
   const view = await load()
   assert.deepEqual(
     view.findCurrencyMismatch({
+      status: 'interrupted',
+      settings: { currency: 'CNY' },
       execution_logs: [
         {
           stage: 'llm.tool.search',
@@ -100,6 +106,8 @@ test('a newer successful tool result clears an old currency mismatch', async () 
   const view = await load()
   assert.equal(
     view.findCurrencyMismatch({
+      status: 'interrupted',
+      settings: { currency: 'CNY' },
       execution_logs: [
         {
           data: {
@@ -112,6 +120,47 @@ test('a newer successful tool result clears an old currency mismatch', async () 
         },
         { data: { result: { status: 'ok' } } },
       ],
+    }),
+    null,
+  )
+})
+
+test('currency mismatch is ignored after current settings match the page', async () => {
+  const view = await load()
+  const execution_logs = [
+    {
+      data: {
+        result: {
+          status: 'blocked',
+          error: 'currency_mismatch',
+          page_currency: 'USD',
+          session_currency: 'CNY',
+        },
+      },
+    },
+  ]
+
+  assert.equal(
+    view.findCurrencyMismatch({
+      status: 'interrupted',
+      settings: { currency: 'USD' },
+      execution_logs,
+    }),
+    null,
+  )
+  assert.equal(
+    view.findCurrencyMismatch({
+      status: 'interrupted',
+      settings: { currency: 'EUR' },
+      execution_logs,
+    }),
+    null,
+  )
+  assert.equal(
+    view.findCurrencyMismatch({
+      status: 'done',
+      settings: { currency: 'CNY' },
+      execution_logs,
     }),
     null,
   )

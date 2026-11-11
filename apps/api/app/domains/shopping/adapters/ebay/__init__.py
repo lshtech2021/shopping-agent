@@ -3,10 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from app.domains.shopping.adapters.base import (
-    budget_search_filters,
-    eligible_for_budget,
-)
+from app.domains.shopping.adapters.base import budget_search_filters
 
 
 class EbayAdapter:
@@ -35,21 +32,5 @@ class EbayAdapter:
         max_price: float | None,
     ) -> dict[str, Any]:
         return budget_search_filters(requirements, max_price)
-
-    def eligible_for_budget(
-        self,
-        product: dict[str, Any],
-        settings: dict[str, Any],
-        budget: float | None,
-    ) -> bool:
-        return eligible_for_budget(product, settings, budget)
-
-    def prefilter(
-        self,
-        products: list[dict[str, Any]],
-        requirements: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        return products
-
 
 adapter = EbayAdapter()

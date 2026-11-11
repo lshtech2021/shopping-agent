@@ -319,6 +319,12 @@
     return `https://search.jd.com/Search?keyword=${encodeURIComponent(query || '')}&enc=utf-8`
   }
 
+  function detailUrl(sourceProductId) {
+    return sourceProductId
+      ? `https://item.jd.com/${sourceProductId}.html`
+      : null
+  }
+
   function matchUrl(url = '') {
     try {
       const host = new URL(url).hostname
@@ -345,5 +351,6 @@
     clickNextPage,
     currentPageNumber,
     buildSearchUrl,
+    detailUrl,
   }
 })

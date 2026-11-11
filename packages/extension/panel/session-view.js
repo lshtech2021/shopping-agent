@@ -4,7 +4,7 @@ export function isCurrentGeneration(requestGeneration, currentGeneration) {
 
 export function shouldShowResume(detail) {
   return (
-    detail?.status === 'interrupted' &&
+    ['interrupted', 'blocked'].includes(detail?.status) &&
     !(detail?.pending_questions || []).length
   )
 }
@@ -21,23 +21,37 @@ export function formatSessionSettings(settings = {}) {
   return `站点: ${site} · 货币: ${settings.currency || '待检测'}`
 }
 
-export function findCurrencyMismatch(result = {}) {
-  if (result.error === 'currency_mismatch') {
+export function findCurrencyMismatch(
+  result = {},
+  settings = result.settings || {},
+) {
+  if (!['interrupted', 'blocked'].includes(result.status)) return null
+
+  const currentCurrency = String(settings.currency || '').toUpperCase()
+  const currentMismatch = (value) => {
+    if (value?.error !== 'currency_mismatch') return null
+    const pageCurrency = String(value.page_currency || '').toUpperCase()
+    const sessionCurrency = String(value.session_currency || '').toUpperCase()
+    if (
+      !currentCurrency ||
+      sessionCurrency !== currentCurrency ||
+      pageCurrency === currentCurrency
+    ) {
+      return null
+    }
     return {
-      pageCurrency: result.page_currency || null,
-      sessionCurrency: result.session_currency || null,
+      pageCurrency: pageCurrency || null,
+      sessionCurrency: sessionCurrency || null,
     }
   }
+
+  if (result.error === 'currency_mismatch') return currentMismatch(result)
+
   const logs = result.execution_logs || []
   for (let index = logs.length - 1; index >= 0; index -= 1) {
     const value = logs[index]?.data?.result
     if (!value || (!value.status && !value.error)) continue
-    return value.error === 'currency_mismatch'
-      ? {
-          pageCurrency: value.page_currency || null,
-          sessionCurrency: value.session_currency || null,
-        }
-      : null
+    return currentMismatch(value)
   }
   return null
 }

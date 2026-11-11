@@ -26,5 +26,9 @@
     return adapter
   }
 
-  return { getAdapter }
+  function getAdapterByUrl(url) {
+    return [...adapters.values()].find((adapter) => adapter.matchUrl(url)) || null
+  }
+
+  return { getAdapter, getAdapterByUrl }
 })

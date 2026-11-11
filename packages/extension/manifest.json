@@ -29,6 +29,7 @@
       "js": [
         "content/parse-utils.js",
         "adapters/jd/index.js",
+        "adapters/registry.js",
         "content/jd.js",
         "content/bridge.js"
       ],
@@ -39,6 +40,7 @@
       "js": [
         "content/parse-utils.js",
         "adapters/ebay/index.js",
+        "adapters/registry.js",
         "content/ebay.js",
         "content/bridge.js"
       ],

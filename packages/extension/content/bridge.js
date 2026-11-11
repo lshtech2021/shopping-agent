@@ -1,10 +1,4 @@
 ;(function () {
-  function adapterForHost(hostname) {
-    if (hostname.includes('jd.com')) return globalThis.__saJd || null
-    if (hostname.includes('ebay.com')) return globalThis.__saEbay || null
-    return null
-  }
-
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || message.source !== 'shopping-agent') return false
 
@@ -13,7 +7,7 @@
 
     ;(async () => {
       try {
-        const adapter = adapterForHost(location.hostname)
+        const adapter = globalThis.__saAdapters?.getAdapterByUrl(location.href)
         if (!adapter) {
           reply({ ok: false, error: `no adapter for ${location.hostname}` })
           return

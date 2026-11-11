@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from app.domains.shopping.adapters.base import eligible_for_budget
-
 
 class JDAdapter:
     id: Literal["jd"] = "jd"
@@ -30,21 +28,5 @@ class JDAdapter:
         max_price: float | None,
     ) -> dict[str, Any]:
         return {}
-
-    def eligible_for_budget(
-        self,
-        product: dict[str, Any],
-        settings: dict[str, Any],
-        budget: float | None,
-    ) -> bool:
-        return eligible_for_budget(product, settings, budget)
-
-    def prefilter(
-        self,
-        products: list[dict[str, Any]],
-        requirements: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        return products
-
 
 adapter = JDAdapter()

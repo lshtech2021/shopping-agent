@@ -783,6 +783,12 @@
     }
   }
 
+  function detailUrl(sourceProductId) {
+    return sourceProductId
+      ? `${EBAY_ORIGIN}/itm/${sourceProductId}`
+      : null
+  }
+
   function detectCurrency(root = document) {
     const selectors = [
       '#gh-eb-Geo',
@@ -800,7 +806,7 @@
       const detected = parseUtils.parseCurrency(signal, null)
       if (detected) return detected
     }
-    return 'USD'
+    return null
   }
 
   return {
@@ -820,5 +826,6 @@
     clickNextPage,
     currentPageNumber,
     buildSearchUrl,
+    detailUrl,
   }
 })

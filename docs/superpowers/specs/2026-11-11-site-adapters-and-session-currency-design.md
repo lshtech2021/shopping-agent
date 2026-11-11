@@ -77,11 +77,10 @@ One pack id (`jd` | `ebay`) with matching halves. Shared runtime does not branch
 
 - `id`
 - `system_prompt_extra(settings, requirements) -> str`
-- `tool_specs() -> list[ToolSpec]`
-- `build_search(args, settings, requirements) -> SearchPlan`
-- `normalize_product(raw, settings) -> Product` (preserve listing currency; no silent FX)
-- `eligible_for_budget(product, settings, budget) -> bool`
-- `prefilter(products, requirements) -> list[Product]`
+- `build_search_filters(query, requirements, settings, max_price) -> dict`
+
+Shared eligibility remains authoritative in `constraints.check_eligibility`;
+site packs do not duplicate budget or inventory prefilter rules.
 
 **Extension pack:**
 

@@ -56,6 +56,44 @@ def test_patch_settings_changes_site():
     assert body["settings"]["currency_source"] == "manual"
 
 
+def test_patch_site_clears_site_keyed_state_without_resuming_done_session():
+    created = client.post(
+        "/api/v1/sessions",
+        json={"requirement": "笔记本", "site": "jd"},
+    ).json()
+    sid = created["session_id"]
+    session = store.get(sid)
+    session.status = "done"
+    session.plan = {"metadata": {"search_queries": {"jd": ["开发笔记本"]}}}
+    session.searched_sites = ["jd"]
+    session.products["jd:1"] = {
+        "product_id": "jd:1",
+        "source": "jd",
+        "source_product_id": "1",
+        "title": "Laptop",
+        "price": 5000,
+        "currency": "CNY",
+    }
+    session.recommendations = [
+        {"product_id": "jd:1", "title": "Laptop", "reason": "fit"}
+    ]
+    store.touch(session, durable=True)
+
+    response = client.patch(
+        f"/api/v1/sessions/{sid}/settings",
+        json={"site": "ebay"},
+    )
+
+    assert response.status_code == 200
+    detail = client.get(f"/api/v1/sessions/{sid}").json()
+    assert detail["status"] == "done"
+    assert detail["settings"]["site"] == "ebay"
+    assert detail["plan"] is None
+    assert detail["searched_sites"] == []
+    assert [item["product_id"] for item in detail["products"]] == ["jd:1"]
+    assert detail["recommendations"] == []
+
+
 def test_patch_clear_products_adopts_detected_currency():
     created = client.post(
         "/api/v1/sessions",

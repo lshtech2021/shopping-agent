@@ -5,7 +5,7 @@ import '../adapters/ebay/index.js'
 import '../adapters/registry.js'
 import './browse-guards.js'
 
-const { getAdapter } = globalThis.__saAdapters
+const { getAdapter, getAdapterByUrl } = globalThis.__saAdapters
 const { assertBrowseAllowed } = globalThis.__saBrowseGuards
 
 const SITE_TABS = new Map()
@@ -44,7 +44,7 @@ async function restoreTabState() {
         const tabId = typeof value === 'object' ? value?.tabId : value
         if (!tabId) continue
         const tab = await chrome.tabs.get(tabId)
-        const allowedSite = siteForTabKey(site)
+        const allowedSite = siteForTabKey(site, tab.url)
         if (!tab.url || !isAllowedSiteUrl(allowedSite, tab.url)) {
           continue
         }
@@ -121,11 +121,10 @@ function samePage(actualUrl, expectedUrl) {
   }
 }
 
-function siteForTabKey(tabKey) {
+function siteForTabKey(tabKey, url) {
   const value = String(tabKey || '').split(':').pop()
-  if (value.startsWith('jd')) return 'jd'
-  if (value.startsWith('ebay')) return 'ebay'
-  return value
+  const adapter = getAdapterByUrl(url)
+  return adapter && value.startsWith(adapter.id) ? adapter.id : null
 }
 
 function scopeKey(site, args = {}) {
@@ -147,10 +146,7 @@ export function buildSearchUrl(site, query, options = {}) {
 
 function detailUrl(site, sourceProductId, explicitUrl) {
   if (explicitUrl) return explicitUrl
-  if (!sourceProductId) return null
-  if (site === 'jd') return `https://item.jd.com/${sourceProductId}.html`
-  if (site === 'ebay') return `https://www.ebay.com/itm/${sourceProductId}`
-  return null
+  return getAdapter(site).detailUrl(sourceProductId)
 }
 
 function timeoutError(code) {

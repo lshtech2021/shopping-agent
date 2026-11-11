@@ -238,8 +238,13 @@ def patch_session_settings(
     if payload.site is not None:
         if payload.site not in ALLOWED_SITES:
             raise HTTPException(status_code=422, detail="invalid site")
+        site_changed = payload.site != session.settings.get("site")
         session.settings["site"] = payload.site
         session.sites = [payload.site]
+        if site_changed:
+            session.plan = None
+            session.searched_sites.clear()
+            session.recommendations.clear()
     if payload.currency is not None:
         session.settings["currency"] = payload.currency.strip().upper()
         session.settings["currency_source"] = payload.currency_source or "manual"

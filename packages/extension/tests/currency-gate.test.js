@@ -52,6 +52,12 @@ test('ebay detects currency from geo control before listing prices', () => {
   assert.equal(getAdapter('ebay').detectCurrency(dom.window.document), 'CAD')
 })
 
+test('ebay returns null when an empty page has no currency signal', () => {
+  const dom = new JSDOM('<html><body></body></html>')
+
+  assert.equal(getAdapter('ebay').detectCurrency(dom.window.document), null)
+})
+
 test('jd always detects CNY', () => {
   assert.equal(getAdapter('jd').detectCurrency(), 'CNY')
 })
