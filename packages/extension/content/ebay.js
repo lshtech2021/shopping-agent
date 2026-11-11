@@ -189,9 +189,10 @@
     const image = node.querySelector(
       'img.s-item__image-img, img.s-card__image, img[src*="ebayimg"], img[data-src*="ebayimg"]',
     )
-    return upgradeImage(
-      image?.getAttribute('src') || image?.getAttribute('data-src'),
-    )
+    const src = image?.getAttribute('src')
+    const raw =
+      src && !src.startsWith('data:') ? src : image?.getAttribute('data-src')
+    return upgradeImage(raw)
   }
 
   /**
@@ -233,7 +234,10 @@
       '.s-card__subtitle',
       '.SECONDARY_INFO',
     ])
-    if (direct) return direct
+    if (direct) {
+      const first = clean(direct.split(/[·|]/)[0])
+      return first || direct
+    }
     const row = text(node, ['.s-card__attribute-row'])
     if (!row) return null
     const first = clean(row.split(/[·|]/)[0])
@@ -671,7 +675,7 @@
   function nextPageUrl(root = document, url = location.href) {
     const link = root.querySelector('a.pagination__next[href]')
     const href = link?.getAttribute('href')
-    if (href && !href.startsWith('javascript:')) {
+    if (href && href !== '#' && !href.startsWith('javascript:')) {
       try {
         return new URL(href, EBAY_ORIGIN).toString()
       } catch (_) {

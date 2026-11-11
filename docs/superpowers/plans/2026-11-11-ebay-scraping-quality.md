@@ -154,3 +154,4 @@ session and the extension loaded from `packages/extension`.
 5. `fix(extension): reject non-listing eBay pages before parsing`
 6. `fix(extension): broaden eBay detail readiness and sponsored detection`
 7. `docs: document the eBay adapter contract and quality checks`
+8. `fix(extension): handle lazy eBay images and disabled next links`
