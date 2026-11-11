@@ -12,7 +12,7 @@ from conftest import judged
 
 
 def seed_session(**overrides):
-    session = store.create("开发笔记本", ["jd"])
+    session = store.create("开发笔记本", "jd")
     session.requirements = {
         "budget_cny": 5000,
         "must_have": [],

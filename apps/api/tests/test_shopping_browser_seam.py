@@ -16,7 +16,7 @@ def test_shopping_browser_execute_source_does_not_call_private_browse():
 
 
 def test_dispatch_browse_search_applies_site_guard():
-    session = store.create("笔记本", ["jd"])
+    session = store.create("笔记本", "jd")
     box = ToolBox(session)
 
     result = asyncio.run(
@@ -27,7 +27,7 @@ def test_dispatch_browse_search_applies_site_guard():
 
 
 def test_shopping_browser_uses_dispatch(monkeypatch):
-    session = store.create("笔记本", ["jd"])
+    session = store.create("笔记本", "jd")
     box = ToolBox(session)
     seen: list[tuple[str, dict]] = []
 

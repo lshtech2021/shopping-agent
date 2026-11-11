@@ -19,7 +19,7 @@ def test_explicit_unlimited_clears_budget():
     from app.store import store
     from app.tools import ToolBox
 
-    session = store.create("笔记本", ["jd"])
+    session = store.create("笔记本", "jd")
     session.requirements["budget_cny"] = 5000
     result = ToolBox(session).update_requirements(budget_unlimited=True)
     assert result["requirements"]["budget_unlimited"] is True
@@ -58,7 +58,7 @@ def test_low_confidence_budget_is_clarified_via_model_tool(fake_llm):
             )
         ]
     )
-    session = store.create("笔记本 5000", ["jd"])
+    session = store.create("笔记本 5000", "jd")
     session.requirements = {
         "budget_cny": None,
         "budget_min_cny": None,

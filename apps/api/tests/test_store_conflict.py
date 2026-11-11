@@ -9,7 +9,7 @@ from app.store_pg import VersionConflict
 
 def test_version_conflict_does_not_overwrite_newer_products():
     store = SessionStore("memory")
-    session = store.create("笔记本", ["jd"])
+    session = store.create("笔记本", "jd")
     assert session.version == 1
 
     # Concurrent writer lands newer products at version 2.

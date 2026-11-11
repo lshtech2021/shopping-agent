@@ -8,7 +8,7 @@ from app.tools import ToolBox
 
 
 def seed_session():
-    session = store.create("需要一台开发笔记本", ["jd"])
+    session = store.create("需要一台开发笔记本", "jd")
     session.requirements = {
         "budget_cny": 5000,
         "must_have": ["32G内存"],

@@ -14,7 +14,7 @@ def test_health():
 def test_create_session_and_echo_message(mock_shopper):
     created = client.post(
         "/api/v1/sessions",
-        json={"requirement": "帮我挑笔记本", "sites": ["jd"]},
+        json={"requirement": "帮我挑笔记本", "site": "jd"},
     )
     assert created.status_code == 200
     body = created.json()

@@ -6,7 +6,7 @@ from app.store import SessionStore
 
 def test_soft_touch_does_not_persist_until_flush():
     store = SessionStore("memory")
-    session = store.create("笔记本", ["jd"])
+    session = store.create("笔记本", "jd")
     version_after_create = session.version
 
     session.products["p1"] = {"product_id": "p1", "title": "A"}
@@ -27,7 +27,7 @@ def test_soft_touch_does_not_persist_until_flush():
 
 def test_durable_touch_persists_immediately():
     store = SessionStore("memory")
-    session = store.create("笔记本", ["jd"])
+    session = store.create("笔记本", "jd")
     session.products["p2"] = {"product_id": "p2", "title": "B"}
     store.touch(session, durable=True)
     durable = store._repo.get(session.id)

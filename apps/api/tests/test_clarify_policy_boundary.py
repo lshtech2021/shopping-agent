@@ -39,7 +39,7 @@ def test_ask_user_is_the_only_wait_tool_registered_in_shopping_domain():
     from app.store import store
     from app.tools import ToolBox
 
-    session = store.create("笔记本", ["jd"])
+    session = store.create("笔记本", "jd")
     names = {spec.name for spec in build_shopping_tools(ToolBox(session), {})}
     assert "clarify" not in names
     assert "ask_user" in names

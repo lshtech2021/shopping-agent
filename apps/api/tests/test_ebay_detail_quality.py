@@ -24,7 +24,7 @@ def _ebay_product() -> dict:
 
 
 def test_fetch_detail_keeps_range_and_metadata(monkeypatch):
-    session = store.create("需要笔记本", ["ebay"])
+    session = store.create("需要笔记本", "ebay")
     session.products["p1"] = _ebay_product()
     box = ToolBox(session)
 

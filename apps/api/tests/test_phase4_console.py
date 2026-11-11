@@ -12,7 +12,7 @@ client = TestClient(app)
 def test_list_sessions_memory(mock_shopper):
     created = client.post(
         "/api/v1/sessions",
-        json={"requirement": "开发笔记本 5000", "sites": ["jd"]},
+        json={"requirement": "开发笔记本 5000", "site": "jd"},
     ).json()
     sid = created["session_id"]
     client.post(
@@ -62,7 +62,7 @@ def test_postgres_persistence(mock_shopper, monkeypatch):
 
     created = client.post(
         "/api/v1/sessions",
-        json={"requirement": "pgtest-开发笔记本 5000", "sites": ["jd"]},
+        json={"requirement": "pgtest-开发笔记本 5000", "site": "jd"},
     ).json()
     sid = created["session_id"]
     client.post(

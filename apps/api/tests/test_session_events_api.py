@@ -12,7 +12,7 @@ def test_log_event_is_readable_via_events_cursor():
     client = TestClient(app)
     created = client.post(
         "/api/v1/sessions",
-        json={"requirement": "笔记本", "sites": ["jd"]},
+        json={"requirement": "笔记本", "site": "jd"},
     ).json()
     sid = created["session_id"]
     session = store.get(sid)

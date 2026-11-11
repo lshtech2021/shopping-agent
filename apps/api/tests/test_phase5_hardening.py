@@ -19,9 +19,9 @@ client = TestClient(app)
 REQ = "帮我挑一台 5000 元内用于开发的笔记本，内存至少 32G"
 
 
-def _new_session(requirement: str = REQ, sites=("jd",)) -> str:
+def _new_session(requirement: str = REQ, site: str = "jd") -> str:
     return client.post(
-        "/api/v1/sessions", json={"requirement": requirement, "sites": list(sites)}
+        "/api/v1/sessions", json={"requirement": requirement, "site": site}
     ).json()["session_id"]
 
 
@@ -35,7 +35,7 @@ def test_missing_budget_asks_instead_of_false_parsing(mock_shopper):
     # interviews the user instead of guessing.
     assert body["interrupted"] and body["interrupt_reason"] == "clarify"
     assert "budget" in [q["id"] for q in body["clarify"]]
-    assert client.get(f"/api/v1/sessions/{sid}").json()["requirements"]["budget_cny"] is None
+    assert client.get(f"/api/v1/sessions/{sid}").json()["requirements"]["budget"] is None
 
 
 # --- turn-scoped logs --------------------------------------------------------

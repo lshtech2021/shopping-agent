@@ -5,12 +5,12 @@ from app.main import app
 client = TestClient(app)
 
 
-def test_dual_site_mock_closed_loop(mock_shopper):
+def test_single_site_mock_closed_loop(mock_shopper):
     created = client.post(
         "/api/v1/sessions",
         json={
             "requirement": "开发笔记本 预算5000 内存32G",
-            "sites": ["jd", "ebay"],
+            "site": "jd",
         },
     ).json()
     body = client.post(
@@ -21,14 +21,13 @@ def test_dual_site_mock_closed_loop(mock_shopper):
     assert body["recommendations"]
     detail = client.get(f"/api/v1/sessions/{created['session_id']}").json()
     sources = {p["source"] for p in detail["products"]}
-    assert "jd" in sources
-    assert "ebay" in sources
+    assert sources == {"jd"}
 
 
 def test_followup_reanalyze_without_new_search_when_stock_enough(mock_shopper):
     created = client.post(
         "/api/v1/sessions",
-        json={"requirement": "开发笔记本 5000", "sites": ["jd"]},
+        json={"requirement": "开发笔记本 5000", "site": "jd"},
     ).json()
     sid = created["session_id"]
     first = client.post(
@@ -54,7 +53,7 @@ def test_chat_text_does_not_mutate_session_sites(mock_shopper):
     """Sites are fixed at create time (Side Panel); chat must not rewrite them."""
     created = client.post(
         "/api/v1/sessions",
-        json={"requirement": "开发笔记本 5000", "sites": ["jd"]},
+        json={"requirement": "开发笔记本 5000", "site": "jd"},
     ).json()
     sid = created["session_id"]
     client.post(
@@ -74,7 +73,7 @@ def test_chat_text_does_not_mutate_session_sites(mock_shopper):
 def test_tighter_ram_constraint_can_research_when_empty(mock_shopper):
     created = client.post(
         "/api/v1/sessions",
-        json={"requirement": "笔记本 5000", "sites": ["jd"]},
+        json={"requirement": "笔记本 5000", "site": "jd"},
     ).json()
     sid = created["session_id"]
     client.post(

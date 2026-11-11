@@ -9,7 +9,7 @@ from app.tools import ToolBox
 
 
 def test_update_requirements_syncs_plan_metadata():
-    session = store.create("需要笔记本", ["ebay"])
+    session = store.create("需要笔记本", "ebay")
     state = {
         "plan": {
             "metadata": {

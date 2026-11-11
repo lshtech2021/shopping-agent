@@ -9,7 +9,7 @@ from app.tools import ToolBox
 
 
 def test_update_requirements_applies_explicit_patch_without_change_cues():
-    session = store.create("预算 5000 的笔记本", ["jd"])
+    session = store.create("预算 5000 的笔记本", "jd")
     session.requirements["budget_cny"] = 5000
 
     result = ToolBox(session).update_requirements(budget_cny=8000)
@@ -19,7 +19,7 @@ def test_update_requirements_applies_explicit_patch_without_change_cues():
 
 
 def test_domain_update_requirements_ignores_explicit_null_lists():
-    session = store.create("找一台笔记本", ["jd"])
+    session = store.create("找一台笔记本", "jd")
     spec = {
         tool.name: tool for tool in build_shopping_tools(ToolBox(session), {})
     }["update_requirements"]
@@ -37,7 +37,7 @@ def test_domain_update_requirements_ignores_explicit_null_lists():
 
 
 def test_ambiguous_list_constraints_are_not_applied():
-    session = store.create("找一台笔记本", ["jd"])
+    session = store.create("找一台笔记本", "jd")
     patch = RequirementPatch(
         must_have=["防水"],
         preferences=["红色"],

@@ -222,7 +222,7 @@ def test_runtime_updates_plan_from_tool_meta():
 
 
 def test_real_shopping_tools_progress_through_all_plan_steps(monkeypatch):
-    session = store.create("开发笔记本", ["jd"])
+    session = store.create("开发笔记本", "jd")
     session.requirements.update({"category": "笔记本", "budget_cny": 5000})
     session.products["p1"] = {
         "product_id": "p1",
@@ -434,7 +434,7 @@ def test_parallel_tool_calls_share_one_plan_step_snapshot():
 
 
 def test_shopping_search_result_carries_plan_step_and_evidence(monkeypatch):
-    session = store.create("laptop", ["jd"])
+    session = store.create("laptop", "jd")
     box = ToolBox(session)
     specs = {spec.name: spec for spec in build_shopping_tools(box, {})}
 

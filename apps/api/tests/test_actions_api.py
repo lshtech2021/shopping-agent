@@ -40,7 +40,7 @@ def test_action_api_create_next_and_idempotent_observation():
 def test_session_tools_exposes_mcp_style_json_schema():
     created = client.post(
         "/api/v1/sessions",
-        json={"requirement": "笔记本", "sites": ["jd"]},
+        json={"requirement": "笔记本", "site": "jd"},
     ).json()
     response = client.get(
         f"/api/v1/sessions/{created['session_id']}/tools"

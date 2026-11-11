@@ -5,7 +5,7 @@ from app.store import store
 
 
 def test_startup_turns_running_sessions_into_interrupted():
-    session = store.create("recovery", ["jd"])
+    session = store.create("recovery", "jd")
     session.status = "running"
     session.lease_owner = "dead-worker"
     store.touch(session)
@@ -20,7 +20,7 @@ def test_startup_turns_running_sessions_into_interrupted():
 
 
 def test_expired_lease_is_swept_without_touching_healthy_leases():
-    expired = store.create("expired", ["jd"])
+    expired = store.create("expired", "jd")
     expired.status = "running"
     expired.lease_owner = "dead-worker"
     expired.lease_expires_at = (
@@ -28,7 +28,7 @@ def test_expired_lease_is_swept_without_touching_healthy_leases():
     ).isoformat()
     store.touch(expired)
 
-    healthy = store.create("healthy", ["jd"])
+    healthy = store.create("healthy", "jd")
     healthy.status = "running"
     healthy.lease_owner = "live-worker"
     healthy.lease_expires_at = (
@@ -45,7 +45,7 @@ def test_expired_lease_is_swept_without_touching_healthy_leases():
 
 
 def test_lease_acquire_heartbeat_and_release():
-    session = store.create("lease", ["jd"])
+    session = store.create("lease", "jd")
     supervisor = RunSupervisor(store)
 
     owner = supervisor.acquire(session.id, ttl_seconds=60)

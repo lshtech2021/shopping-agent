@@ -6,7 +6,7 @@ from app.tools import ToolBox
 
 
 def test_failed_fetch_detail_does_not_consume_quota(monkeypatch):
-    session = store.create("笔记本", ["jd"])
+    session = store.create("笔记本", "jd")
     session.products["p1"] = {
         "product_id": "p1",
         "source": "jd",

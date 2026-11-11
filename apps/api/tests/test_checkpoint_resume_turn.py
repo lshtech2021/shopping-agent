@@ -36,7 +36,7 @@ def test_resume_loads_checkpoint_saved_before_turn_bump(fake_llm, monkeypatch):
         return AIMessage(content="已从断点继续")
 
     model = fake_llm([capture])
-    session = store.create("预算5000的笔记本", ["jd"])
+    session = store.create("预算5000的笔记本", "jd")
     session.requirements.update(
         {
             "budget_cny": 5000,

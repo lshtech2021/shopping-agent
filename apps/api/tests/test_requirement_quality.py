@@ -70,7 +70,7 @@ def test_review_requirements_failure_is_non_fatal():
 
 
 def test_update_requirements_tool_applies_llm_review(monkeypatch):
-    session = store.create("需要笔记本", ["ebay"])
+    session = store.create("需要笔记本", "ebay")
     state = {"plan": {"metadata": {"requirements": {}}}}
     specs = {
         spec.name: spec

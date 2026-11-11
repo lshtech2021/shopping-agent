@@ -11,7 +11,7 @@ def test_duplicate_message_with_idempotency_key_returns_original_response(
 ):
     created = client.post(
         "/api/v1/sessions",
-        json={"requirement": "笔记本 预算5000", "sites": ["jd"]},
+        json={"requirement": "笔记本 预算5000", "site": "jd"},
     ).json()
     session_id = created["session_id"]
 
@@ -35,7 +35,7 @@ def test_duplicate_message_with_idempotency_key_returns_original_response(
 def test_client_message_id_is_an_idempotency_alias(mock_shopper):
     created = client.post(
         "/api/v1/sessions",
-        json={"requirement": "笔记本 预算5000", "sites": ["jd"]},
+        json={"requirement": "笔记本 预算5000", "site": "jd"},
     ).json()
     session_id = created["session_id"]
 
@@ -54,7 +54,7 @@ def test_client_message_id_is_an_idempotency_alias(mock_shopper):
 def test_resume_is_rejected_for_a_done_session(mock_shopper):
     created = client.post(
         "/api/v1/sessions",
-        json={"requirement": "笔记本 预算5000", "sites": ["jd"]},
+        json={"requirement": "笔记本 预算5000", "site": "jd"},
     ).json()
     session_id = created["session_id"]
     client.post(

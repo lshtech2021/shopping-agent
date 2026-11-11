@@ -11,7 +11,7 @@ def _run(run_id: str = "run-1", **overrides) -> dict:
     record = {
         "id": run_id,
         "requirement": "开发笔记本",
-        "sites": ["jd"],
+        "site": "jd",
         "status": "idle",
         "requirements": {"budget_cny": 5000},
         "plan": None,

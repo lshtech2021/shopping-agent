@@ -21,7 +21,7 @@ MAX_GET_SESSION_CALLS = 0
 
 
 def test_shopping_tool_registry_uses_ask_user_not_clarify():
-    session = store.create("笔记本", ["jd"])
+    session = store.create("笔记本", "jd")
     specs = build_shopping_tools(ToolBox(session), {})
     names = {spec.name for spec in specs}
     assert "ask_user" in names
@@ -61,7 +61,7 @@ def test_complete_requirement_turn_stays_within_cost_budget(monkeypatch, mock_sh
         "/api/v1/sessions",
         json={
             "requirement": "帮我挑一台 5000 元内用于开发的笔记本，内存至少 32G",
-            "sites": ["jd"],
+            "site": "jd",
         },
     ).json()
     body = client.post(

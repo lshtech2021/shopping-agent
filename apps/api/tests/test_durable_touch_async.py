@@ -9,7 +9,7 @@ from app.store import store
 
 
 def test_durable_touch_runs_store_write_off_event_loop(monkeypatch):
-    session = store.create("笔记本", ["jd"])
+    session = store.create("笔记本", "jd")
     main_id = threading.get_ident()
     seen: dict[str, int] = {}
 

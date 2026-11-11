@@ -9,7 +9,7 @@ from app.tools import ToolBox
 
 
 def test_scrape_action_args_change_after_a_new_search(monkeypatch):
-    session = store.create("需要笔记本", ["ebay"])
+    session = store.create("需要笔记本", "ebay")
     box = ToolBox(session)
     calls: list[tuple[str, dict]] = []
 

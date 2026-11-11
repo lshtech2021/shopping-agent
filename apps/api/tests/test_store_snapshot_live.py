@@ -9,7 +9,7 @@ import asyncio
 
 def test_snapshot_prefers_live_working_copy_over_stale_db():
     store = SessionStore("memory")
-    session = store.create("笔记本", ["jd"])
+    session = store.create("笔记本", "jd")
     store.touch(session, durable=True)
     session.products["p1"] = {"product_id": "p1", "title": "live"}
     session.status = "running"
@@ -31,7 +31,7 @@ def test_snapshot_prefers_live_working_copy_over_stale_db():
 
 def test_durable_touch_retries_version_conflict(monkeypatch):
     store = SessionStore("memory")
-    session = store.create("笔记本", ["jd"])
+    session = store.create("笔记本", "jd")
     store.touch(session, durable=True)
     expected = session.version
 

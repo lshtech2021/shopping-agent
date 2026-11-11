@@ -9,7 +9,7 @@ from conftest import FitJudgeDouble
 
 
 def seed(**requirements):
-    session = store.create("测试", ["jd"])
+    session = store.create("测试", "jd")
     session.requirements = {
         "budget_cny": None,
         "must_have": [],

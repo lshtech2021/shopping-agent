@@ -10,7 +10,7 @@ from conftest import _call
 
 
 def seed_session(**overrides):
-    session = store.create(overrides.pop("requirement", "测试需求"), ["jd"])
+    session = store.create(overrides.pop("requirement", "测试需求"), "jd")
     requirements = {
         "budget_cny": None,
         "budget_min_cny": None,

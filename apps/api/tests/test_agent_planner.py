@@ -53,7 +53,7 @@ def test_shopping_planner_returns_steps_and_business_metadata():
     plan = asyncio.run(
         planner.plan(
             goal="pick a laptop",
-            context={"requirements": {"budget_cny": 5000}, "sites": ["jd"]},
+            context={"requirements": {"budget_cny": 5000}, "site": "jd"},
         )
     )
 
@@ -121,7 +121,7 @@ def test_shopping_planner_falls_back_when_model_raises():
     plan = asyncio.run(
         planner.plan(
             goal="pick a laptop",
-            context={"requirements": {"category": "笔记本"}, "sites": ["jd"]},
+            context={"requirements": {"category": "笔记本"}, "site": "jd"},
         )
     )
 

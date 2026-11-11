@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 
 class CreateSessionRequest(BaseModel):
     requirement: str = Field(min_length=1, max_length=4000)
-    sites: list[Literal["jd", "ebay"]] = Field(default_factory=lambda: ["jd"])
+    site: Literal["jd", "ebay"] = "jd"
 
 
 class CreateSessionResponse(BaseModel):
@@ -15,6 +15,19 @@ class CreateSessionResponse(BaseModel):
     status: str
     requirement: str
     sites: list[str]
+    settings: dict[str, Any] = Field(default_factory=dict)
+
+
+class PatchSessionSettingsRequest(BaseModel):
+    site: Optional[Literal["jd", "ebay"]] = None
+    currency: Optional[str] = Field(None, max_length=16)
+
+
+class PatchSessionSettingsResponse(BaseModel):
+    session_id: str
+    status: str
+    sites: list[str]
+    settings: dict[str, Any] = Field(default_factory=dict)
 
 
 class ClarifyQuestion(BaseModel):
@@ -81,6 +94,7 @@ class SessionDetail(BaseModel):
     status: str
     requirement: str
     sites: list[str]
+    settings: dict[str, Any] = Field(default_factory=dict)
     requirements: dict[str, Any] = Field(default_factory=dict)
     plan: Optional[dict[str, Any]] = None
     messages: list[dict[str, Any]] = Field(default_factory=list)

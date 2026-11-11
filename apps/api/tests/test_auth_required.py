@@ -14,7 +14,7 @@ def test_session_gets_open_when_auth_not_required(monkeypatch):
     monkeypatch.setattr(settings, "extension_token", "")
     created = client.post(
         "/api/v1/sessions",
-        json={"requirement": "笔记本", "sites": ["jd"]},
+        json={"requirement": "笔记本", "site": "jd"},
     ).json()
     sid = created["session_id"]
     assert client.get("/api/v1/sessions").status_code == 200
@@ -30,7 +30,7 @@ def test_auth_required_protects_session_reads(monkeypatch):
 
     created = client.post(
         "/api/v1/sessions",
-        json={"requirement": "笔记本", "sites": ["jd"]},
+        json={"requirement": "笔记本", "site": "jd"},
         headers={"X-Extension-Token": "secret"},
     )
     assert created.status_code == 200
@@ -52,7 +52,7 @@ def test_auth_required_with_empty_token_rejects_all(monkeypatch):
     assert (
         client.post(
             "/api/v1/sessions",
-            json={"requirement": "笔记本", "sites": ["jd"]},
+            json={"requirement": "笔记本", "site": "jd"},
         ).status_code
         == 403
     )

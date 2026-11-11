@@ -46,7 +46,7 @@ def test_answers_apply_and_turn_completes(mock_shopper):
     assert second["interrupted"] is False
     assert second["recommendations"]
     detail = client.get(f"/api/v1/sessions/{sid}").json()
-    assert detail["requirements"]["budget_cny"] == 8000.0  # upper bound of the chosen range
+    assert detail["requirements"]["budget"] == 8000.0  # upper bound of the chosen range
     assert detail["requirements"]["category"] == "笔记本"
     assert detail["pending_questions"] == []
 
@@ -66,7 +66,7 @@ def test_conflict_question_for_low_budget_high_ram(mock_shopper):
     ).json()
     assert relaxed["interrupted"] is False and relaxed["recommendations"]
     req = client.get(f"/api/v1/sessions/{sid}").json()["requirements"]
-    assert req["budget_cny"] is None and req["must_have"] == ["32G内存"]
+    assert req.get("budget") is None and req["must_have"] == ["32G内存"]
 
 
 def test_free_text_answer_is_parsed(mock_shopper):
@@ -77,7 +77,7 @@ def test_free_text_answer_is_parsed(mock_shopper):
         json={"content": "budget: 大概六千左右"},
     ).json()
     assert body["interrupted"] is False
-    assert client.get(f"/api/v1/sessions/{sid}").json()["requirements"]["budget_cny"] == 6000.0
+    assert client.get(f"/api/v1/sessions/{sid}").json()["requirements"]["budget"] == 6000.0
 
 
 def test_skip_keyword_bypasses_clarify(mock_shopper):

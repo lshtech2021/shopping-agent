@@ -34,13 +34,15 @@ from app.schemas import (
     CreateSessionResponse,
     MessageRequest,
     MessageResponse,
+    PatchSessionSettingsRequest,
+    PatchSessionSettingsResponse,
     ResumeRequest,
     RunEventList,
     RunEventOut,
     SessionDetail,
     SessionSummary,
 )
-from app.store import store
+from app.store import ALLOWED_SITES, store
 from app.trace import log_event
 from app.ws_hub import hub, origin_allowed
 
@@ -174,15 +176,13 @@ def create_session(
     payload: CreateSessionRequest,
     _token: None = Depends(require_extension_token_header),
 ) -> CreateSessionResponse:
-    if not payload.sites:
-        raise HTTPException(status_code=422, detail="至少选择一个站点")
-    session = store.create(payload.requirement, list(payload.sites))
+    session = store.create(payload.requirement, payload.site)
     log_event(
         session,
         "创建会话",
         stage="api.create_session",
         source="api",
-        data={"requirement": payload.requirement, "sites": list(payload.sites)},
+        data={"requirement": payload.requirement, "site": payload.site},
         persist=True,
     )
     return CreateSessionResponse(
@@ -190,6 +190,7 @@ def create_session(
         status=session.status,
         requirement=session.requirement,
         sites=session.sites,
+        settings=session.settings,
     )
 
 
@@ -206,6 +207,7 @@ async def get_session(
         status=session.status,
         requirement=session.requirement,
         sites=session.sites,
+        settings=session.settings,
         requirements=session.requirements,
         plan=session.plan,
         messages=session.messages,
@@ -218,6 +220,47 @@ async def get_session(
         execution_logs=session.execution_logs,
         created_at=session.created_at,
         updated_at=session.updated_at,
+    )
+
+
+@app.patch(
+    "/api/v1/sessions/{session_id}/settings",
+    response_model=PatchSessionSettingsResponse,
+)
+def patch_session_settings(
+    session_id: str,
+    payload: PatchSessionSettingsRequest,
+    _token: None = Depends(require_extension_token_header),
+) -> PatchSessionSettingsResponse:
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if payload.site is not None:
+        if payload.site not in ALLOWED_SITES:
+            raise HTTPException(status_code=422, detail="invalid site")
+        session.settings["site"] = payload.site
+        session.sites = [payload.site]
+    if payload.currency is not None:
+        session.settings["currency"] = payload.currency
+        session.settings["currency_source"] = "manual"
+    store.touch(session, durable=True)
+    log_event(
+        session,
+        "更新会话设置",
+        stage="api.patch_session_settings",
+        source="api",
+        data={
+            "site": session.settings.get("site"),
+            "currency": session.settings.get("currency"),
+            "currency_source": session.settings.get("currency_source"),
+        },
+        persist=True,
+    )
+    return PatchSessionSettingsResponse(
+        session_id=session.id,
+        status=session.status,
+        sites=session.sites,
+        settings=session.settings,
     )
 
 

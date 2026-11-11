@@ -18,6 +18,44 @@ from app.config import settings
 # through ``get`` / ``refresh``.
 SESSION_WARM_LIMIT = 200
 
+ALLOWED_SITES = ("jd", "ebay")
+
+
+def normalize_session_dict(data: dict) -> dict:
+    data = dict(data)
+    settings = dict(data.get("settings") or {})
+    sites = list(data.get("sites") or [])
+    site = settings.get("site") or (sites[0] if sites else None)
+    if site not in ALLOWED_SITES:
+        site = "jd"
+    settings["site"] = site
+    if "currency" not in settings:
+        settings["currency"] = None
+    if "currency_source" not in settings:
+        settings["currency_source"] = None
+    data["settings"] = settings
+    data["sites"] = [site]
+
+    req = dict(data.get("requirements") or {})
+    if "budget_cny" in req:
+        legacy_budget = req.pop("budget_cny")
+        if req.get("budget") is None and legacy_budget is not None:
+            req["budget"] = legacy_budget
+    if "budget_min_cny" in req:
+        legacy_min = req.pop("budget_min_cny")
+        if req.get("budget_min") is None and legacy_min is not None:
+            req["budget_min"] = legacy_min
+    data["requirements"] = req
+
+    products = dict(data.get("products") or {})
+    for pid, product in list(products.items()):
+        p = dict(product)
+        p.pop("price_cny", None)
+        p.pop("price_max_cny", None)
+        products[pid] = p
+    data["products"] = products
+    return data
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -28,6 +66,7 @@ class Session:
     id: str
     requirement: str
     sites: list[str]
+    settings: dict[str, Any] = field(default_factory=dict)
     status: str = "idle"
     requirements: dict[str, Any] = field(default_factory=dict)
     plan: Optional[dict[str, Any]] = None
@@ -55,10 +94,12 @@ class Session:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Session":
+        data = normalize_session_dict(data)
         return cls(
             id=str(data["id"]),
             requirement=str(data.get("requirement") or ""),
             sites=list(data.get("sites") or []),
+            settings=dict(data.get("settings") or {}),
             status=str(data.get("status") or "idle"),
             requirements=dict(data.get("requirements") or {}),
             plan=dict(data["plan"]) if data.get("plan") else None,
@@ -169,14 +210,21 @@ class SessionStore:
 
     # --- public API ----------------------------------------------------------
 
-    def create(self, requirement: str, sites: list[str]) -> Session:
+    def create(self, requirement: str, site: str) -> Session:
+        if site not in ALLOWED_SITES:
+            site = "jd"
         session = Session(
             id=uuid.uuid4().hex,
             requirement=requirement.strip(),
-            sites=list(sites),
+            sites=[site],
+            settings={
+                "site": site,
+                "currency": None,
+                "currency_source": None,
+            },
             requirements={
                 "raw": requirement.strip(),
-                "budget_cny": None,
+                "budget": None,
                 "must_have": [],
                 "preferences": [],
                 "category": None,

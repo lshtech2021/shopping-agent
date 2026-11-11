@@ -12,7 +12,7 @@ from app.tools import ToolBox
 
 
 def seed_session(**overrides):
-    session = store.create("测试需求", overrides.pop("sites", ["jd"]))
+    session = store.create("测试需求", overrides.pop("site", "jd"))
     requirements = {
         "budget_cny": None,
         "must_have": [],

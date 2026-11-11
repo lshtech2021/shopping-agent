@@ -17,7 +17,7 @@ class Context:
 
 
 def seed_session():
-    session = store.create("需要一台开发笔记本", ["jd"])
+    session = store.create("需要一台开发笔记本", "jd")
     session.requirements = {
         "budget_cny": 5000,
         "must_have": [],
@@ -290,7 +290,7 @@ def test_run_llm_policy_creates_and_persists_a_plan(monkeypatch):
 
     created = client.post(
         "/api/v1/sessions",
-        json={"requirement": "笔记本 预算5000", "sites": ["jd"]},
+        json={"requirement": "笔记本 预算5000", "site": "jd"},
     ).json()
     # Requirements already confirmed (e.g. from an earlier turn).
     store.get(created["session_id"]).requirements.update(

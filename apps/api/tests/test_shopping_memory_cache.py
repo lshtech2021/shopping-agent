@@ -9,7 +9,7 @@ from app.tools import ToolBox
 
 
 def test_summarize_reuses_cache_until_requirements_change(monkeypatch):
-    session = store.create("笔记本", ["jd"])
+    session = store.create("笔记本", "jd")
     box = ToolBox(session)
     memory = ShoppingMemory(session, box)
 

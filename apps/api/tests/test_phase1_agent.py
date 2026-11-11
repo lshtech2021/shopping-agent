@@ -10,7 +10,7 @@ def test_closed_loop_returns_recommendations(mock_shopper):
         "/api/v1/sessions",
         json={
             "requirement": "帮我挑一台 5000 元内用于开发的笔记本，内存至少 32G",
-            "sites": ["jd"],
+            "site": "jd",
         },
     ).json()
     session_id = created["session_id"]
@@ -37,7 +37,7 @@ def test_closed_loop_returns_recommendations(mock_shopper):
 def test_rate_limited_search_interrupts_and_resume_works(mock_shopper):
     created = client.post(
         "/api/v1/sessions",
-        json={"requirement": "笔记本 预算5000", "sites": ["jd"]},
+        json={"requirement": "笔记本 预算5000", "site": "jd"},
     ).json()
     session_id = created["session_id"]
 

@@ -6,7 +6,7 @@ from app.tools import ToolBox
 
 
 def test_upsert_listing_reuses_product_id_via_index():
-    session = store.create("笔记本", ["jd"])
+    session = store.create("笔记本", "jd")
     box = ToolBox(session)
     assert box._upsert_listing(
         "jd",

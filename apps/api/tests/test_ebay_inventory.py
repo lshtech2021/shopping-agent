@@ -120,7 +120,7 @@ def test_unavailable_product_is_ineligible():
 
 
 def test_query_inventory_exposes_ebay_observations():
-    session = store.create("需要笔记本", ["ebay"])
+    session = store.create("需要笔记本", "ebay")
     session.products["p1"] = {
         "product_id": "p1",
         "source": "ebay",

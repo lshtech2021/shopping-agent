@@ -10,7 +10,7 @@ def test_live_mode_without_extension_blocks_browse(mock_shopper, monkeypatch):
     monkeypatch.setattr(settings, "mock_browser", False)
     created = client.post(
         "/api/v1/sessions",
-        json={"requirement": "开发笔记本 5000", "sites": ["jd"]},
+        json={"requirement": "开发笔记本 5000", "site": "jd"},
     ).json()
     body = client.post(
         f"/api/v1/sessions/{created['session_id']}/messages",

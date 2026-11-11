@@ -55,13 +55,13 @@ def test_rest_requires_extension_token_when_configured(monkeypatch):
 
     denied = client.post(
         "/api/v1/sessions",
-        json={"requirement": "笔记本", "sites": ["jd"]},
+        json={"requirement": "笔记本", "site": "jd"},
     )
     assert denied.status_code == 403
 
     allowed = client.post(
         "/api/v1/sessions",
-        json={"requirement": "笔记本", "sites": ["jd"]},
+        json={"requirement": "笔记本", "site": "jd"},
         headers={"X-Extension-Token": "secret"},
     )
     assert allowed.status_code == 200

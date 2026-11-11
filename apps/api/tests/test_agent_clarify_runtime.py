@@ -10,7 +10,7 @@ client = TestClient(app)
 
 
 def seed_session(**overrides):
-    session = store.create("测试需求", overrides.pop("sites", ["jd"]))
+    session = store.create("测试需求", overrides.pop("site", "jd"))
     requirements = {
         "budget_cny": None,
         "must_have": [],
@@ -100,7 +100,7 @@ def test_card_reply_is_a_chat_message_the_model_saves(fake_llm):
     assert response.status_code == 200
     detail = client.get(f"/api/v1/sessions/{session.id}").json()
     assert detail["pending_questions"] == []
-    assert detail["requirements"]["budget_cny"] == 5000
+    assert detail["requirements"]["budget"] == 5000
     assert any(
         message["role"] == "user" and message["content"] == content
         for message in detail["messages"]
@@ -123,4 +123,4 @@ def test_resume_does_not_override_confirmed_budget(mock_shopper):
 
     assert body["session_id"] == session.id
     detail = client.get(f"/api/v1/sessions/{session.id}").json()
-    assert detail["requirements"]["budget_cny"] == 8000
+    assert detail["requirements"]["budget"] == 8000
