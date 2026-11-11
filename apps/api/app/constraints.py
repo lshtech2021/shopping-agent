@@ -95,7 +95,11 @@ def check_eligibility(
         has_budget = budget is not None or budget_min is not None
         currency = str(product.get("currency") or "").upper()
         session_currency = str(settings.get("currency") or "").upper()
-        if has_budget and session_currency and currency != session_currency:
+        if has_budget and (
+            not session_currency
+            or not currency
+            or currency != session_currency
+        ):
             violations.append("budget")
         else:
             if budget is not None and (

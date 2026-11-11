@@ -61,6 +61,22 @@ def test_budget_requires_matching_currency():
     assert "budget" in mismatch.violations
 
 
+def test_budget_rejects_missing_session_currency():
+    result = check_eligibility(
+        {
+            "source": "ebay",
+            "price": 500,
+            "currency": "USD",
+            "availability": "available",
+        },
+        {"budget": 600, "must_have": []},
+        settings={"site": "ebay", "currency": None},
+        sites=["ebay"],
+    )
+
+    assert "budget" in result.violations
+
+
 def test_recommend_rejects_over_budget_product():
     session = seed_session(budget=5000)
     session.products["p1"] = seed_product("p1", price=9000)

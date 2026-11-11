@@ -22,6 +22,16 @@ def isolated_store(monkeypatch):
     monkeypatch.setattr(settings, "extension_token", "")
     monkeypatch.setattr(settings, "extension_id", "")
     store.reset("memory")
+    original_create = store.create
+
+    def create_with_mock_currency(requirement, site):
+        session = original_create(requirement, site)
+        session.settings["currency"] = "CNY" if site == "jd" else "USD"
+        session.settings["currency_source"] = "detected"
+        return session
+
+    # Mock browsing stands in for opening a site whose currency was detected.
+    monkeypatch.setattr(store, "create", create_with_mock_currency)
     yield
     store.reset("memory")
 
