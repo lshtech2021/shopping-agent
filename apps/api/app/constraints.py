@@ -79,6 +79,9 @@ def check_product(
     if product.get("source") not in sites:
         violations.append("site")
 
+    if product.get("availability") == "unavailable":
+        violations.append("availability")
+
     if not requirements.get("budget_unlimited"):
         price = product.get("price_cny")
         price_cap = (

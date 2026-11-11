@@ -42,6 +42,7 @@ class Settings(BaseSettings):
         "HKD": 0.92,
         "SGD": 5.35,
         "NZD": 4.3,
+        "JPY": 0.048,
     }
 
 

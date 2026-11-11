@@ -179,22 +179,48 @@ def upsert_listing(
             "price_max_cny": existing.get("price_max_cny"),
             "price_is_range": existing.get("price_is_range", False),
         }
+    def _pick(name: str, default: Any = None) -> Any:
+        value = item.get(name)
+        if value is None:
+            value = existing.get(name, default)
+        return value
+
+    observation_fields = {
+        "image_url": _pick("image_url"),
+        "images": _pick("images") or [],
+        "listing_type": _pick("listing_type"),
+        "availability": _pick("availability"),
+        "location": _pick("location"),
+        "seller": _pick("seller"),
+        "watchers": _pick("watchers"),
+        "sold": _pick("sold"),
+        "quantity_available": _pick("quantity_available"),
+        "shipping_cost": _pick("shipping_cost"),
+        "returns": _pick("returns"),
+        "best_offer": _pick("best_offer"),
+        "bids": _pick("bids"),
+        "has_variations": _pick("has_variations"),
+        "variations": _pick("variations") or [],
+        "highlights": _pick("highlights") or [],
+        "item_number": _pick("item_number"),
+    }
     products[key] = {
         **existing,
         "product_id": key,
         "source": site,
         "source_product_id": source_id,
-        "url": item.get("url") or existing.get("url"),
-        "shop_name": item.get("shop_name") or existing.get("shop_name"),
-        "sales": item.get("sales", existing.get("sales")),
-        "rating": item.get("rating", existing.get("rating")),
-        "sponsored": item.get("sponsored", existing.get("sponsored", False)),
-        "shipping": item.get("shipping", existing.get("shipping")),
-        "condition": item.get("condition", existing.get("condition")),
-        "badges": item.get("badges", existing.get("badges") or []),
-        "category": item.get("category", existing.get("category")),
+        "url": _pick("url"),
+        "shop_name": _pick("shop_name"),
+        "sales": _pick("sales"),
+        "rating": _pick("rating"),
+        "sponsored": _pick("sponsored", False),
+        "shipping": _pick("shipping"),
+        "condition": _pick("condition"),
+        "badges": _pick("badges") or [],
+        "category": _pick("category"),
         "detail_fetched": existing.get("detail_fetched", False),
         "attributes": existing.get("attributes") or {},
+        **observation_fields,
         **listing_fields,
     }
     index[(site, source_id)] = key

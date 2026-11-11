@@ -90,6 +90,8 @@ class ShoppingCritic:
                     hints.append("先调用 query_inventory 评估候选是否符合品类与硬性要求")
                 if "detail" in eligibility.violations:
                     hints.append("先 fetch_detail 验证规格")
+                if "availability" in eligibility.violations:
+                    hints.append("移除已结束或不可购买的商品")
 
         plan_violation = self._plan_violation(state)
         if plan_violation:
@@ -104,6 +106,7 @@ class ShoppingCritic:
             "category",
             "detail",
             "unjudged",
+            "availability",
         }
         hard_violations = [
             violation
