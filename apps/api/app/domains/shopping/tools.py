@@ -6,9 +6,16 @@ from typing import Any, Literal, Optional
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from app import requirement_review
 from app.agent.tools import ToolResult, ToolSpec
 from app.domains.shopping.prompt import blocked_text
+from app.store import store
 from app.tools import BLOCKING, ToolBox
+
+
+async def _review_requirements(requirements: dict[str, Any]):
+    """Indirection point so tests can replace the LLM reviewer."""
+    return await requirement_review.review_requirements(requirements)
 
 
 class _NoArgs(BaseModel):
@@ -22,9 +29,16 @@ class _UpdateReq(BaseModel):
     category: Optional[str] = Field(None, description="品类，如 手机 / 跑鞋 / 笔记本")
     use_case: Optional[str] = Field(None, description="用途，如 通勤 / 送礼")
     must_have: Optional[list[str]] = Field(
-        None, description="硬性要求，如 ['防水']；若是内存请写成 '<数字>G内存'"
+        None,
+        description=(
+            "硬性要求，必须是商品页可核验的客观属性，如 ['防水']、"
+            "['32G内存']；不要把“性能足够高”“好用”等主观描述放这里"
+        ),
     )
-    preferences: Optional[list[str]] = Field(None, description="偏好（非硬性）")
+    preferences: Optional[list[str]] = Field(
+        None,
+        description="偏好（非硬性），如性能倾向、用途、外观",
+    )
 
 
 class _QueryInv(BaseModel):
@@ -33,13 +47,23 @@ class _QueryInv(BaseModel):
 
 class _Search(BaseModel):
     site: str = Field(description="jd 或 ebay")
-    query: str = Field(description="该站点的搜索词（eBay 用英文）")
+    query: str = Field(
+        description=(
+            "该站点的搜索词。eBay 使用 AND 匹配：1-3 个短关键词"
+            "（如 laptop、thinkpad laptop），不要写自然语言句子。"
+        )
+    )
     category_id: Optional[str] = Field(None, description="eBay 品类 ID，如 177")
     max_price: Optional[float] = Field(
-        None, description="预算上限（目标站点币种）"
+        None,
+        description=(
+            "预算上限（目标站点币种）。eBay 按汇率向下取整，"
+            "并预留运费/税费空间。"
+        ),
     )
     exclude_terms: list[str] = Field(
-        default_factory=list, description="追加到搜索词的排除词，如 -book"
+        default_factory=list,
+        description="排除词；传 book 或 -book 均可，后端会补 -",
     )
     sort: Optional[str] = Field(None, description="price_asc / price_desc")
 
@@ -101,6 +125,8 @@ def _compact_browse(result: dict[str, Any]) -> dict[str, Any]:
         "no_more",
         "no_results",
         "result_count",
+        "page_item_count",
+        "fallback_item_count",
         "has_next",
         "site",
         "reason",
@@ -239,11 +265,81 @@ def build_shopping_tools(
             for field in args.model_fields_set
             if getattr(args, field) is not None
         }
+        updated = box.update_requirements(**explicit_fields)
+
+        review = await _review_requirements(updated["requirements"])
+        if review is not None:
+            original = [
+                str(item)
+                for item in (updated["requirements"].get("must_have") or [])
+            ]
+            allowed = set(original)
+            hard = [item for item in review.hard_must_have if item in allowed]
+            hard_set = set(hard)
+            soft = [
+                item
+                for item in review.soft_must_have
+                if item in allowed and item not in hard_set
+            ]
+            dropped = [
+                item
+                for item in review.dropped_must_have
+                if item in allowed
+                and item not in hard_set
+                and item not in set(soft)
+            ]
+            handled = hard_set | set(soft) | set(dropped)
+            # Keep anything the reviewer omitted as hard rather than losing a
+            # user requirement.
+            hard += [item for item in original if item not in handled]
+            req = dict(updated["requirements"])
+            req["must_have"] = hard
+            if soft:
+                req["preferences"] = list(
+                    dict.fromkeys(
+                        [
+                            str(item)
+                            for item in (req.get("preferences") or [])
+                        ]
+                        + soft
+                    )
+                )
+            if req != updated["requirements"]:
+                box.session.requirements = req
+                store.touch(box.session)
+                updated = {**updated, "requirements": req}
+                notes = list(updated.get("parse_notes") or [])
+                if soft:
+                    notes.append(
+                        "moved_to_preferences: " + ", ".join(soft)
+                    )
+                if dropped:
+                    notes.append(
+                        "dropped_unrestricted: " + ", ".join(dropped)
+                    )
+                updated["parse_notes"] = notes
+            if review.clarify_question:
+                updated["needs_clarify"] = True
+                updated["clarify_question"] = {
+                    "field": "must_have",
+                    "question": review.clarify_question,
+                    "options": review.clarify_options[:4],
+                }
+            elif soft:
+                updated["needs_clarify"] = True
+
+        # Keep the plan's requirement snapshot current; the replanner reads it
+        # to choose the next search query.
+        plan = state.get("plan") if isinstance(state, dict) else None
+        if isinstance(plan, dict):
+            metadata = plan.get("metadata")
+            if isinstance(metadata, dict):
+                metadata["requirements"] = updated["requirements"]
         return ToolResult(
             call_id="",
             tool="update_requirements",
             ok=True,
-            data=box.update_requirements(**explicit_fields),
+            data=updated,
             meta=_plan_meta(_context, "requirements_updated"),
         )
 

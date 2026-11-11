@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 from app import fit_judge, llm
 from app.config import settings
+from app.domains.shopping import tools as shopping_tools
 from app.store import store
 
 
@@ -113,6 +114,18 @@ class FitJudgeDouble:
 @pytest.fixture(autouse=True)
 def fit_judge_double(monkeypatch):
     monkeypatch.setattr(fit_judge, "build_judge_model", lambda: FitJudgeDouble())
+
+
+@pytest.fixture(autouse=True)
+def requirement_review_double(monkeypatch):
+    """Keep tests deterministic; review-specific tests override this."""
+
+    async def _no_review(_requirements):
+        return None
+
+    monkeypatch.setattr(
+        shopping_tools, "_review_requirements", _no_review
+    )
 
 
 def judged(box):
