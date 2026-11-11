@@ -210,7 +210,7 @@ test('waitForListing resolves for usable cards and times out otherwise', async (
     await ebay.waitForListing(
       listing.window.document,
       listing.window.location.href,
-      100,
+      1000,
     ),
     true,
   )
@@ -227,6 +227,70 @@ test('waitForListing resolves for usable cards and times out otherwise', async (
     ),
     false,
   )
+})
+
+test('waitForListing waits for the card grid to stop growing', async () => {
+  const dom = new JSDOM(
+    `<html><body><ul id="list">
+      <li class="s-item">
+        <a class="s-item__link" href="/itm/1001"></a>
+        <div class="s-item__title">Laptop one</div>
+        <span class="s-item__price">$500.00</span>
+      </li>
+    </ul></body></html>`,
+    { url: 'https://www.ebay.com/sch/i.html?_nkw=laptop' },
+  )
+  setTimeout(() => {
+    const list = dom.window.document.querySelector('#list')
+    const item = dom.window.document.createElement('li')
+    item.className = 's-item'
+    item.innerHTML = `
+      <a class="s-item__link" href="/itm/1002"></a>
+      <div class="s-item__title">Laptop two</div>
+      <span class="s-item__price">$550.00</span>
+    `
+    list.appendChild(item)
+  }, 250)
+
+  assert.equal(
+    await ebay.waitForListing(
+      dom.window.document,
+      dom.window.location.href,
+      1500,
+    ),
+    true,
+  )
+  const result = ebay.parseListing(
+    dom.window.document,
+    dom.window.location.href,
+  )
+  assert.equal(result.items.length, 2)
+})
+
+test('zero-result fallback cards are not ingested', async () => {
+  const dom = loadDom(
+    'ebay-list-zero-results.html',
+    'https://www.ebay.com/sch/i.html?_nkw=laptop+for+software+development',
+  )
+  assert.equal(
+    await ebay.waitForListing(
+      dom.window.document,
+      dom.window.location.href,
+      1500,
+    ),
+    true,
+  )
+  const result = ebay.parseListing(
+    dom.window.document,
+    dom.window.location.href,
+  )
+  assert.equal(result.status, 'ok')
+  assert.deepEqual(result.items, [])
+  assert.equal(result.result_count, 0)
+  assert.equal(result.page_item_count, 0)
+  assert.equal(result.fallback_item_count, 1)
+  assert.equal(result.no_results, true)
+  assert.equal(result.has_next, false)
 })
 
 test('waitForDetail resolves for a hydrated detail page', async () => {

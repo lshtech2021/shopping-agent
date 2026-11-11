@@ -140,15 +140,53 @@ function isAllowedSiteUrl(site, url) {
   }
 }
 
+/**
+ * eBay treats every token in `_nkw` as required. Exclusion terms must carry a
+ * leading "-", and models sometimes send plain words such as "book".
+ */
+function splitTermText(value) {
+  const parts = []
+  let current = ''
+  for (const char of String(value || '')) {
+    if (
+      char === ',' ||
+      char === ' ' ||
+      char === '\t' ||
+      char === '\n' ||
+      char === '\r'
+    ) {
+      if (current) {
+        parts.push(current)
+        current = ''
+      }
+    } else {
+      current += char
+    }
+  }
+  if (current) parts.push(current)
+  return parts
+}
+
+function normalizeExcludeTerms(value) {
+  const entries = Array.isArray(value) ? value : [value]
+  const terms = []
+  for (const entry of entries) {
+    for (const term of splitTermText(entry)) {
+      let text = term
+      while (text.startsWith('-')) text = text.slice(1)
+      if (text) terms.push(`-${text}`)
+    }
+  }
+  return [...new Set(terms)].join(' ')
+}
+
 export function buildSearchUrl(site, query, options = {}) {
   const baseQuery = String(query || '').trim()
   if (site === 'jd') {
     return `https://search.jd.com/Search?keyword=${encodeURIComponent(baseQuery)}&enc=utf-8`
   }
   if (site === 'ebay') {
-    const exclusions = Array.isArray(options.excludeTerms)
-      ? options.excludeTerms.join(' ')
-      : String(options.excludeTerms || '').trim()
+    const exclusions = normalizeExcludeTerms(options.excludeTerms)
     const keywordText = exclusions ? `${baseQuery} ${exclusions}` : baseQuery
     let url = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(keywordText)}`
     if (options.categoryId) {
@@ -487,6 +525,10 @@ async function _runBrowserJob(tool, args = {}) {
       log.info('extension.scrape', `列表解析完成 items=${itemCount}`, {
         status: result.status,
         itemCount,
+        resultCount: result.result_count ?? null,
+        pageItemCount: result.page_item_count ?? null,
+        fallbackItemCount: result.fallback_item_count ?? 0,
+        firstTitle: result.items?.[0]?.title || null,
       })
       return withLogs(
         {

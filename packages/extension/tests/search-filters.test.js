@@ -27,6 +27,25 @@ test('buildSearchUrl applies eBay category, price, exclusions and sort', async (
   )
 })
 
+test('buildSearchUrl prefixes plain eBay exclusion terms', async () => {
+  const { buildSearchUrl } = await load()
+  assert.equal(
+    buildSearchUrl('ebay', 'used laptop for software development', {
+      categoryId: '177',
+      maxPrice: 700,
+      excludeTerms: ['book', 'accessory', '-book'],
+      sort: 'price_desc',
+    }),
+    'https://www.ebay.com/sch/i.html?_nkw=used%20laptop%20for%20software%20development%20-book%20-accessory&_sacat=177&_udhi=700&_sop=16&_ipg=60',
+  )
+  assert.equal(
+    buildSearchUrl('ebay', 'laptop', {
+      excludeTerms: 'book, accessory',
+    }),
+    'https://www.ebay.com/sch/i.html?_nkw=laptop%20-book%20-accessory&_ipg=60',
+  )
+})
+
 test('buildSearchUrl keeps the plain eBay URL without filters', async () => {
   const { buildSearchUrl } = await load()
   assert.equal(

@@ -58,8 +58,12 @@
     return Boolean(text(node, ['.s-item__price', '.s-card__price']))
   }
 
+  function countUsableCards(root) {
+    return [...root.querySelectorAll(ITEM_SELECTORS)].filter(usableCard).length
+  }
+
   function hasUsableListing(root) {
-    return [...root.querySelectorAll(ITEM_SELECTORS)].some(usableCard)
+    return countUsableCards(root) > 0
   }
 
   function hasDetailSignal(root) {
@@ -394,13 +398,16 @@
 
     const page = currentPageNumber(baseUrl)
     const resultCount = totalResultCount(root)
-    if (!items.length && hasNoResults(root)) {
+    if (hasNoResults(root) || resultCount === 0) {
+      // eBay often shows "results matching fewer words" fallback cards when
+      // the exact query has no matches. Never ingest those as real results.
       return {
         status: 'ok',
         items: [],
         page,
         result_count: 0,
         page_item_count: 0,
+        fallback_item_count: items.length,
         has_next: false,
         next_url: null,
         no_results: true,
@@ -412,6 +419,7 @@
       page,
       result_count: resultCount ?? items.length,
       page_item_count: items.length,
+      fallback_item_count: 0,
       has_next: hasNextPage(root, baseUrl),
       next_url: nextPageUrl(root, baseUrl),
     }
@@ -654,10 +662,29 @@
     url = location.href,
     timeoutMs = 8000,
   ) {
+    let lastCount = -1
+    let stablePolls = 0
     return waitUntil(() => {
-      if (hasUsableListing(root)) return true
-      if (classifyPage(root, url).status) return true
-      return hasNoResults(root)
+      const problem = classifyPage(root, url)
+      if (problem.status) return true
+      if (hasNoResults(root)) return true
+
+      const count = countUsableCards(root)
+      const total = totalResultCount(root)
+      if (total === 0) {
+        // The header may briefly say 0 while the grid is still hydrating.
+        stablePolls = count === lastCount ? stablePolls + 1 : 0
+        lastCount = count
+        return stablePolls >= 5
+      }
+      if (count === 0) return false
+      if (count === lastCount) {
+        stablePolls += 1
+      } else {
+        lastCount = count
+        stablePolls = 0
+      }
+      return stablePolls >= 3
     }, timeoutMs)
   }
 
