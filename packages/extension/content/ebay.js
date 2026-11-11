@@ -178,6 +178,137 @@
     })
   }
 
+  function upgradeImage(url) {
+    if (!url) return null
+    const absolute = url.startsWith('//') ? `https:${url}` : url
+    return absolute.replace(/s-l\d+\./, 's-l1600.')
+  }
+
+  function imageUrlOf(node) {
+    const image = node.querySelector(
+      'img.s-item__image-img, img.s-card__image, img[src*="ebayimg"], img[data-src*="ebayimg"]',
+    )
+    return upgradeImage(
+      image?.getAttribute('src') || image?.getAttribute('data-src'),
+    )
+  }
+
+  /**
+   * Keep the variation parameters that select a specific price while dropping
+   * eBay tracking parameters.
+   */
+  function normalizeItemUrl(href, sourceProductId) {
+    try {
+      const parsed = new URL(href, EBAY_ORIGIN)
+      const itemId = sourceProductId || extractItemId(parsed.pathname)
+      if (!itemId) return null
+      const keep = new URLSearchParams()
+      for (const key of ['var', 'epid']) {
+        const value = parsed.searchParams.get(key)
+        if (value) keep.set(key, value)
+      }
+      const query = keep.toString()
+      return `${EBAY_ORIGIN}/itm/${itemId}${query ? `?${query}` : ''}`
+    } catch (_) {
+      return sourceProductId ? `${EBAY_ORIGIN}/itm/${sourceProductId}` : null
+    }
+  }
+
+  function ratingOf(node) {
+    const element = node.querySelector(
+      '.x-star-rating, [class*="star-rating"], [aria-label*="out of 5 stars"]',
+    )
+    if (!element) return null
+    return parseUtils.parseRating(
+      element.getAttribute('aria-label') ||
+        element.getAttribute('title') ||
+        element.textContent,
+    )
+  }
+
+  function conditionOf(node) {
+    const direct = text(node, [
+      '.s-item__subtitle',
+      '.s-card__subtitle',
+      '.SECONDARY_INFO',
+    ])
+    if (direct) return direct
+    const row = text(node, ['.s-card__attribute-row'])
+    if (!row) return null
+    const first = clean(row.split(/[·|]/)[0])
+    return /^(new|brand new|pre-owned|used|refurbished|open box|for parts|new other)/i.test(
+      first,
+    )
+      ? first
+      : null
+  }
+
+  function shippingOf(node) {
+    const direct = text(node, [
+      '.s-item__shipping',
+      '.s-item__logisticsCost',
+      '.s-card__shipping',
+    ])
+    if (direct) return direct
+    const row = text(node, ['.s-card__attribute-row'])
+    if (!row) return null
+    return (
+      row
+        .split(/[·|]/)
+        .map(clean)
+        .find((part) => /shipping|delivery|postage/i.test(part)) || null
+    )
+  }
+
+  function listingTypeOf(node) {
+    const raw = text(node, [
+      '.s-item__purchase-options-with-icon',
+      '.s-item__purchase-options',
+      '.s-card__purchase-options',
+    ])
+    if (!raw) return null
+    if (/auction|bid/i.test(raw)) return 'auction'
+    if (/buy it now/i.test(raw)) return 'buy_it_now'
+    return null
+  }
+
+  function sponsoredOf(node) {
+    const badge = node.querySelector(
+      '.s-item__ad-badge, .s-card__ad-badge, [data-testid="s-card__ad-badge"]',
+    )
+    if (badge && /sponsored/i.test(clean(badge.textContent))) return true
+    return [...node.querySelectorAll('span')].some(
+      (element) =>
+        element.children.length === 0 &&
+        /^sponsored$/i.test(clean(element.textContent)),
+    )
+  }
+
+  function totalResultCount(root) {
+    const raw = text(root, [
+      '.srp-controls__count-heading',
+      '.result-count__count-heading',
+      '[data-testid="srp-controls__count-heading"]',
+    ])
+    if (!raw) return null
+    const match =
+      raw.match(/\bof\s+([\d,]+)/i) ||
+      raw.match(/([\d,]+)\+?\s+results?/i) ||
+      raw.match(/^([\d,]+)/)
+    if (!match) return null
+    const value = Number(match[1].replace(/,/g, ''))
+    return Number.isFinite(value) ? value : null
+  }
+
+  function pageSizeOf(url) {
+    try {
+      const value = Number(new URL(url).searchParams.get('_ipg'))
+      return Number.isFinite(value) && value > 0 ? value : 60
+    } catch (_) {
+      return 60
+    }
+  }
+
   function categoryOf(root) {
     const links = [...root.querySelectorAll('.breadcrumbs a, .se-crumb a')]
     if (!links.length) return null
@@ -205,75 +336,79 @@
     const category = categoryOf(root)
     const items = []
     for (const node of root.querySelectorAll(ITEM_SELECTORS)) {
-      const link =
-        node.querySelector('a.s-item__link[href*="/itm/"]') ||
-        node.querySelector('a.su-link[href*="/itm/"]') ||
-        node.querySelector('a[href*="/itm/"]')
+      const link = itemLink(node)
       const href = link?.getAttribute('href') || ''
       const sourceProductId = extractItemId(href)
       const title = clean(
         text(node, ['.s-item__title', '.s-card__title']),
-      ).replace(/\s*Opens in a new window.*$/i, '')
+      )
+        .replace(/^(?:New Listing|Sponsored)\s*/i, '')
+        .replace(/\s*Opens in a new window.*$/i, '')
+        .trim()
       if (!sourceProductId || !title || /^shop on ebay$/i.test(title)) continue
-      const priceText = text(node, ['.s-item__price', '.s-card__price'])
-      const priceRange = parseUtils.parsePriceRange(priceText)
-      const shopName = text(node, ['.s-item__seller-info-text'])
-      const ratingText = text(node, [
-        '.x-star-rating',
-        '.s-item__reviews',
-        '[class*="star-rating"]',
+
+      const priceText = text(node, [
+        '.s-item__price',
+        '.s-card__price',
+        '[data-testid="item-price"]',
+        '.s-card__price-primary',
       ])
-      const salesText = text(node, [
+      const priceRange = parseUtils.parsePriceRange(priceText)
+      const shopName = text(node, [
+        '.s-item__seller-info-text',
+        '.s-card__seller',
+        '[data-testid="seller-info"]',
+      ])
+      const hotnessText = text(node, [
         '.s-item__hotness',
         '.s-item__additionalItemHotness',
+        '.s-card__attribute-row',
       ])
-      const shipping = text(node, [
-        '.s-item__shipping',
-        '.s-item__logisticsCost',
-      ])
-      const condition = text(node, ['.s-item__subtitle', '.SECONDARY_INFO'])
+      const condition = conditionOf(node)
       items.push({
         source_product_id: String(sourceProductId),
-        url: `${EBAY_ORIGIN}/itm/${sourceProductId}`,
+        url: normalizeItemUrl(href, sourceProductId),
         title,
         price: priceRange ? priceRange.min : parseUtils.parsePrice(priceText),
         price_max: priceRange ? priceRange.max : null,
         price_is_range: Boolean(priceRange),
         currency: parseUtils.parseCurrency(priceText, 'USD'),
+        image_url: imageUrlOf(node),
         shop_name: shopName,
-        sales: parseUtils.parseSales(salesText),
-        rating: parseUtils.parseRating(ratingText),
-        sponsored: Boolean(
-          node.querySelector('.s-item__etrs-text, .s-item__ad-badge'),
-        ),
-        shipping,
+        sales: parseUtils.parseSales(hotnessText, { requireSold: true }),
+        watchers: parseUtils.parseWatchers(hotnessText),
+        rating: ratingOf(node),
+        sponsored: sponsoredOf(node),
+        shipping: shippingOf(node),
         condition,
         badges: condition ? [condition] : [],
         category,
+        listing_type: listingTypeOf(node),
       })
     }
-    const bodyText = root.body?.innerText || root.body?.textContent || ''
-    if (
-      !items.length &&
-      /no exact matches found|0 results|did not match any|no results found/i.test(
-        bodyText,
-      )
-    ) {
+
+    const page = currentPageNumber(baseUrl)
+    const resultCount = totalResultCount(root)
+    if (!items.length && hasNoResults(root)) {
       return {
         status: 'ok',
         items: [],
-        page: currentPageNumber(baseUrl),
+        page,
         result_count: 0,
+        page_item_count: 0,
         has_next: false,
+        next_url: null,
         no_results: true,
       }
     }
     return {
       status: 'ok',
       items,
-      page: currentPageNumber(baseUrl),
-      result_count: items.length,
+      page,
+      result_count: resultCount ?? items.length,
+      page_item_count: items.length,
       has_next: hasNextPage(root, baseUrl),
+      next_url: nextPageUrl(root, baseUrl),
     }
   }
 
@@ -355,12 +490,27 @@
   function nextPageUrl(root = document, url = location.href) {
     const link = root.querySelector('a.pagination__next[href]')
     const href = link?.getAttribute('href')
-    if (!href || href.startsWith('javascript:')) return null
-    try {
-      return new URL(href, EBAY_ORIGIN).toString()
-    } catch (_) {
-      return null
+    if (href && !href.startsWith('javascript:')) {
+      try {
+        return new URL(href, EBAY_ORIGIN).toString()
+      } catch (_) {
+        /* fall through to the URL-based fallback */
+      }
     }
+
+    const page = currentPageNumber(url)
+    const total = totalResultCount(root)
+    const pageSize = pageSizeOf(url)
+    if (total && page * pageSize < total) {
+      try {
+        const parsed = new URL(url, EBAY_ORIGIN)
+        parsed.searchParams.set('_pgn', String(page + 1))
+        return parsed.toString()
+      } catch (_) {
+        return null
+      }
+    }
+    return null
   }
 
   function hasNextPage(root = document, url = location.href) {

@@ -28,6 +28,65 @@ test('parseListing extracts ebay cards and skips shop on ebay', () => {
   assert.ok(ebay.nextPageUrl(dom.window.document, dom.window.location.href))
 })
 
+test('parseListing enriches modern eBay cards', () => {
+  const dom = loadDom(
+    'ebay-list-modern.html',
+    'https://www.ebay.com/sch/i.html?_nkw=thinkpad&_ipg=60',
+  )
+  const result = ebay.parseListing(dom.window.document, dom.window.location.href)
+
+  assert.equal(result.status, 'ok')
+  assert.equal(result.items.length, 2)
+  const [first, second] = result.items
+
+  assert.equal(first.title, 'Lenovo ThinkPad T14')
+  assert.equal(first.url, 'https://www.ebay.com/itm/111222333444?var=555')
+  assert.equal(
+    first.image_url,
+    'https://i.ebayimg.com/images/g/abc/s-l1600.jpg',
+  )
+  assert.equal(first.price, 620)
+  assert.equal(first.price_max, 780)
+  assert.equal(first.price_is_range, true)
+  assert.equal(first.currency, 'USD')
+  assert.equal(first.condition, 'Pre-Owned')
+  assert.equal(first.shipping, 'Free delivery')
+  assert.equal(first.sales, 12)
+  assert.equal(first.watchers, null)
+  assert.equal(first.rating, 4.6)
+  assert.equal(first.sponsored, true)
+  assert.equal(first.category, 'Laptops')
+
+  assert.equal(second.price, 12800)
+  assert.equal(second.currency, 'JPY')
+  assert.equal(second.sales, null)
+  assert.equal(second.watchers, 10)
+  assert.equal(second.rating, 4.5)
+  assert.equal(second.image_url, 'https://i.ebayimg.com/images/g/jpy/s-l1600.jpg')
+
+  assert.equal(result.result_count, 1234)
+  assert.equal(result.page_item_count, 2)
+  assert.equal(result.page, 1)
+  assert.equal(result.has_next, true)
+  assert.equal(
+    result.next_url,
+    'https://www.ebay.com/sch/i.html?_nkw=thinkpad&_ipg=60&_pgn=2',
+  )
+})
+
+test('nextPageUrl falls back to the result count without a next anchor', () => {
+  const dom = new JSDOM(
+    '<html><body><div class="srp-controls__count-heading">1,234 results</div></body></html>',
+    {
+      url: 'https://www.ebay.com/sch/i.html?_nkw=x&_ipg=60&_pgn=2',
+    },
+  )
+  const next = ebay.nextPageUrl(dom.window.document, dom.window.location.href)
+  const parsed = new URL(next)
+  assert.equal(parsed.searchParams.get('_pgn'), '3')
+  assert.equal(parsed.searchParams.get('_nkw'), 'x')
+})
+
 test('legitimate zero-result search is not a parse error', () => {
   const dom = new JSDOM(
     '<html><body><div class="srp-save-null-search">No exact matches found</div></body></html>',

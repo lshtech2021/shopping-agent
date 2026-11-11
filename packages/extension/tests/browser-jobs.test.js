@@ -305,10 +305,21 @@ test('job results carry job_id, document_url and page', async () => {
 test('currency and price ranges are parsed explicitly', () => {
   const parseUtils = require('../content/parse-utils.js')
   assert.equal(parseUtils.parseCurrency('C $620.00', 'USD'), 'CAD')
+  assert.equal(parseUtils.parseCurrency('¥12,800', 'USD'), 'JPY')
+  assert.equal(parseUtils.parseCurrency('RMB 1,000.00', 'USD'), 'CNY')
   assert.deepEqual(parseUtils.parsePriceRange('$620.00 to $850.00'), {
     min: 620,
     max: 850,
   })
+  assert.deepEqual(parseUtils.parsePriceRange('US $12.99 to US $19.99'), {
+    min: 12.99,
+    max: 19.99,
+  })
+  assert.equal(parseUtils.parseRating('1,234 product ratings'), null)
+  assert.equal(parseUtils.parseRating('4.6 out of 5 stars'), 4.6)
+  assert.equal(parseUtils.parseSales('10 watchers', { requireSold: true }), null)
+  assert.equal(parseUtils.parseSales('1.2K sold', { requireSold: true }), 1200)
+  assert.equal(parseUtils.parseWatchers('10 watchers'), 10)
 })
 
 test('block detection ignores product-description words when title/price exist', () => {
