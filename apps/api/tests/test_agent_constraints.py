@@ -154,6 +154,29 @@ def test_shipping_unknown_is_incomplete_when_caps_are_configured():
     assert "cost_incomplete" in result.violations
 
 
+def test_shipping_caps_do_not_apply_to_jd():
+    product = {
+        "source": "jd",
+        "price": 5000,
+        "currency": "CNY",
+        "availability": "available",
+        "cost_complete": False,
+    }
+    result = check_eligibility(
+        product,
+        {"must_have": []},
+        settings={
+            "site": "jd",
+            "currency": "CNY",
+            "max_shipping_ratio": 0.10,
+            "max_shipping_cost": None,
+        },
+        sites=["jd"],
+    )
+    assert "shipping" not in result.violations
+    assert "cost_incomplete" not in result.violations
+
+
 def test_shipping_currency_mismatch_skips_caps():
     product = _shipping_product(
         shipping_cost=80,

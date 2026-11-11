@@ -33,6 +33,10 @@ def _number(value: Any) -> float | None:
 
 
 def _shipping_caps_configured(settings: dict[str, Any]) -> bool:
+    # JD prices normally include delivery and its detail parser has no
+    # shipping amount, so caps only apply to eBay evidence.
+    if settings.get("site") != "ebay":
+        return False
     return (
         _number(settings.get("max_shipping_ratio")) is not None
         or _number(settings.get("max_shipping_cost")) is not None
@@ -44,6 +48,8 @@ def _shipping_cap_exceeded(product: dict[str, Any], settings: dict[str, Any]) ->
 
     An absolute cap is a hard veto even when the percentage check passes.
     """
+    if settings.get("site") != "ebay":
+        return False
     ratio = _number(settings.get("max_shipping_ratio"))
     absolute = _number(settings.get("max_shipping_cost"))
     if ratio is None and absolute is None:
