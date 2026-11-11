@@ -29,6 +29,7 @@ def _pg_url(database_url: str | None) -> str | None:
 
 
 _JSON_COLUMNS = {
+    "settings",
     "sites",
     "requirements",
     "plan",
@@ -44,6 +45,7 @@ _JSON_COLUMNS = {
 _ALL_COLUMNS = [
     "id",
     "requirement",
+    "settings",
     "sites",
     "status",
     "requirements",
@@ -155,6 +157,7 @@ class RunRepository:
                 CREATE TABLE IF NOT EXISTS runs (
                     id TEXT PRIMARY KEY,
                     requirement TEXT NOT NULL,
+                    settings JSONB NOT NULL DEFAULT '{}'::jsonb,
                     sites JSONB NOT NULL,
                     status TEXT NOT NULL,
                     requirements JSONB NOT NULL,
@@ -176,6 +179,15 @@ class RunRepository:
                     lease_expires_at TEXT,
                     heartbeat_at TEXT
                 )
+                """
+            )
+            # Older deployments created ``runs`` without settings, which made
+            # currency/site disappear on every message refresh.
+            conn.execute(
+                """
+                ALTER TABLE runs
+                ADD COLUMN IF NOT EXISTS settings JSONB
+                NOT NULL DEFAULT '{}'::jsonb
                 """
             )
             conn.execute(
@@ -238,15 +250,17 @@ class RunRepository:
                 BEGIN
                     IF to_regclass('public.sessions') IS NOT NULL THEN
                         INSERT INTO runs (
-                            id, requirement, sites, status, requirements, plan,
-                            messages, products, recommendations, quotas,
-                            searched_sites, interrupt_reason, pending_questions,
-                            blocked_sites, execution_logs, turn, version,
-                            created_at, updated_at
+                            id, requirement, settings, sites, status,
+                            requirements, plan, messages, products,
+                            recommendations, quotas, searched_sites,
+                            interrupt_reason, pending_questions, blocked_sites,
+                            execution_logs, turn, version, created_at,
+                            updated_at
                         )
                         SELECT
                             payload->>'id',
                             COALESCE(payload->>'requirement', ''),
+                            COALESCE(payload->'settings', '{}'::jsonb),
                             COALESCE(payload->'sites', '[]'::jsonb),
                             COALESCE(payload->>'status', 'idle'),
                             COALESCE(payload->'requirements', '{}'::jsonb),

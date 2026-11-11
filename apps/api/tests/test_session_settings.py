@@ -6,6 +6,13 @@ from app.store import Session, SessionStore, store
 client = TestClient(app)
 
 
+def test_runs_table_persists_session_settings():
+    from app import store_pg
+
+    assert "settings" in store_pg._ALL_COLUMNS
+    assert "settings" in store_pg._JSON_COLUMNS
+
+
 def test_create_sets_singular_site_settings(tmp_path, monkeypatch):
     store = SessionStore("memory")
     session = store.create("买笔记本", "jd")

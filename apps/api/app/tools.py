@@ -127,6 +127,7 @@ class ToolBox:
             "session_id": self.session.id,
             "status": self.session.status,
             "sites": self.session.sites,
+            "settings": dict(self.session.settings),
             "requirement": self.session.requirement,
             "requirements": self.session.requirements,
             "product_count": len(products),
