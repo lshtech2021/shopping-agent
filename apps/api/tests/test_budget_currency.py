@@ -25,6 +25,30 @@ def test_budget_sets_session_currency_when_stated():
     assert result["needs_clarify"] is False
 
 
+def test_unlimited_upper_keeps_a_confirmed_lower_bound():
+    session = store.create("预算 5000 到 8000 的笔记本", "ebay")
+    session.settings["currency"] = "CNY"
+    session.requirements.update(
+        {
+            "budget": 8000,
+            "budget_min": 5000,
+            "budget_currency": "CNY",
+            "budget_unlimited": False,
+        }
+    )
+
+    result = ToolBox(session).update_requirements(
+        budget_unlimited=True,
+        budget_min=5000,
+        budget_currency="CNY",
+    )
+
+    assert result["requirements"]["budget"] is None
+    assert result["requirements"]["budget_min"] == 5000
+    assert result["requirements"]["budget_currency"] == "CNY"
+    assert result["requirements"]["budget_unlimited"] is True
+
+
 def test_budget_without_currency_is_not_written():
     session = store.create("预算 5000 的笔记本", "ebay")
     session.settings["currency"] = None
