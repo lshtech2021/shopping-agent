@@ -525,7 +525,9 @@ def build_shopping_tools(
             meta=_plan_meta(
                 _context,
                 f"count={result.get('count')}",
-                done=True,
+                # An empty inventory does not complete verification; the
+                # agent may need to paginate or search again.
+                done=bool(result.get("count")),
                 step_id=step_for("query_inventory"),
             ),
         )

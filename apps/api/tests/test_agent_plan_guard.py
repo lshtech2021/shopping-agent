@@ -75,6 +75,41 @@ def test_next_page_is_skipped_while_recommend_step_is_active():
     assert calls == []
 
 
+def test_empty_inventory_does_not_complete_verification():
+    session = store.create("generic requirement", "jd")
+    session.requirements = {
+        "category": "widget",
+        "must_have": ["waterproof"],
+        "preferences": [],
+    }
+    state = {
+        "plan": {
+            "steps": [
+                {"id": "search", "status": "done"},
+                {"id": "verify", "status": "in_progress"},
+                {"id": "recommend", "status": "pending"},
+            ],
+            "metadata": {
+                "step_roles": {
+                    "search": "search",
+                    "verify": "verify",
+                    "recommend": "recommend",
+                }
+            },
+        }
+    }
+    spec = {
+        tool.name: tool
+        for tool in build_shopping_tools(ToolBox(session), state)
+    }["query_inventory"]
+
+    result = asyncio.run(spec.handler(spec.args_model(limit=10), None))
+
+    assert result.data["count"] == 0
+    assert state["plan"]["steps"][1]["status"] == "in_progress"
+    assert state["plan"]["steps"][2]["status"] == "pending"
+
+
 def test_search_force_allows_an_explicit_new_search():
     session = store.create("generic requirement", "jd")
     box = ToolBox(session)
