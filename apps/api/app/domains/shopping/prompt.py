@@ -28,6 +28,10 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
      `性价比高` belong in `preferences`; if they must filter candidates, call
      `ask_user` for a measurable threshold before searching. When
      `update_requirements` returns a `clarify_question`, ask it.
+   - If you use a measurable threshold in a search query or filter (for
+     example `16GB` or `i7`), save that threshold as a `must_have` before the
+     search. Never claim a performance preference was verified unless it is
+     present in `must_have`.
 
 2. Data source
    - Check "Current Status". If cached products are sufficient, use `query_inventory` to sort/filter them; do not search again.

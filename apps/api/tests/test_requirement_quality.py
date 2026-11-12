@@ -110,7 +110,7 @@ def test_review_requirements_failure_is_non_fatal():
     )
 
 
-def test_review_requirements_does_not_send_preferences():
+def test_review_requirements_sends_preferences_for_review():
     model = CapturingReviewModel()
     asyncio.run(
         review_requirements(
@@ -122,7 +122,7 @@ def test_review_requirements_does_not_send_preferences():
         )
     )
     assert model.payload is not None
-    assert "preferences" not in model.payload
+    assert model.payload["preferences"] == ["性能足够高"]
 
 
 def test_default_review_model_caches_structured_failure(monkeypatch):
@@ -244,3 +244,68 @@ def test_review_requirements_reports_provider_fallback():
     assert stage == "provider.fallback"
     assert data["component"] == "requirement_review"
     assert data["error_code"] == "provider_structured_output_unsupported"
+
+
+def test_update_requirements_drops_unrestricted_preferences(monkeypatch):
+    session = store.create("需要笔记本", "ebay")
+    specs = {
+        spec.name: spec
+        for spec in build_shopping_tools(
+            shopping_tools.ToolBox(session), {}
+        )
+    }
+    spec = specs["update_requirements"]
+
+    async def fake_review(_requirements, _session=None):
+        return RequirementReview(
+            dropped_preferences=["不限二手", "不限品牌"],
+        )
+
+    monkeypatch.setattr(
+        shopping_tools, "_review_requirements", fake_review
+    )
+
+    result = asyncio.run(
+        spec.handler(
+            spec.args_model(preferences=["不限二手", "不限品牌"]),
+            None,
+        )
+    )
+
+    assert session.requirements["preferences"] == []
+    assert result.data["needs_clarify"] is False
+    assert "dropped_preferences" in result.data["parse_notes"][0]
+
+
+def test_update_requirements_waits_for_preference_clarification(monkeypatch):
+    session = store.create("需要笔记本", "ebay")
+    specs = {
+        spec.name: spec
+        for spec in build_shopping_tools(
+            shopping_tools.ToolBox(session), {}
+        )
+    }
+    spec = specs["update_requirements"]
+
+    async def fake_review(_requirements, _session=None):
+        return RequirementReview(
+            clarify_question="性能希望达到什么标准？",
+            clarify_options=["16G内存", "32G内存"],
+        )
+
+    monkeypatch.setattr(
+        shopping_tools, "_review_requirements", fake_review
+    )
+
+    result = asyncio.run(
+        spec.handler(
+            spec.args_model(preferences=["性能足够高"]),
+            None,
+        )
+    )
+
+    assert result.control == "wait_user"
+    assert result.data["clarify_question"]["field"] == "preferences"
+    assert result.output["pending_user"]["question"] == (
+        "性能希望达到什么标准？"
+    )

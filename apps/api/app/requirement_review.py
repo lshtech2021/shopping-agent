@@ -1,9 +1,10 @@
-"""LLM review of shopping hard requirements.
+"""LLM review of shopping requirements and preferences.
 
 Regex cannot reliably distinguish an objective specification from a
 subjective quality goal, so the chat model classifies each existing
-must-have item. The reviewer never adds requirements; it only routes the
-provided items to hard, soft, or dropped buckets.
+must-have item and preference. The reviewer never invents a hard requirement;
+it routes items to hard/soft/dropped buckets and asks once when a vague
+quality goal is the only performance signal.
 """
 from __future__ import annotations
 
@@ -18,12 +19,13 @@ from app import llm
 
 logger = logging.getLogger(__name__)
 
-_SYSTEM = """You review shopping hard requirements for a buying assistant.
+_SYSTEM = """You review shopping requirements for a buying assistant.
 Return ONLY JSON:
 {
   "hard_must_have": ["..."],
   "soft_must_have": ["..."],
   "dropped_must_have": ["..."],
+  "dropped_preferences": ["..."],
   "clarify_question": "..." | null,
   "clarify_options": ["..."]
 }
@@ -36,11 +38,21 @@ Classify every provided must-have item exactly once:
 - dropped: no restriction at all (for example "不限品牌", "不限二手",
   "无所谓").
 
+Then review preferences:
+- If a preference is already covered by a hard must-have (e.g. preference
+  "性能足够高" with hard must-have "CPU i7" or "32G内存"), do not ask about it
+  and do not turn it into another requirement.
+- If must_have is empty and a preference is a vague quality/performance goal,
+  ask ONE concise question in the user's language with 2-4 measurable
+  options. Do not silently invent a threshold.
+- Put no-restriction phrases such as "不限品牌", "不限二手", "都可以" in
+  dropped_preferences.
+- Leave other preferences unchanged; do not add new requirements.
+
 Rules:
-- Never add a new requirement; use only the items provided.
-- Move a soft goal to soft_must_have; do not silently keep it as hard.
-- If soft items exist, write one concise clarifying question in the user's
-  language and 2-4 measurable options.
+- Never add a new hard requirement; use only the items provided.
+- Move a soft must-have goal to soft_must_have; do not silently keep it hard.
+- Ask at most one clarifying question for the whole review.
 """
 
 
@@ -48,6 +60,7 @@ class RequirementReview(BaseModel):
     hard_must_have: list[str] = Field(default_factory=list)
     soft_must_have: list[str] = Field(default_factory=list)
     dropped_must_have: list[str] = Field(default_factory=list)
+    dropped_preferences: list[str] = Field(default_factory=list)
     clarify_question: str | None = None
     clarify_options: list[str] = Field(default_factory=list)
 
@@ -107,7 +120,7 @@ async def review_requirements(
     model: Any = None,
     on_event: Any = None,
 ) -> RequirementReview | None:
-    """Classify existing must-have items with the LLM.
+    """Classify existing must-have items and preferences with the LLM.
 
     Returns ``None`` when there is nothing to review or the review fails; the
     caller must then leave the requirements unchanged.
@@ -117,7 +130,12 @@ async def review_requirements(
         for item in (requirements.get("must_have") or [])
         if str(item).strip()
     ]
-    if not items:
+    preferences = [
+        str(item).strip()
+        for item in (requirements.get("preferences") or [])
+        if str(item).strip()
+    ]
+    if not items and not preferences:
         return None
 
     try:
@@ -131,6 +149,7 @@ async def review_requirements(
     # had already turned into a concrete must-have.
     payload = {
         "must_have": items,
+        "preferences": preferences,
         "category": requirements.get("category"),
         "use_case": requirements.get("use_case"),
         "raw_requirement": requirements.get("raw"),

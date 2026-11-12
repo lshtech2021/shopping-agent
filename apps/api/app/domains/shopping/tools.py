@@ -299,7 +299,14 @@ def build_shopping_tools(
                 str(item)
                 for item in (updated["requirements"].get("must_have") or [])
             ]
+            original_preferences = [
+                str(item)
+                for item in (
+                    updated["requirements"].get("preferences") or []
+                )
+            ]
             allowed = set(original)
+            allowed_preferences = set(original_preferences)
             hard = [item for item in review.hard_must_have if item in allowed]
             hard_set = set(hard)
             soft = [
@@ -314,22 +321,27 @@ def build_shopping_tools(
                 and item not in hard_set
                 and item not in set(soft)
             ]
+            dropped_preferences = [
+                item
+                for item in review.dropped_preferences
+                if item in allowed_preferences
+            ]
             handled = hard_set | set(soft) | set(dropped)
             # Keep anything the reviewer omitted as hard rather than losing a
             # user requirement.
             hard += [item for item in original if item not in handled]
             req = dict(updated["requirements"])
             req["must_have"] = hard
+            remaining_preferences = [
+                item
+                for item in original_preferences
+                if item not in set(dropped_preferences)
+            ]
             if soft:
-                req["preferences"] = list(
-                    dict.fromkeys(
-                        [
-                            str(item)
-                            for item in (req.get("preferences") or [])
-                        ]
-                        + soft
-                    )
+                remaining_preferences = list(
+                    dict.fromkeys(remaining_preferences + soft)
                 )
+            req["preferences"] = remaining_preferences
             if req != updated["requirements"]:
                 box.session.requirements = req
                 store.touch(box.session)
@@ -343,12 +355,17 @@ def build_shopping_tools(
                     notes.append(
                         "dropped_unrestricted: " + ", ".join(dropped)
                     )
+                if dropped_preferences:
+                    notes.append(
+                        "dropped_preferences: "
+                        + ", ".join(dropped_preferences)
+                    )
                 updated["parse_notes"] = notes
             if review.clarify_question:
                 updated["needs_clarify"] = True
                 if not updated.get("clarify_question"):
                     updated["clarify_question"] = {
-                        "field": "must_have",
+                        "field": "must_have" if original else "preferences",
                         "question": review.clarify_question,
                         "options": review.clarify_options[:4],
                     }
