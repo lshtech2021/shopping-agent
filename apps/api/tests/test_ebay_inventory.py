@@ -160,3 +160,25 @@ def test_query_inventory_exposes_ebay_observations():
     assert item["location"] == "Shenzhen, China"
     assert item["shipping_cost"] == 0
     assert item["has_variations"] is True
+
+
+def test_shipping_currency_is_cleared_without_an_amount():
+    products: dict = {}
+    index = build_product_index(products)
+    upsert_listing(
+        products,
+        index,
+        site="ebay",
+        item={
+            "source_product_id": "111",
+            "title": "Laptop",
+            "price": 1000,
+            "currency": "CNY",
+            "shipping": "Shipping not specified",
+            "shipping_cost": None,
+            "shipping_currency": "CNY",
+        },
+    )
+    product = next(iter(products.values()))
+    assert product["shipping_cost"] is None
+    assert product["shipping_currency"] is None

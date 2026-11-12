@@ -813,6 +813,7 @@ class ToolBox:
     ) -> dict[str, Any]:
         requirements = self.session.requirements or {}
         recommendations = []
+        customs_products: list[str] = []
         unknown: list[str] = []
         violations: list[str] = []
         details: list[dict[str, Any]] = []
@@ -840,6 +841,9 @@ class ToolBox:
                     {"product_id": pid, "codes": eligibility.violations}
                 )
                 continue
+            customs_may_apply = bool(product.get("customs_may_apply"))
+            if customs_may_apply:
+                customs_products.append(pid)
             recommendations.append(
                 {
                     "product_id": pid,
@@ -848,6 +852,7 @@ class ToolBox:
                     "url": _safe_product_url(product.get("url")),
                     "price": product.get("price"),
                     "currency": product.get("currency"),
+                    "customs_may_apply": customs_may_apply,
                 }
             )
         if unknown:
@@ -883,9 +888,26 @@ class ToolBox:
                 "unknown": unknown,
                 "hint": "recommend only product_ids returned by query_inventory",
             }
+        proposal_answer = str(answer or "")[:2000]
+        warning_text = proposal_answer.lower()
+        if customs_products and not any(
+            token in warning_text
+            for token in (
+                "关税",
+                "清关",
+                "进口税",
+                "customs",
+                "duties",
+                "import charges",
+            )
+        ):
+            proposal_answer += (
+                "\n\n提示：商品页面提示可能产生进口关税或清关费用，"
+                "结算时以实际金额为准。"
+            )
         proposal = {
             "ok": True,
-            "answer": str(answer or "")[:2000],
+            "answer": proposal_answer,
             "recommendations": recommendations,
         }
         if not commit:

@@ -178,6 +178,7 @@ def upsert_listing(
             value = existing.get(name, default)
         return value
 
+    shipping_cost = _pick("shipping_cost")
     observation_fields = {
         "image_url": _pick("image_url"),
         "images": _pick("images") or [],
@@ -188,8 +189,12 @@ def upsert_listing(
         "watchers": _pick("watchers"),
         "sold": _pick("sold"),
         "quantity_available": _pick("quantity_available"),
-        "shipping_cost": _pick("shipping_cost"),
-        "shipping_currency": _pick("shipping_currency"),
+        "shipping_cost": shipping_cost,
+        # A currency without an amount carries no information and makes
+        # "Shipping not specified" look like a priced CNY shipping row.
+        "shipping_currency": (
+            _pick("shipping_currency") if shipping_cost is not None else None
+        ),
         "landed_cost": _pick("landed_cost"),
         "cost_complete": _pick("cost_complete"),
         "returns": _pick("returns"),

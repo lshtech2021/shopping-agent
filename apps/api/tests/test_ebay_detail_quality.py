@@ -392,3 +392,23 @@ def test_fit_judge_payload_includes_detail_evidence():
     assert record["detail_condition"] == "Pre-Owned"
     assert record["detail_highlights"] == ["14-inch display", "32GB RAM"]
     assert record["detail_attributes"]["RAM Size"] == "32 GB"
+
+
+def test_recommend_appends_customs_warning_when_missing():
+    session = store.create("需要笔记本", "ebay")
+    session.settings["currency"] = "CNY"
+    session.products["p1"] = {
+        **_ebay_product(),
+        "price": 1000,
+        "currency": "CNY",
+        "availability": "available",
+        "detail_fetched": True,
+        "customs_may_apply": True,
+    }
+    result = ToolBox(session).recommend(
+        [{"product_id": "p1", "reason": "性能合适"}],
+        "推荐这台。",
+    )
+    assert result["ok"] is True
+    assert "关税" in result["answer"]
+    assert result["recommendations"][0]["customs_may_apply"] is True

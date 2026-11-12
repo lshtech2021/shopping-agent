@@ -538,3 +538,22 @@ test('waitForDetail resolves for a hydrated detail page', async () => {
     true,
   )
 })
+
+test('shop name skips a Guaranteed by badge', () => {
+  const dom = new JSDOM(
+    `<html><body><ul><li class="s-card">
+      <a class="s-card__link" href="/itm/123"></a>
+      <div class="s-card__title">Laptop</div>
+      <span class="s-card__price">US $500.00</span>
+      <div class="su-card-container__attributes__secondary">
+        <div class="s-card__attribute-row">
+          <span class="su-styled-text primary large">Guaranteed by</span>
+          <span class="su-styled-text primary large">compicool</span>
+        </div>
+      </div>
+    </li></ul></body></html>`,
+    { url: 'https://www.ebay.com/sch/i.html?_nkw=laptop' },
+  )
+  const result = ebay.parseListing(dom.window.document, dom.window.location.href)
+  assert.equal(result.items[0].shop_name, 'compicool')
+})

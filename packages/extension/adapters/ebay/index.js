@@ -359,11 +359,15 @@
     const row = node.querySelector(
       '.su-card-container__attributes__secondary .s-card__attribute-row',
     )
-    const name = clean(
-      row?.querySelector('.su-styled-text, span')?.textContent,
+    const names = [
+      ...(row?.querySelectorAll('.su-styled-text, span') || []),
+    ]
+      .map((element) => clean(element.textContent))
+      .filter(Boolean)
+    const name = names.find(
+      (value) => !/guaranteed by|positive|feedback/i.test(value),
     )
-    if (!name || /positive/i.test(name)) return null
-    return name
+    return name || null
   }
 
   function locationOf(node, rows = []) {
