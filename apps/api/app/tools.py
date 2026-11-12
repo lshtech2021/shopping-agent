@@ -33,6 +33,7 @@ class ToolBox:
         self.page_by_site: dict[str, int] = {}
         self.search_url_by_site: dict[str, str] = {}
         self.search_seq = 0
+        self.scraped_search_seq = 0
         self.last_ask: Optional[str] = None
         self._product_index: dict[tuple[str, str], str] = {}
         self._browser = BrowserGateway(session)
@@ -59,6 +60,11 @@ class ToolBox:
     @property
     def mock_mode(self) -> bool:
         return self._browser.mock_mode
+
+    @property
+    def search_pending_scrape(self) -> bool:
+        """A search page is open but its results have not been parsed yet."""
+        return self.search_seq > self.scraped_search_seq
 
     def _quota(self, site: str, tool: str) -> dict[str, int]:
         site_q = self.session.quotas.setdefault(site, {})
@@ -535,6 +541,24 @@ class ToolBox:
         refused = self._require_site(site)
         if refused:
             return refused
+        if self.search_pending_scrape:
+            skipped = {
+                "status": "skipped",
+                "skipped": True,
+                "reason": "search_pending_scrape",
+                "query": self.active_query,
+                "search_seq": self.search_seq,
+                "hint": "先调用 scrape_listing 解析当前搜索页，再发起下一个 search。",
+            }
+            log_event(
+                self.session,
+                "拒绝 browse:search：上一搜索页尚未解析",
+                stage="tool.search_pending_scrape",
+                source="tool",
+                level="warning",
+                data=skipped,
+            )
+            return skipped
         blocked = self._check_quota(site, "search")
         if blocked:
             return blocked
@@ -549,7 +573,11 @@ class ToolBox:
             if url:
                 self.search_url_by_site[site] = str(url)
             self.search_seq += 1
-        return result
+        return {
+            **result,
+            "query": query,
+            "search_seq": self.search_seq,
+        }
 
     def _search_context(self, site: str) -> dict[str, Any]:
         """Identity of the active search page for action idempotency."""
@@ -571,6 +599,9 @@ class ToolBox:
         )
         if result.get("status") != "ok":
             return result
+        # The active search page has now been consumed, even when it returned
+        # zero results. A subsequent search is allowed to replace it.
+        self.scraped_search_seq = self.search_seq
         accepted = 0
         for item in result.get("items") or []:
             if self._upsert_listing(site, item):
@@ -583,6 +614,8 @@ class ToolBox:
             **result,
             "accepted": accepted,
             "product_count": len(self.session.products),
+            "query": self.active_query if self.active_site == site else None,
+            "search_seq": self.search_seq,
         }
 
     async def next_page(self, site: str | None = None) -> dict[str, Any]:

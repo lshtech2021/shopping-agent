@@ -173,7 +173,12 @@ def _compact_browse(result: dict[str, Any]) -> dict[str, Any]:
         "page_currency",
         "session_currency",
         "site",
+        "query",
+        "search_seq",
+        "skipped",
         "reason",
+        "active_query",
+        "hint",
         "used",
         "limit",
         "currency_mismatch",
@@ -526,6 +531,20 @@ def build_shopping_tools(
         )
 
     async def search(args: _Search, _context: Any) -> ToolResult:
+        if box.search_pending_scrape:
+            return ToolResult(
+                call_id="",
+                tool="search",
+                ok=True,
+                data={
+                    "status": "skipped",
+                    "skipped": True,
+                    "reason": "search_pending_scrape",
+                    "active_query": box.active_query,
+                    "search_seq": box.search_seq,
+                    "hint": "先调用 scrape_listing 解析当前搜索页，再发起下一个 search。",
+                },
+            )
         if _plan_step_status(state, "recommend") == "in_progress" and not args.force:
             return ToolResult(
                 call_id="",

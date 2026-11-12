@@ -51,7 +51,9 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
    - Active site and currency come from session settings; do not change them via tools.
 
 3. Collection (per round, max): 2 `search`, 2 `next_page`, 5 `fetch_detail`.
-   - Every `search`/`next_page` must be followed by `scrape_listing`.
+   - `search` only opens a page. Call `scrape_listing` immediately afterward;
+     do not issue a second `search` until the current search page has been
+     scraped. Only the last opened search page can be scraped.
    - The host builds search price filters from the budget in the session currency,
      leaving room for shipping/tax. For a hard budget keep
      `buy_it_now_only=true`; an auction's current bid is not its final price.
