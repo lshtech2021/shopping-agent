@@ -340,10 +340,15 @@ class ToolBox:
         def on_event(stage: str, data: dict[str, Any]) -> None:
             log_event(
                 self.session,
-                "商品匹配评估降级",
+                (
+                    "商品匹配评估 LLM 调用"
+                    if stage == "llm.call"
+                    else "商品匹配评估降级"
+                ),
                 stage=stage,
                 source="llm",
-                level="warning",
+                level="info" if stage == "llm.call" else "warning",
+                duration_ms=data.get("duration_ms"),
                 data=data,
             )
 

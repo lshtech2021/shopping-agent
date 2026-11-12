@@ -268,3 +268,7 @@ def test_structured_output_fallback_reports_provider_event():
     assert stage == "provider.fallback"
     assert data["component"] == "fit_judge"
     assert data["error_code"] == "provider_structured_output_unsupported"
+    call_events = [item for item in events if item[0] == "llm.call"]
+    assert call_events
+    assert call_events[0][1]["component"] == "fit_judge"
+    assert call_events[0][1]["duration_ms"] >= 0

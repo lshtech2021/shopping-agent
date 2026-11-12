@@ -45,6 +45,9 @@ def _turn_summary(
     prompt_tokens = 0
     completion_tokens = 0
     total_tokens = 0
+    components: dict[str, int] = {}
+    internal_calls = 0
+    internal_tokens = 0
     for event in events:
         stage = str(event.get("stage") or "")
         data = event.get("data") if isinstance(event.get("data"), dict) else {}
@@ -52,6 +55,11 @@ def _turn_summary(
             extension_version = data["extension_version"]
         if stage == "llm.call":
             model = data.get("model") or model
+            component = str(data.get("component") or "main")
+            components[component] = components.get(component, 0) + 1
+            if component != "main":
+                internal_calls += 1
+                internal_tokens += int(data.get("total_tokens") or 0)
             prompt_tokens += int(data.get("prompt_tokens") or 0)
             completion_tokens += int(data.get("completion_tokens") or 0)
             total_tokens += int(data.get("total_tokens") or 0)
@@ -94,6 +102,9 @@ def _turn_summary(
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "total_tokens": total_tokens,
+            "components": components,
+            "internal_calls": internal_calls,
+            "internal_tokens": internal_tokens,
             "structured_fallbacks": sum(
                 1
                 for item in warnings

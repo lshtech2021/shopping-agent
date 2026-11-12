@@ -71,6 +71,17 @@ def test_turn_summary_aggregates_llm_tools_and_exclusions():
     )
     log_event(
         session,
+        "规划 LLM 调用",
+        stage="llm.call",
+        source="llm",
+        data={
+            "component": "planner",
+            "model": "test-model",
+            "total_tokens": 5,
+        },
+    )
+    log_event(
+        session,
         "工具 query_inventory → ok",
         stage="llm.tool.query_inventory",
         source="llm",
@@ -115,7 +126,10 @@ def test_turn_summary_aggregates_llm_tools_and_exclusions():
     assert summary["stage"] == "turn.summary"
     data = summary["data"]
     assert data["llm"]["model"] == "test-model"
-    assert data["llm"]["total_tokens"] == 12
+    assert data["llm"]["total_tokens"] == 17
+    assert data["llm"]["components"] == {"main": 1, "planner": 1}
+    assert data["llm"]["internal_calls"] == 1
+    assert data["llm"]["internal_tokens"] == 5
     assert data["tools"]["query_inventory"] == 1
     assert data["tools"]["recommend"] == 1
     assert data["inventory"]["excluded"] == {"parts": 3, "shipping": 2}

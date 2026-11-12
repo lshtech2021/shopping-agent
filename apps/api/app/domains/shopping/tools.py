@@ -25,10 +25,15 @@ async def _review_requirements(
         if session is not None:
             log_event(
                 session,
-                "需求评审降级",
+                (
+                    "需求评审 LLM 调用"
+                    if stage == "llm.call"
+                    else "需求评审降级"
+                ),
                 stage=stage,
                 source="llm",
-                level="warning",
+                level="info" if stage == "llm.call" else "warning",
+                duration_ms=data.get("duration_ms"),
                 data=data,
             )
 

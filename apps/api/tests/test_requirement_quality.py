@@ -244,6 +244,10 @@ def test_review_requirements_reports_provider_fallback():
     assert stage == "provider.fallback"
     assert data["component"] == "requirement_review"
     assert data["error_code"] == "provider_structured_output_unsupported"
+    call_events = [item for item in events if item[0] == "llm.call"]
+    assert call_events
+    assert call_events[0][1]["component"] == "requirement_review"
+    assert call_events[0][1]["duration_ms"] >= 0
 
 
 def test_update_requirements_drops_unrestricted_preferences(monkeypatch):

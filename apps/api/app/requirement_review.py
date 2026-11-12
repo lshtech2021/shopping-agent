@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -106,6 +107,17 @@ def _content_text(response: Any) -> str:
     return text
 
 
+def _usage_fields(response: Any) -> dict[str, Any]:
+    usage = getattr(response, "usage_metadata", None)
+    if not isinstance(usage, dict):
+        return {}
+    return {
+        "prompt_tokens": usage.get("input_tokens"),
+        "completion_tokens": usage.get("output_tokens"),
+        "total_tokens": usage.get("total_tokens"),
+    }
+
+
 def _coerce(response: Any) -> RequirementReview:
     if isinstance(response, RequirementReview):
         return response
@@ -144,9 +156,8 @@ async def review_requirements(
         logger.warning("requirement review unavailable: %s", exc)
         return None
 
-    # Preferences are soft context. Sending them to a reviewer whose job is to
-    # classify must-have items made it ask again about a preference the user
-    # had already turned into a concrete must-have.
+    # Preferences are reviewed only to drop "no restriction" phrases and to
+    # ask once about a vague quality goal that has no hard must-have yet.
     payload = {
         "must_have": items,
         "preferences": preferences,
@@ -161,14 +172,32 @@ async def review_requirements(
         ),
     ]
 
+    model_name = getattr(model, "model_name", None) or getattr(
+        model, "model", None
+    )
     try:
         supports_structured = hasattr(
             model, "with_structured_output"
         ) and not getattr(model, _NO_STRUCTURED_OUTPUT, False)
         if supports_structured:
+            started = time.perf_counter()
             try:
                 structured = model.with_structured_output(RequirementReview)
-                return _coerce(await structured.ainvoke(messages))
+                response = await structured.ainvoke(messages)
+                if callable(on_event):
+                    on_event(
+                        "llm.call",
+                        {
+                            "component": "requirement_review",
+                            "model": model_name,
+                            "duration_ms": round(
+                                (time.perf_counter() - started) * 1000, 1
+                            ),
+                            "structured": True,
+                            **_usage_fields(response),
+                        },
+                    )
+                return _coerce(response)
             except Exception as exc:  # noqa: BLE001
                 if _structured_unavailable(exc):
                     try:
@@ -188,7 +217,22 @@ async def review_requirements(
                             "error": str(exc)[:300],
                         },
                     )
-        return _coerce(await model.ainvoke(messages))
+        started = time.perf_counter()
+        response = await model.ainvoke(messages)
+        if callable(on_event):
+            on_event(
+                "llm.call",
+                {
+                    "component": "requirement_review",
+                    "model": model_name,
+                    "duration_ms": round(
+                        (time.perf_counter() - started) * 1000, 1
+                    ),
+                    "structured": False,
+                    **_usage_fields(response),
+                },
+            )
+        return _coerce(response)
     except Exception as exc:  # noqa: BLE001 — review must not kill the turn
         logger.warning("requirement review failed: %s", exc)
         if callable(on_event):

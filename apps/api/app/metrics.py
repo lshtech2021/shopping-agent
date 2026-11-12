@@ -65,6 +65,14 @@ def record_turn(summary: dict[str, Any]) -> None:
         _DURATION_COUNT += 1
         llm = summary.get("llm") or {}
         _add("shopping_agent_llm_calls_total", float(llm.get("calls") or 0))
+        _add(
+            "shopping_agent_llm_internal_calls_total",
+            float(llm.get("internal_calls") or 0),
+        )
+        _add(
+            "shopping_agent_llm_internal_tokens_total",
+            float(llm.get("internal_tokens") or 0),
+        )
         for kind in ("prompt_tokens", "completion_tokens", "total_tokens"):
             _add(
                 "shopping_agent_llm_tokens_total",

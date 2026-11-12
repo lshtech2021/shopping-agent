@@ -1,6 +1,7 @@
 """Shopping policy entrypoint: wire the domain pack into the generic runtime."""
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from app import llm
@@ -53,6 +54,7 @@ async def run_llm_policy(
     base_model = llm.build_chat_model()
     if session.plan is None and hasattr(base_model, "with_structured_output"):
         planner = ShoppingPlanner(model=base_model)
+        started = time.perf_counter()
         plan = await planner.plan(
             goal=session.requirement or text,
             context={
@@ -60,6 +62,18 @@ async def run_llm_policy(
                 "sites": list(session.sites),
                 "searched_sites": list(session.searched_sites),
                 "product_count": len(session.products),
+            },
+        )
+        log_event(
+            session,
+            "规划 LLM 调用",
+            stage="llm.call",
+            source="llm",
+            duration_ms=(time.perf_counter() - started) * 1000,
+            data={
+                "component": "planner",
+                "model": getattr(base_model, "model_name", None),
+                "structured": True,
             },
         )
         session.plan = plan.model_dump()
