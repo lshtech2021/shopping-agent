@@ -95,6 +95,9 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
      unverified. If `cost_complete=false`, say that shipping/tax is not fully
      verified. If `customs_may_apply=true`, mention that import duties or
      customs fees may be added.
+   - When the detail page states a return policy, mention it; call out a
+     no-return policy. If several picks come from the same seller, note that
+     concentration as a risk.
    - Mention soft observations (e.g., few reviews) in the justification only; never use them as filters.
 
 ## Hard stops
