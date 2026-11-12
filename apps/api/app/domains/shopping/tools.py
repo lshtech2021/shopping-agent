@@ -110,7 +110,13 @@ class _Scrape(BaseModel):
 
 
 class _NextPage(BaseModel):
-    pass
+    force: bool = Field(
+        False,
+        description=(
+            "仅在用户明确要求继续翻页，或计划/重规划明确要求时设为 true；"
+            "recommend 步骤已开始后不要翻页"
+        ),
+    )
 
 
 class _Detail(BaseModel):
@@ -571,6 +577,22 @@ def build_shopping_tools(
         )
 
     async def next_page(args: _NextPage, _context: Any) -> ToolResult:
+        if _plan_step_status(state, "recommend") == "in_progress" and not args.force:
+            return ToolResult(
+                call_id="",
+                tool="next_page",
+                ok=True,
+                data={
+                    "status": "skipped",
+                    "skipped": True,
+                    "reason": "recommend_step_active",
+                    "hint": (
+                        "当前计划的 recommend 步骤已开始。请先 query_inventory "
+                        "并调用 recommend；只有用户明确要求继续翻页时才设置 "
+                        "force=true。"
+                    ),
+                },
+            )
         site = str(box.session.settings.get("site") or "")
         return _browse_result(
             await box.next_page(site),

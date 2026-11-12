@@ -44,9 +44,10 @@ SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: cla
    - When a hard requirement contains alternatives, cover each alternative in
      the search queries. Do not add a brand, exclusion, or other filter the
      user did not state.
-   - Once the plan's recommend step is in progress, do not search again.
-     Use `query_inventory` and `recommend` instead. Set `search.force=true`
-     only when the user explicitly asks for another search.
+   - Once the plan's recommend step is in progress, do not search or paginate
+     again. Use `query_inventory` and `recommend` instead. Set
+     `search.force=true` or `next_page.force=true` only when the user
+     explicitly asks for more browsing.
    - Active site and currency come from session settings; do not change them via tools.
 
 3. Collection (per round, max): 2 `search`, 2 `next_page`, 5 `fetch_detail`.

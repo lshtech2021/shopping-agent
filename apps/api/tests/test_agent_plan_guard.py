@@ -52,6 +52,29 @@ def test_search_is_skipped_while_recommend_step_is_active():
     assert calls == []
 
 
+def test_next_page_is_skipped_while_recommend_step_is_active():
+    session = store.create("generic requirement", "jd")
+    box = ToolBox(session)
+    calls = []
+
+    async def fake_next_page(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"status": "ok", "page": 2, "site": "jd"}
+
+    box.next_page = fake_next_page
+    spec = {
+        tool.name: tool
+        for tool in build_shopping_tools(box, _state_with_active_recommend())
+    }["next_page"]
+
+    result = asyncio.run(spec.handler(spec.args_model(), None))
+
+    assert result.ok is True
+    assert result.data["skipped"] is True
+    assert result.data["reason"] == "recommend_step_active"
+    assert calls == []
+
+
 def test_search_force_allows_an_explicit_new_search():
     session = store.create("generic requirement", "jd")
     box = ToolBox(session)
