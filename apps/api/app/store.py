@@ -67,6 +67,9 @@ def normalize_session_dict(data: dict) -> dict:
         p = dict(product)
         p.pop("price_cny", None)
         p.pop("price_max_cny", None)
+        if p.get("shipping_cost") is None:
+            # Legacy rows could keep CNY next to "Shipping not specified".
+            p.pop("shipping_currency", None)
         products[pid] = p
     data["products"] = products
 

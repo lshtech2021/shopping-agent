@@ -408,9 +408,20 @@ class ToolBox:
             limit=limit,
             require_detail=prefer_detail,
         )
+        detail_verified = sum(
+            1 for product in eligible if product.get("detail_fetched")
+        )
         return {
             "sort": "diverse",
             "count": len(eligible),
+            "eligible_count": len(eligible),
+            "detail_verified_count": detail_verified,
+            "cost_complete_count": sum(
+                1
+                for product in eligible
+                if product.get("cost_complete") is True
+            ),
+            "unverified_count": len(eligible) - detail_verified,
             "total_cached": len(products),
             "excluded": excluded,
             "excluded_samples": excluded_samples,

@@ -182,3 +182,58 @@ def test_shipping_currency_is_cleared_without_an_amount():
     product = next(iter(products.values()))
     assert product["shipping_cost"] is None
     assert product["shipping_currency"] is None
+
+
+def test_query_inventory_reports_verified_candidate_counts():
+    session = store.create("需要笔记本", "ebay")
+    session.settings["currency"] = "CNY"
+    session.products["p1"] = {
+        "product_id": "p1",
+        "source": "ebay",
+        "source_product_id": "1",
+        "title": "Verified laptop",
+        "price": 1000,
+        "currency": "CNY",
+        "availability": "available",
+        "detail_fetched": True,
+        "cost_complete": True,
+        "shipping_cost": 0,
+    }
+    session.products["p2"] = {
+        "product_id": "p2",
+        "source": "ebay",
+        "source_product_id": "2",
+        "title": "Unverified laptop",
+        "price": 1100,
+        "currency": "CNY",
+        "availability": "available",
+        "detail_fetched": False,
+    }
+
+    result = ToolBox(session).query_inventory(limit=10)
+
+    assert result["eligible_count"] == 2
+    assert result["detail_verified_count"] == 1
+    assert result["unverified_count"] == 1
+    assert result["cost_complete_count"] == 1
+
+
+def test_legacy_shipping_currency_is_cleared_without_an_amount():
+    from app.store import Session
+
+    session = Session.from_dict(
+        {
+            "id": "legacy",
+            "requirement": "x",
+            "sites": ["ebay"],
+            "products": {
+                "p1": {
+                    "product_id": "p1",
+                    "source": "ebay",
+                    "shipping_cost": None,
+                    "shipping_currency": "CNY",
+                }
+            },
+        }
+    )
+    assert "shipping_currency" not in session.products["p1"]
