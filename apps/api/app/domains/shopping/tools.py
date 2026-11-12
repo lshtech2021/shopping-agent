@@ -516,9 +516,10 @@ def build_shopping_tools(
     async def query_inventory(
         args: _QueryInv, _context: Any
     ) -> ToolResult:
-        judge_error = await box.ensure_fit(
-            limit=max(60, args.limit * 2)
-        )
+        # Judge only the requested candidate window. The old 60-item cap made
+        # a 15-30 item query wait for four sequential LLM batches.
+        judge_limit = min(30, max(args.limit, 10))
+        judge_error = await box.ensure_fit(limit=judge_limit)
         result = box.query_inventory(limit=args.limit)
         if judge_error:
             result["judge_error"] = judge_error
