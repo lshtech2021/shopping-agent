@@ -121,6 +121,10 @@ class _NextPage(BaseModel):
 
 class _Detail(BaseModel):
     product_id: str = Field(description="query_inventory 返回的 product_id")
+    force: bool = Field(
+        False,
+        description="已有详情缓存时是否强制重新打开商品页",
+    )
 
 
 class _Pick(BaseModel):
@@ -161,6 +165,7 @@ def _compact_browse(result: dict[str, Any]) -> dict[str, Any]:
     keep = (
         "status",
         "error",
+        "cached",
         "accepted",
         "product_count",
         "page",
@@ -624,7 +629,7 @@ def build_shopping_tools(
 
     async def fetch_detail(args: _Detail, _context: Any) -> ToolResult:
         return _browse_result(
-            await box.fetch_detail(args.product_id),
+            await box.fetch_detail(args.product_id, force=args.force),
             "fetch_detail",
             _context,
             step_id=step_for("fetch_detail"),
@@ -743,7 +748,10 @@ def build_shopping_tools(
         ),
         ToolSpec(
             name="fetch_detail",
-            description="打开一个商品详情页，补全规格与价格（每站每轮最多 5 次）。",
+            description=(
+                "打开一个商品详情页，补全规格与价格（每站每轮最多 5 次）。"
+                "已有详情缓存时直接返回缓存；只有需要刷新时才传 force=true。"
+            ),
             args_model=_Detail,
             handler=fetch_detail,
             read_only=False,

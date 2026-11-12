@@ -647,10 +647,19 @@ class ToolBox:
         store.touch(self.session)
         return {**result, "accepted": accepted}
 
-    async def fetch_detail(self, product_id: str) -> dict[str, Any]:
+    async def fetch_detail(
+        self, product_id: str, *, force: bool = False
+    ) -> dict[str, Any]:
         product = self.session.products.get(product_id)
         if product is None:
             return {"status": "parse_error", "error": "unknown product_id"}
+        if product.get("detail_fetched") and not force:
+            return {
+                "status": "ok",
+                "cached": True,
+                "product_id": product_id,
+                "product": _public_product(product),
+            }
         site = product["source"]
         blocked = self._check_quota(site, "fetch_detail")
         if blocked:
