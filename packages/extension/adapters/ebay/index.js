@@ -406,13 +406,23 @@
     if (badge && /sponsored/i.test(clean(badge.textContent))) return true
     // eBay renders the sponsored footer label with its text reversed in the
     // DOM and paints the real label as a background image. Require the
-    // dedicated separator element so an organic footer cannot match.
+    // dedicated separator element and either the reversed label or an SVG
+    // whose decoded text says "sponsored"; an unrelated background image is
+    // not enough.
     const separator = node.querySelector('.s-card__footer .s-card__sep b')
     if (separator) {
       const text = clean(separator.textContent)
+      if (/derosnops/i.test(text)) return true
       const style = separator.getAttribute('style') || ''
-      if (/derosnops/i.test(text) || /background-image/i.test(style)) {
-        return true
+      const encoded = style.match(
+        /data:image\/svg\+xml;base64,([^"')]+)/i,
+      )
+      if (encoded) {
+        try {
+          if (/ponsor/i.test(atob(encoded[1]))) return true
+        } catch (_) {
+          /* ignore malformed inline images */
+        }
       }
     }
     return [...node.querySelectorAll('span, div')].some(

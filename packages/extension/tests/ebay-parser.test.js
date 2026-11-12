@@ -557,3 +557,38 @@ test('shop name skips a Guaranteed by badge', () => {
   const result = ebay.parseListing(dom.window.document, dom.window.location.href)
   assert.equal(result.items[0].shop_name, 'compicool')
 })
+
+test('sponsored footer requires the sponsored label, not any background image', () => {
+  const organicSvg = Buffer.from('<svg>Free returns</svg>').toString('base64')
+  const sponsoredSvg = Buffer.from('<svg>Sponsored</svg>').toString('base64')
+  const html = (encoded) => `<html><body><ul><li class="s-card">
+      <a class="s-card__link" href="/itm/123"></a>
+      <div class="s-card__title">Laptop</div>
+      <span class="s-card__price">US $500.00</span>
+      <div class="s-card__footer"><div class="s-card__sep">
+        <b style="background-image: url('data:image/svg+xml;base64,${encoded}')"></b>
+      </div></div>
+    </li></ul></body></html>`
+
+  const organic = new JSDOM(html(organicSvg), {
+    url: 'https://www.ebay.com/sch/i.html?_nkw=laptop',
+  })
+  const sponsored = new JSDOM(html(sponsoredSvg), {
+    url: 'https://www.ebay.com/sch/i.html?_nkw=laptop',
+  })
+
+  assert.equal(
+    ebay.parseListing(
+      organic.window.document,
+      organic.window.location.href,
+    ).items[0].sponsored,
+    false,
+  )
+  assert.equal(
+    ebay.parseListing(
+      sponsored.window.document,
+      sponsored.window.location.href,
+    ).items[0].sponsored,
+    true,
+  )
+})
