@@ -143,6 +143,7 @@ def check_eligibility(
     settings: dict[str, Any],
     sites: list[str],
     require_detail: bool = False,
+    include_fit: bool = True,
 ) -> EligibilityResult:
     requirements = requirements or {}
     violations: list[str] = []
@@ -214,7 +215,7 @@ def check_eligibility(
     ):
         violations.append("cost_incomplete")
 
-    if needs_fit(requirements):
+    if include_fit and needs_fit(requirements):
         fit = _current_fit(product, requirements)
         if fit is None:
             violations.append("unjudged")
@@ -242,6 +243,7 @@ def check_product(
     settings: dict[str, Any],
     sites: list[str],
     require_detail: bool = False,
+    include_fit: bool = True,
 ) -> EligibilityResult:
     return check_eligibility(
         product,
@@ -249,6 +251,7 @@ def check_product(
         settings=settings,
         sites=sites,
         require_detail=require_detail,
+        include_fit=include_fit,
     )
 
 

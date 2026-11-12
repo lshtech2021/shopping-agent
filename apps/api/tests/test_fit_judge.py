@@ -228,6 +228,47 @@ def test_structured_output_failure_is_cached_per_model():
     assert judge.text_calls >= 2
 
 
+def test_ensure_fit_skips_products_rejected_by_deterministic_constraints():
+    session = store.create("generic", "ebay")
+    session.settings.update(
+        {
+            "currency": "CNY",
+            "max_shipping_ratio": 0.1,
+            "max_shipping_cost": None,
+        }
+    )
+    session.requirements = {
+        "category": "widget",
+        "must_have": ["waterproof"],
+        "budget": 1000,
+        "budget_currency": "CNY",
+    }
+    for index in range(60):
+        shipping = 5 if index < 7 else 50
+        session.products[f"p{index}"] = {
+            "product_id": f"p{index}",
+            "source": "ebay",
+            "title": f"widget waterproof {index}",
+            "price": 100,
+            "currency": "CNY",
+            "shipping_cost": shipping,
+            "shipping_currency": "CNY",
+            "cost_complete": True,
+            "detail_fetched": True,
+            "attributes": {},
+        }
+
+    box = ToolBox(session)
+    asyncio.run(box.ensure_fit())
+
+    judged = [
+        product
+        for product in session.products.values()
+        if isinstance(product.get("fit"), dict)
+    ]
+    assert len(judged) == 7
+
+
 def test_ensure_fit_limits_the_judged_candidate_set():
     session = seed(category="笔记本")
     for index in range(70):

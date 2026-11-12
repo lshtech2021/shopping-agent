@@ -27,6 +27,13 @@
           })
           return
         }
+        if (message.type === 'wait_listing') {
+          const ready = adapter.waitForListing
+            ? await adapter.waitForListing(document, location.href)
+            : true
+          reply({ ok: true, ready })
+          return
+        }
         if (message.type === 'parse_listing') {
           if (adapter.matchesUrl && !adapter.matchesUrl(location.href)) {
             reply({

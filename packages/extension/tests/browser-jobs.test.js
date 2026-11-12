@@ -197,6 +197,37 @@ test('restored tab from the wrong host is discarded', async () => {
   assert.equal(result.error, 'no_active_search_tab')
 })
 
+test('search waits for listing readiness before detecting currency', async () => {
+  const url = 'https://www.ebay.com/sch/i.html?_nkw=laptop'
+  const seen = []
+  installChrome({
+    getTab: () => ({ id: 1, url, status: 'complete' }),
+    sendMessage: (_tabId, payload) => {
+      seen.push(payload.type)
+      if (payload.type === 'detect_block') {
+        return { ok: true, block: null, document_url: url }
+      }
+      if (payload.type === 'detect_currency') {
+        return { ok: true, currency: 'CNY' }
+      }
+      return { ok: true }
+    },
+  })
+  const { runBrowserJob } = await loadBrowserJobs()
+
+  const result = await runBrowserJob('search', {
+    site: 'ebay',
+    query: 'laptop',
+    settings: { site: 'ebay', currency: 'CNY' },
+  })
+
+  assert.equal(result.status, 'ok')
+  assert.ok(seen.indexOf('wait_listing') >= 0)
+  assert.ok(
+    seen.indexOf('wait_listing') < seen.indexOf('detect_currency'),
+  )
+})
+
 test('search fails closed when the page currency differs from session settings', async () => {
   const url = 'https://www.ebay.com/sch/i.html?_nkw=laptop&_ipg=60'
   installChrome({
@@ -349,7 +380,7 @@ test('scrape_listing retries a transient listing_not_ready result', async () => 
   assert.equal(result.status, 'ok')
   assert.equal(result.items.length, 1)
   assert.equal(parseCalls, 3)
-  assert.equal(calls.sendMessage, 4)
+  assert.equal(calls.sendMessage, 5)
 })
 
 test('job results carry job_id, document_url and page', async () => {

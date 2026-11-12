@@ -325,6 +325,32 @@ function sessionSettings(args) {
   return runId ? SESSION_SETTINGS.get(runId) || null : null
 }
 
+async function waitForListingReady(tabId, args, deadline, log) {
+  // Check the tab/site before messaging it. This preserves the fail-closed
+  // site guard even when the listing wait is enabled.
+  const siteRefused = await guardTab(tabId, args, deadline, {
+    skipCurrency: true,
+  })
+  if (siteRefused) return siteRefused
+  try {
+    const ready = await sendToTab(
+      tabId,
+      { type: 'wait_listing' },
+      { deadline },
+    )
+    if (ready?.ok === false) {
+      log.debug('extension.search', '列表等待不可用，继续检查页面', ready)
+    }
+  } catch (error) {
+    // An older content script may not understand wait_listing. Currency
+    // detection below still provides the fail-closed guard.
+    log.debug('extension.search', '列表等待失败，继续检查页面', {
+      error: error?.message || String(error),
+    })
+  }
+  return null
+}
+
 async function guardTab(tabId, args, deadline, { skipCurrency = false } = {}) {
   const settings = sessionSettings(args)
   // Legacy/local callers without a session cannot provide a meaningful
@@ -458,6 +484,13 @@ async function _runBrowserJob(tool, args = {}) {
         deadline,
         siteKey,
       )
+      const siteRefused = await waitForListingReady(
+        tabId,
+        args,
+        deadline,
+        log,
+      )
+      if (siteRefused) return withLogs(siteRefused, log, jobId)
       const refused = await guardTab(tabId, args, deadline)
       if (refused) return withLogs(refused, log, jobId)
       const probe = await sendToTab(
@@ -626,6 +659,13 @@ async function _runBrowserJob(tool, args = {}) {
         log.info('extension.next', '跳转下一页', { nextUrl: meta.nextUrl })
         await chrome.tabs.update(tabId, { url: meta.nextUrl })
         await waitComplete(tabId, meta.nextUrl, deadline)
+        const siteRefused = await waitForListingReady(
+          tabId,
+          args,
+          deadline,
+          log,
+        )
+        if (siteRefused) return withLogs(siteRefused, log, jobId)
         const nextRefused = await guardTab(tabId, args, deadline)
         if (nextRefused) return withLogs(nextRefused, log, jobId)
         const parsed = await parseListingWithRetry(

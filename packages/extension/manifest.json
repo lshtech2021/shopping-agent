@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Shopping Agent",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Side panel client and browser tool host for Shopping Agent",
   "permissions": ["sidePanel", "storage", "tabs"],
   "host_permissions": [

@@ -24,7 +24,11 @@ from app.domains.shopping.adapter import (
 )
 from app.domains.shopping.critic import ShoppingCritic
 from app.domains.shopping.memory import ShoppingMemory
-from app.domains.shopping.planner import ShoppingPlanner, ShoppingReplanner
+from app.domains.shopping.planner import (
+    ShoppingPlanner,
+    ShoppingReplanner,
+    planning_ready,
+)
 from app.domains.shopping.prompt import system_prompt
 from app.domains.shopping.tools import (
     build_shopping_tools,
@@ -54,28 +58,45 @@ async def run_llm_policy(
     base_model = llm.build_chat_model()
     if session.plan is None and hasattr(base_model, "with_structured_output"):
         planner = ShoppingPlanner(model=base_model)
-        started = time.perf_counter()
-        plan = await planner.plan(
-            goal=session.requirement or text,
-            context={
-                "requirements": dict(session.requirements or {}),
-                "sites": list(session.sites),
-                "searched_sites": list(session.searched_sites),
-                "product_count": len(session.products),
-            },
-        )
-        log_event(
-            session,
-            "规划 LLM 调用",
-            stage="llm.call",
-            source="llm",
-            duration_ms=(time.perf_counter() - started) * 1000,
-            data={
-                "component": "planner",
-                "model": getattr(base_model, "model_name", None),
-                "structured": True,
-            },
-        )
+        context = {
+            "requirements": dict(session.requirements or {}),
+            "sites": list(session.sites),
+            "searched_sites": list(session.searched_sites),
+            "product_count": len(session.products),
+        }
+        if planning_ready(session.requirements, sites=session.sites):
+            started = time.perf_counter()
+            plan = await planner.plan(
+                goal=session.requirement or text,
+                context=context,
+            )
+            log_event(
+                session,
+                "规划 LLM 调用",
+                stage="llm.call",
+                source="llm",
+                duration_ms=(time.perf_counter() - started) * 1000,
+                data={
+                    "component": "planner",
+                    "model": getattr(base_model, "model_name", None),
+                    "structured": True,
+                },
+            )
+        else:
+            # The first turn usually has no parsed category/budget yet. A
+            # structural plan lets the main LLM extract requirements first;
+            # queries are generated from those requirements afterward.
+            plan = planner.fallback(
+                goal=session.requirement or text,
+                context=context,
+            )
+            log_event(
+                session,
+                "使用通用步骤计划",
+                stage="plan.fallback",
+                source="agent",
+                data={"reason": "requirements_incomplete"},
+            )
         session.plan = plan.model_dump()
         log_event(
             session,
@@ -196,6 +217,16 @@ async def run_llm_policy(
         session.status = "interrupted"
         session.interrupt_reason = (
             result.pending_user.reason if result.pending_user else "need_user"
+        )
+        questions = (
+            result.pending_user.metadata.get("questions")
+            if result.pending_user
+            else None
+        )
+        session.pending_questions = (
+            [dict(item) for item in questions if isinstance(item, dict)]
+            if isinstance(questions, list)
+            else []
         )
     elif result.status == "done":
         session.status = "interrupted" if response.interrupted else "done"

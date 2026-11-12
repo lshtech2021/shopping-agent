@@ -1,7 +1,6 @@
 # requirements_patch.py
 from __future__ import annotations
 
-import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -9,7 +8,6 @@ from pydantic import BaseModel, Field
 from app.currency import normalize_currency
 
 Confidence = Literal["high", "low"]
-_RAM_REQUIREMENT = re.compile(r"\d{1,3}\s*G内存", re.I)
 
 
 class RequirementPatch(BaseModel):
@@ -27,10 +25,15 @@ class RequirementPatch(BaseModel):
 
 
 def apply_requirement_patch(
-    requirements: dict[str, Any], patch: RequirementPatch
+    requirements: dict[str, Any],
+    patch: RequirementPatch,
+    *,
+    replace_must_have: bool | None = None,
 ) -> dict[str, Any]:
     req = dict(requirements or {})
     conf = patch.confidence or {}
+    if replace_must_have is None:
+        replace_must_have = "must_have" in patch.model_fields_set
 
     def high(field: str) -> bool:
         return conf.get(field, "high") == "high" and field not in patch.ambiguous_fields
@@ -55,18 +58,15 @@ def apply_requirement_patch(
         req["category"] = patch.category
     if patch.use_case and high("use_case"):
         req["use_case"] = patch.use_case
-    if patch.must_have:
-        must = list(req.get("must_have") or [])
-        for item in patch.must_have:
-            if item and _RAM_REQUIREMENT.search(item):
-                must = [
-                    existing
-                    for existing in must
-                    if not _RAM_REQUIREMENT.search(str(existing))
-                ]
-            if item and item not in must:
-                must.append(item)
-        req["must_have"] = must
+    if replace_must_have:
+        # The caller (the LLM) supplies the complete desired list. Replacing
+        # rather than merging keeps semantic conflicts out of the backend;
+        # deciding whether an item supersedes another is an LLM judgment.
+        req["must_have"] = list(
+            dict.fromkeys(
+                str(item) for item in (patch.must_have or []) if item
+            )
+        )
     if patch.preferences:
         prefs = list(req.get("preferences") or [])
         for item in patch.preferences:

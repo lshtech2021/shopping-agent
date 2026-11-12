@@ -18,6 +18,15 @@ def test_update_requirements_applies_explicit_patch_without_change_cues():
     assert session.requirements["budget"] == 8000
 
 
+def test_updating_another_field_preserves_must_have():
+    session = store.create("generic requirement", "jd")
+    session.requirements["must_have"] = ["waterproof"]
+
+    result = ToolBox(session).update_requirements(budget=8000)
+
+    assert result["requirements"]["must_have"] == ["waterproof"]
+
+
 def test_domain_update_requirements_ignores_explicit_null_lists():
     session = store.create("找一台笔记本", "jd")
     spec = {

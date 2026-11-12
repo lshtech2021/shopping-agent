@@ -425,10 +425,15 @@
         }
       }
     }
-    return [...node.querySelectorAll('span, div')].some(
-      (element) =>
-        element.children.length === 0 &&
-        /^sponsored$/i.test(clean(element.textContent)),
+    // Fallback only for elements explicitly labelled as sponsorship. Do not
+    // scan every leaf node: listing cards can contain hidden/decorative
+    // "Sponsored" text, which previously marked every result as sponsored.
+    const labelled = node.querySelector(
+      '[class*="sponsor" i], [data-testid*="sponsor" i], ' +
+        '[aria-label*="sponsor" i]',
+    )
+    return Boolean(
+      labelled && /^sponsored$/i.test(clean(labelled.textContent)),
     )
   }
 
@@ -1117,17 +1122,27 @@
 
     // Price text is the most reliable signal on a listing page. A bare "$"
     // on ebay.com is USD; RMB/CNY, C$, €, £ and ¥ stay explicit.
-    const priceSelectors = [
-      '.x-price-primary',
-      '.s-item__price',
-      '.s-card__price',
-    ]
+    //
+    // `.x-price-primary` belongs to detail pages. A listing page can contain
+    // that class in a hidden carousel or template, so do not let it compete
+    // with the actual result-card prices.
+    const listingCards = root.querySelector('.s-card, .s-item')
+    const priceSelectors = listingCards
+      ? [
+          { selector: '.s-card__price', weight: 2 },
+          { selector: '.s-item__price', weight: 1 },
+        ]
+      : [
+          { selector: '.x-price-primary', weight: 1 },
+          { selector: '.s-item__price', weight: 1 },
+          { selector: '.s-card__price', weight: 1 },
+        ]
     const counts = new Map()
-    for (const selector of priceSelectors) {
-      for (const node of [...root.querySelectorAll(selector)].slice(0, 5)) {
+    for (const { selector, weight } of priceSelectors) {
+      for (const node of [...root.querySelectorAll(selector)].slice(0, 8)) {
         const detected = parseUtils.parseCurrency(clean(node.textContent), 'USD')
         if (!detected) continue
-        counts.set(detected, (counts.get(detected) || 0) + 1)
+        counts.set(detected, (counts.get(detected) || 0) + weight)
       }
     }
     if (counts.size) {

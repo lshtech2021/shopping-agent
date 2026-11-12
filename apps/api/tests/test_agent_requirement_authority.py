@@ -43,9 +43,9 @@ def test_unrelated_fields_do_not_clear_confirmed_budget():
     assert session.requirements["budget_unlimited"] is False
 
 
-def test_model_applies_ram_from_user_text_as_explicit_patch(fake_llm):
-    session = seed_session(must_have=["防水", "32G内存"])
-    text = "内存改成16G"
+def test_model_replaces_must_have_from_user_text_with_complete_list(fake_llm):
+    session = seed_session(must_have=["water resistant", "model A"])
+    text = "change the model to B"
 
     def update_from_user(messages):
         assert any(
@@ -53,9 +53,14 @@ def test_model_applies_ram_from_user_text_as_explicit_patch(fake_llm):
             for message in messages
             if isinstance(message, HumanMessage)
         )
-        return _call("update_requirements", must_have=["16G内存"])
+        # The tool contract is a complete list, so the LLM repeats the
+        # unaffected item instead of relying on backend semantic merging.
+        return _call(
+            "update_requirements",
+            must_have=["water resistant", "model B"],
+        )
 
-    fake_llm([update_from_user, AIMessage(content="已更新内存要求")])
+    fake_llm([update_from_user, AIMessage(content="updated")])
     asyncio.run(
         run_llm_policy(
             session,
@@ -64,9 +69,10 @@ def test_model_applies_ram_from_user_text_as_explicit_patch(fake_llm):
         )
     )
 
-    assert "防水" in session.requirements["must_have"]
-    assert "16G内存" in session.requirements["must_have"]
-    assert "32G内存" not in session.requirements["must_have"]
+    assert session.requirements["must_have"] == [
+        "water resistant",
+        "model B",
+    ]
 
 
 def test_answers_without_pending_questions_do_not_reparse_original_requirement(

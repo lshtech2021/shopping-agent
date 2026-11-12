@@ -57,18 +57,21 @@ class _UpdateReq(BaseModel):
         ),
     )
     budget_unlimited: Optional[bool] = Field(None, description="是否不限预算")
-    category: Optional[str] = Field(None, description="品类，如 手机 / 跑鞋 / 笔记本")
-    use_case: Optional[str] = Field(None, description="用途，如 通勤 / 送礼")
+    category: Optional[str] = Field(
+        None, description="品类；使用用户自己的措辞，不预设类别"
+    )
+    use_case: Optional[str] = Field(None, description="用途；使用用户自己的措辞")
     must_have: Optional[list[str]] = Field(
         None,
         description=(
-            "硬性要求，必须是商品页可核验的客观属性，如 ['防水']、"
-            "['32G内存']；不要把“性能足够高”“好用”等主观描述放这里"
+            "完整的硬性要求列表；提供时会替换旧列表。每项必须是商品页"
+            "可核验的客观属性（材质、型号、容量、尺寸、可见特征等），"
+            "不要放“性能足够高”“好用”等主观描述"
         ),
     )
     preferences: Optional[list[str]] = Field(
         None,
-        description="偏好（非硬性），如性能倾向、用途、外观",
+        description="偏好（非硬性）；内容由用户需求决定",
     )
 
 
@@ -80,10 +83,20 @@ class _Search(BaseModel):
     query: str = Field(
         description="当前会话站点的搜索词。遵循系统提示中的站点搜索规则。"
     )
-    category_id: Optional[str] = Field(None, description="eBay 品类 ID，如 177")
+    category_id: Optional[str] = Field(
+        None,
+        description="eBay 品类 ID；仅在当前需求对应某个站点品类时填写，不预设",
+    )
     exclude_terms: list[str] = Field(
         default_factory=list,
-        description="排除词；传 book 或 -book 均可，后端会补 -",
+        description="排除词；仅在用户要求排除时填写，不要自行添加",
+    )
+    force: bool = Field(
+        False,
+        description=(
+            "仅在用户明确要求重新搜索，或计划/重规划明确要求新搜索时设为 true；"
+            "recommend 步骤已开始后不要搜索"
+        ),
     )
     sort: Optional[str] = Field(None, description="price_asc / price_desc")
     buy_it_now_only: bool = Field(
@@ -250,6 +263,25 @@ def _langchain_tool(spec: ToolSpec) -> StructuredTool:
         description=spec.description,
         args_schema=spec.args_model,
     )
+
+
+def _plan_step_status(state: dict[str, Any], role: str) -> str | None:
+    plan = state.get("plan") if isinstance(state, dict) else None
+    if not isinstance(plan, dict):
+        return None
+    metadata = plan.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    roles = metadata.get("step_roles")
+    if not isinstance(roles, dict):
+        return None
+    step_id = roles.get(role)
+    if not step_id:
+        return None
+    for step in plan.get("steps") or []:
+        if isinstance(step, dict) and step.get("id") == step_id:
+            return str(step.get("status") or "")
+    return None
 
 
 def build_shopping_tools(
@@ -422,13 +454,26 @@ def build_shopping_tools(
             and isinstance(question, dict)
             and str(question.get("question") or "").strip()
         ):
-            pending = {
+            options = list(question.get("options") or [])
+            clarify_question = {
+                "id": str(
+                    question.get("id")
+                    or question.get("field")
+                    or "clarify"
+                ),
+                "field": question.get("field"),
                 "question": str(question["question"]),
+                "options": options,
+            }
+            pending = {
+                "question": clarify_question["question"],
                 "reason": "clarify",
-                "options": list(question.get("options") or []),
+                "options": options,
                 "metadata": {
                     "field": question.get("field"),
                     "source": "update_requirements",
+                    # The side panel reads this list to render option buttons.
+                    "questions": [clarify_question],
                 },
             }
             return ToolResult(
@@ -475,6 +520,22 @@ def build_shopping_tools(
         )
 
     async def search(args: _Search, _context: Any) -> ToolResult:
+        if _plan_step_status(state, "recommend") == "in_progress" and not args.force:
+            return ToolResult(
+                call_id="",
+                tool="search",
+                ok=True,
+                data={
+                    "status": "skipped",
+                    "skipped": True,
+                    "reason": "recommend_step_active",
+                    "hint": (
+                        "当前计划的 recommend 步骤已开始。请先 query_inventory "
+                        "并调用 recommend；只有用户明确要求重新搜索时才设置 "
+                        "force=true。"
+                    ),
+                },
+            )
         site = str(box.session.settings.get("site") or "")
         adapter = get_adapter(site)
         filters = adapter.build_search_filters(
@@ -597,7 +658,7 @@ def build_shopping_tools(
             name="update_requirements",
             description=(
                 "仅写入用户明确陈述或已通过 ask_user 回复确认的结构化需求（预算、品类、用途、硬性要求、偏好）；"
-                "不得自行添加用户没说过的条件。"
+                "不得自行添加用户没说过的条件。更新 must_have 时传完整列表，它会替换旧列表。"
             ),
             args_model=_UpdateReq,
             handler=update_requirements,

@@ -151,9 +151,16 @@ class ToolBox:
             if isinstance(patch, RequirementPatch)
             else RequirementPatch.model_validate(patch or {})
         )
+        # ``model_dump`` below materializes every field, so remember whether
+        # must_have was actually provided before merging explicit fields.
+        must_have_explicit = "must_have" in requirement_patch.model_fields_set
 
         if explicit_fields:
             explicit = RequirementPatch.model_validate(explicit_fields)
+            must_have_explicit = (
+                must_have_explicit
+                or "must_have" in explicit.model_fields_set
+            )
             merged = requirement_patch.model_dump()
             for field in explicit.model_fields_set:
                 merged[field] = getattr(explicit, field)
@@ -294,7 +301,11 @@ class ToolBox:
                     self.session.settings["currency"] = currency
                     self.session.settings["currency_source"] = "manual"
 
-        req = apply_requirement_patch(req, requirement_patch)
+        req = apply_requirement_patch(
+            req,
+            requirement_patch,
+            replace_must_have=must_have_explicit,
+        )
         if (
             req.get("budget") is not None
             or req.get("budget_min") is not None
@@ -334,7 +345,21 @@ class ToolBox:
                 if pid in self.session.products
             ]
         else:
-            products = list(self.session.products.values())
+            # Judge only products that survive the deterministic constraints
+            # (budget, currency, shipping caps, availability, listing type).
+            # These constraints are category-agnostic and much cheaper than an
+            # LLM call, especially when most listings fail the shipping cap.
+            products = [
+                product
+                for product in self.session.products.values()
+                if check_product(
+                    product,
+                    requirements,
+                    settings=self.session.settings,
+                    sites=self.session.sites,
+                    include_fit=False,
+                ).ok
+            ]
             if limit is not None and limit > 0:
                 products = products[:limit]
         def on_event(stage: str, data: dict[str, Any]) -> None:

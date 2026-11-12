@@ -188,6 +188,10 @@ def test_update_requirements_tool_applies_llm_review(monkeypatch):
         "性能希望达到什么标准？"
     )
     assert result.output["pending_user"]["options"] == ["16G+i5", "32G+i7"]
+    pending_questions = result.output["pending_user"]["metadata"]["questions"]
+    assert pending_questions[0]["question"] == "性能希望达到什么标准？"
+    assert pending_questions[0]["options"] == ["16G+i5", "32G+i7"]
+    assert pending_questions[0]["id"]
     assert state["plan"]["metadata"]["requirements"]["must_have"] == [
         "32G内存"
     ]

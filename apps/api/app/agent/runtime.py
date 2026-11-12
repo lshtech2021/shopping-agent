@@ -511,12 +511,18 @@ class AgentRuntime:
         for call in tool_calls:
             started = time.perf_counter()
             if terminal:
+                # The previous call already finished/waiting for the user.
+                # Keep the protocol complete without reporting a failure for
+                # work that was intentionally not executed.
                 result = ToolResult(
                     call_id=str(call.get("id") or uuid.uuid4().hex),
                     tool=str(call.get("name") or ""),
-                    ok=False,
-                    data={"error": "turn_already_finished"},
-                    error="turn_already_finished",
+                    ok=True,
+                    data={
+                        "status": "skipped",
+                        "skipped": True,
+                        "reason": "turn_already_finished",
+                    },
                 )
             else:
                 result = await self._execute_tool(

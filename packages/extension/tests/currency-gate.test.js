@@ -65,6 +65,17 @@ test('ebay detects CNY, bare dollar and geo fallback', () => {
   assert.equal(getAdapter('ebay').detectCurrency(geo.window.document), 'CAD')
 })
 
+test('ebay listing cards outvote a hidden detail-page price', () => {
+  const dom = new JSDOM(`
+    <div class="s-card">
+      <span class="x-price-primary">US $99.00</span>
+      <span class="s-card__price">RMB 688.00</span>
+    </div>
+  `)
+
+  assert.equal(getAdapter('ebay').detectCurrency(dom.window.document), 'CNY')
+})
+
 test('ebay returns null when an empty page has no currency signal', () => {
   const dom = new JSDOM('<html><body></body></html>')
 

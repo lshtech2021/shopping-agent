@@ -33,21 +33,21 @@ Return ONLY JSON:
 
 Classify every provided must-have item exactly once:
 - hard: objective and verifiable from a product title, attributes, or detail
-  page (for example "32G内存", "防水", "i7", "1TB SSD").
-- soft: subjective quality/performance language that a listing cannot prove
-  (for example "性能足够高", "好用", "性价比高").
-- dropped: no restriction at all (for example "不限品牌", "不限二手",
-  "无所谓").
+  page (for example a material, model, capacity, size, or visible feature).
+- soft: subjective quality/performance language that a listing cannot prove.
+- dropped: no restriction at all.
 
 Then review preferences:
-- If a preference is already covered by a hard must-have (e.g. preference
-  "性能足够高" with hard must-have "CPU i7" or "32G内存"), do not ask about it
-  and do not turn it into another requirement.
+- If a preference is already covered by a hard must-have threshold, put it in
+  dropped_preferences; do not ask about it and do not turn it into another
+  requirement.
+- The use_case field is not a preference. If it appears in preferences, put
+  it in dropped_preferences.
 - If must_have is empty and a preference is a vague quality/performance goal,
   ask ONE concise question in the user's language with 2-4 measurable
   options. Do not silently invent a threshold.
-- Put no-restriction phrases such as "不限品牌", "不限二手", "都可以" in
-  dropped_preferences.
+- Put no-restriction phrases such as "any brand", "used or new", or "no
+  preference" in dropped_preferences.
 - Leave other preferences unchanged; do not add new requirements.
 
 Rules:

@@ -71,6 +71,54 @@ def test_unparseable_answer_is_reasked_via_model_tool(fake_llm):
     assert session.requirements["budget"] is None
 
 
+def test_update_requirements_clarify_renders_card_and_persists_pending(
+    fake_llm, monkeypatch
+):
+    import asyncio
+
+    from app.agent.state import Plan, PlanStep
+    from app.agent_runner import run_agent
+    from app.domains.shopping import tools as shopping_tools
+    from app.requirement_review import RequirementReview
+
+    async def fake_review(_requirements, _session=None):
+        return RequirementReview(
+            hard_must_have=["waterproof"],
+            clarify_question="What threshold?",
+            clarify_options=["A", "B"],
+        )
+
+    monkeypatch.setattr(shopping_tools, "_review_requirements", fake_review)
+    fake_llm(
+        [_call("update_requirements", must_have=["waterproof"])]
+    )
+    session = seed_session()
+    session.plan = Plan(
+        goal="g",
+        steps=[PlanStep(id="search", description="search")],
+        metadata={
+            "step_roles": {
+                "search": "search",
+                "verify": "verify",
+                "recommend": "recommend",
+            }
+        },
+    ).model_dump()
+
+    result = asyncio.run(run_agent(session, "我需要防水"))
+
+    assert result["interrupt_reason"] == "clarify"
+    assert result["clarify"] == [
+        {
+            "id": "must_have",
+            "field": "must_have",
+            "question": "What threshold?",
+            "options": ["A", "B"],
+        }
+    ]
+    assert session.pending_questions == result["clarify"]
+
+
 def test_card_reply_is_a_chat_message_the_model_saves(fake_llm):
     seen = []
 

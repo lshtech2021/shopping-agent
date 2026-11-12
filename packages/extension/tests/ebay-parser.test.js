@@ -558,6 +558,20 @@ test('shop name skips a Guaranteed by badge', () => {
   assert.equal(result.items[0].shop_name, 'compicool')
 })
 
+test('a bare non-badge sponsored label does not mark an organic card', () => {
+  const dom = new JSDOM(
+    `<html><body><ul><li class="s-card">
+      <a class="s-card__link" href="/itm/123"></a>
+      <div class="s-card__title">Laptop</div>
+      <span class="s-card__price">US $500.00</span>
+      <span aria-hidden="true" style="color: transparent">Sponsored</span>
+    </li></ul></body></html>`,
+    { url: 'https://www.ebay.com/sch/i.html?_nkw=laptop' },
+  )
+  const result = ebay.parseListing(dom.window.document, dom.window.location.href)
+  assert.equal(result.items[0].sponsored, false)
+})
+
 test('sponsored footer requires the sponsored label, not any background image', () => {
   const organicSvg = Buffer.from('<svg>Free returns</svg>').toString('base64')
   const sponsoredSvg = Buffer.from('<svg>Sponsored</svg>').toString('base64')

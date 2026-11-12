@@ -211,6 +211,65 @@ def test_wait_user_control_returns_pending_user():
     assert state["pending_user"]["question"] == "Which budget?"
 
 
+def test_calls_after_wait_user_are_skipped_not_failed():
+    registry = ToolRegistry()
+    registry.register(
+        spec(
+            "ask_user",
+            ToolResult(
+                call_id="ignored",
+                tool="ask_user",
+                ok=True,
+                control="wait_user",
+                output={
+                    "question": "Which budget?",
+                    "reason": "need_user",
+                },
+            ),
+        )
+    )
+    registry.register(
+        spec(
+            "read",
+            ToolResult(call_id="ignored", tool="read", ok=True),
+        )
+    )
+    model = FakeModel(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "ask_user",
+                        "args": {},
+                        "id": "ask-1",
+                        "type": "tool_call",
+                    },
+                    {
+                        "name": "read",
+                        "args": {},
+                        "id": "read-1",
+                        "type": "tool_call",
+                    },
+                ],
+            )
+        ]
+    )
+
+    runtime, policy, _ = runtime_for(registry, model)
+    state = make_state()
+    result = asyncio.run(runtime.run_turn(state=state, policy=policy))
+
+    assert result.status == "waiting_user"
+    skipped = [
+        item for item in state["tool_results"] if item["tool"] == "read"
+    ][0]
+    assert skipped["ok"] is True
+    assert skipped["error"] is None
+    assert skipped["data"]["skipped"] is True
+    assert skipped["data"]["status"] == "skipped"
+
+
 def test_fail_control_returns_failed():
     registry = ToolRegistry()
     registry.register(

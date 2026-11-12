@@ -28,10 +28,19 @@ def test_apply_skips_low_confidence_budget():
     assert out.get("budget") is None
 
 
-def test_apply_replaces_existing_ram_requirement():
-    req = {"must_have": ["32G内存"]}
-    patch = RequirementPatch(must_have=["16G内存"])
+def test_apply_replaces_existing_must_have_with_the_complete_list():
+    req = {"must_have": ["water resistant"]}
+    patch = RequirementPatch(must_have=["waterproof", "lightweight"])
 
     out = apply_requirement_patch(req, patch)
 
-    assert out["must_have"] == ["16G内存"]
+    assert out["must_have"] == ["waterproof", "lightweight"]
+
+
+def test_apply_preserves_must_have_when_the_patch_omits_it():
+    req = {"must_have": ["waterproof"]}
+    patch = RequirementPatch(preferences=["lightweight"])
+
+    out = apply_requirement_patch(req, patch)
+
+    assert out["must_have"] == ["waterproof"]

@@ -22,37 +22,26 @@ from the supplied context; never invent a budget, brand, or specification.
 Plan steps must not be skipped: order them so each step has observable evidence.
 
 Search query rules:
-- eBay matches all keywords (AND). Use 1-3 short keywords such as "laptop",
-  "thinkpad laptop", or "laptop 16GB". Never pass a sentence or use-case
-  phrase such as "laptop for software development"; express constraints with
-  category/price filters instead. Prefix exclusion terms with "-".
+- eBay matches all keywords (AND). Use 1-3 short keywords in the site's
+  language; never pass a sentence or a use-case phrase. Express category or
+  price constraints with the site's filters only when the user stated them.
+  Prefix exclusion terms with "-" only when the user asked for an exclusion.
 - Treat budgets as amounts in the session currency; never convert currencies.
-- JD uses concise Chinese keywords.
-- Provide 2-4 keyword variants per site when useful.
+- JD uses concise keywords in the site's language.
+- Provide 2-4 keyword variants per site when useful, covering every hard
+  requirement and each alternative the user stated.
 """
 
-_EBAY_CATEGORY_QUERIES = {
-    "笔记本": "laptop",
-    "笔记本电脑": "laptop",
-    "手机": "smartphone",
-    "智能手机": "smartphone",
-    "平板": "tablet",
-    "平板电脑": "tablet",
-    "耳机": "headphones",
-    "显示器": "monitor",
-    "跑鞋": "running shoes",
-    "相机": "camera",
-    "键盘": "keyboard",
-    "鼠标": "mouse",
-    "显卡": "graphics card",
-    "主机": "desktop computer",
-}
 
-
-def requirements_complete(
+def planning_ready(
     requirements: dict[str, Any] | None, *, sites: list[Any] | None
 ) -> bool:
-    """True when category, budget stance, and sites are already known."""
+    """Whether a planning call has enough user input to be useful.
+
+    This is a structural check only: category, budget stance, and site are
+    present. It never supplies or filters category values; those come from the
+    LLM and the user's request.
+    """
     req = requirements or {}
     if not sites:
         return False
@@ -60,23 +49,27 @@ def requirements_complete(
         return False
     if req.get("budget_unlimited"):
         return True
-    return req.get("budget") is not None or req.get("budget_min") is not None
+    return (
+        req.get("budget") is not None
+        or req.get("budget_min") is not None
+    )
 
 
 class ShoppingPlanner:
     def __init__(self, model: Any | None = None) -> None:
         self.model = model or llm.build_chat_model()
 
+    def fallback(self, *, goal: str, context: dict[str, Any]) -> Plan:
+        """Build a generic step plan without calling the model."""
+        return self._normalize(
+            self._fallback_plan(goal, context),
+            goal=goal,
+            context=context,
+        )
+
     async def plan(
         self, *, goal: str, context: dict[str, Any]
     ) -> Plan:
-        if requirements_complete(
-            context.get("requirements"),
-            sites=list(context.get("sites") or []),
-        ):
-            return self._normalize(
-                self._fallback_plan(goal, context), goal=goal, context=context
-            )
         messages = [
             SystemMessage(content=PLANNER_PROMPT),
             HumanMessage(
@@ -220,31 +213,8 @@ class ShoppingPlanner:
         return roles
 
     @staticmethod
-    def _fallback_query(
-        site: str, category: str, use_case: str, goal: str
-    ) -> str:
-        if site == "ebay":
-            mapped = _EBAY_CATEGORY_QUERIES.get(category)
-            if mapped:
-                return mapped
-            if category and category.isascii():
-                return category
-            # Do not append a Chinese use-case phrase to an eBay query.
-            return category or goal
-        return " ".join(part for part in (category, use_case) if part) or goal
-
-    @staticmethod
     def _fallback_plan(goal: str, context: dict[str, Any]) -> Plan:
-        sites = [str(site) for site in context.get("sites") or ["jd"]]
         req = dict(context.get("requirements") or {})
-        category = str(req.get("category") or "").strip()
-        use_case = str(req.get("use_case") or "").strip()
-        queries = {
-            site: [
-                ShoppingPlanner._fallback_query(site, category, use_case, goal)
-            ]
-            for site in sites
-        }
         steps = [
             PlanStep(id="search", description="search"),
             PlanStep(id="verify", description="verify"),
@@ -254,7 +224,9 @@ class ShoppingPlanner:
             goal=goal,
             steps=steps,
             metadata={
-                "search_queries": queries,
+                # No query is generated on the fallback path. The next LLM
+                # decision derives queries from the current requirements.
+                "search_queries": {},
                 "evidence_checklist": [],
                 "stop_conditions": [],
                 "step_roles": {
@@ -263,7 +235,7 @@ class ShoppingPlanner:
                     "recommend": "recommend",
                 },
                 "requirements": req,
-                "planner": "template",
+                "planner": "fallback",
             },
         )
 
@@ -294,64 +266,23 @@ class ShoppingReplanner:
         if not self._is_poor(state, output, critique, metadata):
             return None
 
-        requirements = metadata.get("requirements") or {}
-        if not isinstance(requirements, dict):
-            requirements = {}
-        queries = metadata.get("search_queries") or {}
-        if not isinstance(queries, dict):
-            queries = {}
-        adjusted: dict[str, list[str]] = {}
-        for site, raw_queries in queries.items():
-            values = (
-                [raw_queries]
-                if isinstance(raw_queries, str)
-                else list(raw_queries or [])
-            )
-            adjusted[str(site)] = [
-                self._adjust_query(
-                    str(site),
-                    str(query),
-                    requirements,
-                    used,
-                )
-                for query in values
-            ]
-        if not any(adjusted.values()) or adjusted == queries:
-            return None
-
-        metadata["search_queries"] = adjusted
+        # Do not mutate queries with hardcoded category/site suffixes. Drop
+        # the stale queries and let the next LLM decision derive fresh ones
+        # from the current requirements and the critique.
+        metadata["search_queries"] = {}
         metadata["replan_count"] = used + 1
+        metadata["replan_reason"] = "poor_result"
         roles = metadata.get("step_roles") or {}
         search_id = roles.get("search") if isinstance(roles, dict) else None
         steps = list(plan.steps)
         search_id = search_id or (steps[0].id if steps else None)
-        if search_id:
-            for step in steps:
-                if step.id == search_id:
-                    step.status = "in_progress"
-                    break
+        if not search_id:
+            return None
+        for step in steps:
+            if step.id == search_id:
+                step.status = "in_progress"
+                break
         return Plan(goal=plan.goal, steps=steps, metadata=metadata)
-
-    @staticmethod
-    def _adjust_query(
-        site: str,
-        query: str,
-        requirements: dict[str, Any],
-        used: int,
-    ) -> str:
-        base = query.strip()
-        for marker in (" -book -accessory", " -used", " 推荐", " 优选"):
-            if base.endswith(marker):
-                base = base[: -len(marker)].strip()
-        category = str(requirements.get("category") or "")
-        if site == "ebay":
-            if category in {"书", "图书", "配件"}:
-                return f"{base} {'new' if used == 0 else 'reviewed'}"
-            # Do not exclude used items unless the user asked for it. The
-            # accessory suffix is harmless and is not re-applied on the next
-            # replan because the marker above is stripped first.
-            return f"{base} -book -accessory"
-        return f"{base} {category or '商品'} {'推荐' if used == 0 else '优选'}"
 
     @staticmethod
     def _is_poor(

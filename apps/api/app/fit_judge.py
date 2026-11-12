@@ -30,8 +30,8 @@ _SYSTEM = """You judge whether shopping listings fit a buyer's requirements.
 Return ONLY JSON matching:
 {"verdicts":[{"product_id":"...","category_ok":true|false|null,"must_have":[{"item":"...","ok":true|false|null}],"reason":"..."}]}
 Rules:
-- category_ok: true only if the product itself is the requested category. Accessories, parts, cases, films, stickers, books or unrelated items are false. Use null when the category is not requested.
-- must_have: one verdict per requested item, using the item text exactly as given. true only if the listing evidence (title, attributes, detail) supports it; false if the evidence contradicts it or says it is absent/unsupported (e.g. "不防水", attribute 否/No); null if the listing does not say. A memory item like "32G内存" means at least that much RAM; do not mistake storage (SSD/HDD) for RAM.
+- category_ok: true only if the product itself matches the requested category. An accessory, part, consumable, or unrelated item is false. Use null when the category is not requested.
+- must_have: one verdict per requested item, using the item text exactly as given. true only if the listing evidence (title, attributes, detail) supports it; false if the evidence contradicts it or says it is absent/unsupported; null if the listing does not say. Interpret each item literally, including its stated unit or qualifier; do not treat a different attribute that shares a number or word as a match.
 Use only the given listing data; never assume specs that are not stated."""
 
 

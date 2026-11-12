@@ -300,11 +300,14 @@ def test_run_llm_policy_creates_and_persists_a_plan(monkeypatch):
         json={"content": "笔记本 预算5000"},
     ).json()
 
-    # Complete requirements use the template planner (no LLM plan call).
-    assert model.plan_calls == 0
+    # The planner is always LLM-driven; no category query table is used.
+    assert model.plan_calls == 1
     assert response["recommendations"]
     assert response["status"] == "done"
-    assert response["plan"]["metadata"].get("planner") == "template"
+    assert response["plan"]["metadata"].get("planner") is None
+    assert response["plan"]["metadata"]["search_queries"] == {
+        "jd": ["笔记本"]
+    }
     assert [step["id"] for step in response["plan"]["steps"]] == [
         "search",
         "verify",
