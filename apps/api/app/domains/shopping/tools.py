@@ -189,6 +189,7 @@ def _compact_browse(result: dict[str, Any]) -> dict[str, Any]:
         "currency_mismatch",
         "detail_currency",
         "session_currency",
+        "extension_errors",
     )
     out = {k: result[k] for k in keep if k in result}
     if "product" in result:

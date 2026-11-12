@@ -413,6 +413,7 @@ class ToolBox:
         requirements = self.session.requirements or {}
         eligible: list[dict[str, Any]] = []
         excluded: dict[str, int] = {}
+        excluded_primary: dict[str, int] = {}
         excluded_samples: list[dict[str, Any]] = []
         for product in products:
             eligibility = check_product(
@@ -427,6 +428,11 @@ class ToolBox:
                 continue
             for violation in eligibility.violations:
                 excluded[violation] = excluded.get(violation, 0) + 1
+            if eligibility.violations:
+                primary = eligibility.violations[0]
+                excluded_primary[primary] = (
+                    excluded_primary.get(primary, 0) + 1
+                )
             if len(excluded_samples) < 3:
                 excluded_samples.append(
                     {
@@ -459,6 +465,9 @@ class ToolBox:
             "unverified_count": len(eligible) - detail_verified,
             "total_cached": len(products),
             "excluded": excluded,
+            # One reason per excluded product, so these counts add up to the
+            # excluded total while `excluded` remains the detailed view.
+            "excluded_primary": excluded_primary,
             "excluded_samples": excluded_samples,
             "items": [
                 {

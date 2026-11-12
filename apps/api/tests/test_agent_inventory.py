@@ -129,6 +129,7 @@ def test_query_inventory_reports_diverse_mode():
     assert result["count"] == 1
     assert result["total_cached"] == 1
     assert result["excluded"] == {}
+    assert result["excluded_primary"] == {}
     assert result["excluded_samples"] == []
 
 
@@ -141,6 +142,7 @@ def test_query_inventory_reports_exclusion_reasons():
     assert result["count"] == 0
     assert result["total_cached"] == 1
     assert result["excluded"]["budget"] == 1
+    assert result["excluded_primary"] == {"budget": 1}
     assert result["excluded_samples"] == [
         {
             "product_id": "p1",

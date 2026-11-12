@@ -150,6 +150,10 @@ def _tool_result_summary(result: Any) -> dict[str, Any] | None:
         summary["items"] = len(result["items"])
     if isinstance(result.get("excluded"), dict):
         summary["excluded"] = result["excluded"]
+    if isinstance(result.get("excluded_primary"), dict):
+        summary["excluded_primary"] = result["excluded_primary"]
+    if isinstance(result.get("extension_errors"), list):
+        summary["extension_errors"] = result["extension_errors"][-3:]
     product = result.get("product")
     if isinstance(product, dict):
         summary["product"] = {

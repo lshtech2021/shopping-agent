@@ -103,8 +103,17 @@ class BrowserGateway:
         if "items" in result:
             summary["item_count"] = len(result.get("items") or [])
         if result.get("extension_logs"):
+            extension_errors = []
             for entry in result.get("extension_logs") or []:
                 if isinstance(entry, dict):
+                    if str(entry.get("level") or "") in {"warning", "error"}:
+                        extension_errors.append(
+                            {
+                                "stage": entry.get("stage"),
+                                "level": entry.get("level"),
+                                "message": str(entry.get("message") or "")[:200],
+                            }
+                        )
                     log_event(
                         self.session,
                         str(entry.get("message") or "extension"),
@@ -118,6 +127,9 @@ class BrowserGateway:
             summary["extension_log_count"] = len(
                 result.get("extension_logs") or []
             )
+            if extension_errors:
+                summary["extension_errors"] = extension_errors[-3:]
+                result["extension_errors"] = extension_errors[-3:]
         log_event(
             self.session,
             f"browse:{tool} → {result.get('status')}",
