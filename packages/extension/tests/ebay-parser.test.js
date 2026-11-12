@@ -501,6 +501,37 @@ test('waitForListing waits for the card grid to stop growing', async () => {
   assert.equal(result.items.length, 2)
 })
 
+test('cards beyond the reported result count are treated as fallback', () => {
+  const card = (id, title, price) => `
+    <li class="s-item">
+      <a class="s-item__link" href="/itm/${id}"></a>
+      <div class="s-item__title">${title}</div>
+      <span class="s-item__price">US $${price}</span>
+    </li>`
+  const dom = new JSDOM(
+    `<html><body>
+      <div class="srp-controls__count-heading">2 results</div>
+      <ul>
+        ${card(1, 'Exact one', '10.00')}
+        ${card(2, 'Exact two', '20.00')}
+        ${card(3, 'Fallback extra', '30.00')}
+      </ul>
+    </body></html>`,
+    { url: 'https://www.ebay.com/sch/i.html?_nkw=widget' },
+  )
+
+  const result = ebay.parseListing(
+    dom.window.document,
+    dom.window.location.href,
+  )
+
+  assert.equal(result.status, 'ok')
+  assert.equal(result.result_count, 2)
+  assert.equal(result.items.length, 2)
+  assert.equal(result.page_item_count, 2)
+  assert.equal(result.fallback_item_count, 1)
+})
+
 test('zero-result fallback cards are not ingested', async () => {
   const dom = loadDom(
     'ebay-list-zero-results.html',

@@ -572,13 +572,22 @@
         no_results: true,
       }
     }
+    // eBay can place "results matching fewer words" or other fallback cards
+    // below a small exact-result set. If the heading reports fewer results
+    // than the parsed card count, do not ingest the extra cards as exact
+    // results; report them as fallback instead.
+    const boundedCount =
+      resultCount !== null ? Math.min(items.length, resultCount) : items.length
+    const fallbackCount = items.length - boundedCount
+    const boundedItems = items.slice(0, boundedCount)
     return {
       status: 'ok',
-      items,
+      items: boundedItems,
       page,
       result_count: resultCount ?? items.length,
-      page_item_count: items.length,
-      fallback_item_count: 0,
+      page_item_count: boundedItems.length,
+      fallback_item_count: fallbackCount,
+      fallback_truncated: fallbackCount > 0,
       has_next: hasNextPage(root, baseUrl),
       next_url: nextPageUrl(root, baseUrl),
     }
