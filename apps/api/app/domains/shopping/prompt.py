@@ -137,6 +137,17 @@ def blocked_text(site: str, result: dict[str, Any], what: str) -> str:
         return "插件连接中断，请确认插件在线后点「继续」。"
     if error == "job_timeout":
         return f"{site} {what}超时（页面可能卡住或需要验证），处理后点「继续」。"
+    if error == "tab_load_timeout":
+        return f"{site} {what}页面加载超时，已自动重试仍未完成；请确认页面可正常打开后点「继续」。"
+    if error == "content_script_unavailable":
+        return (
+            f"{site} 页面脚本未就绪（标签页可能刚重载或已失效），"
+            "请刷新页面或点「继续」重试。"
+        )
+    if error == "tab_closed":
+        return f"{site} 标签页已关闭，请点「继续」重新打开搜索页。"
+    if error == "search_pending_scrape":
+        return "上一个搜索页还未解析完成，请先执行 scrape_listing。"
     if error == "currency_mismatch":
         return (
             f"{site} 页面货币与会话货币不一致"

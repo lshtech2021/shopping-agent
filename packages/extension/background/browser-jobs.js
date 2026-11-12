@@ -155,11 +155,18 @@ function timeoutError(code) {
   return error
 }
 
-async function ensureTab(site, url, log, deadline, tabKey = site) {
+async function ensureTab(
+  site,
+  url,
+  log,
+  deadline,
+  tabKey = site,
+  { maxWaitMs = null, forceNew = false } = {},
+) {
   if (!isAllowedSiteUrl(site, url)) {
     throw new Error('invalid_site_url')
   }
-  const existingId = SITE_TABS.get(tabKey)
+  const existingId = forceNew ? null : SITE_TABS.get(tabKey)
   if (existingId) {
     let tab = null
     try {
@@ -173,7 +180,7 @@ async function ensureTab(site, url, log, deadline, tabKey = site) {
     if (tab) {
       log.debug('extension.tab', `复用标签 ${tabKey}`, { tabId: tab.id, url })
       await chrome.tabs.update(tab.id, { url, active: false })
-      await waitComplete(tab.id, url, deadline)
+      await waitComplete(tab.id, url, deadline, maxWaitMs)
       SITE_URLS.set(tabKey, url)
       await persistTabState()
       return tab.id
@@ -182,13 +189,43 @@ async function ensureTab(site, url, log, deadline, tabKey = site) {
   const tab = await chrome.tabs.create({ url, active: false })
   SITE_TABS.set(tabKey, tab.id)
   log.info('extension.tab', `新建标签 ${tabKey}`, { tabId: tab.id, url })
-  await waitComplete(tab.id, url, deadline)
+  await waitComplete(tab.id, url, deadline, maxWaitMs)
   SITE_URLS.set(tabKey, url)
   await persistTabState()
   return tab.id
 }
 
-function waitComplete(tabId, expectedUrl, deadline = Date.now() + 30000) {
+async function discardTab(tabKey, tabId, log, reason) {
+  SITE_TABS.delete(tabKey)
+  SITE_URLS.delete(tabKey)
+  await persistTabState()
+  if (tabId) {
+    try {
+      await chrome.tabs.remove(tabId)
+    } catch (_) {
+      /* the tab may already be gone */
+    }
+  }
+  log.warn('extension.tab', `丢弃标签 ${tabKey}`, { tabId, reason })
+}
+
+function isTransientTabError(error) {
+  const text = String(error?.code || error?.message || error)
+  return /tab_load_timeout|job_deadline_exceeded|Receiving end does not exist|Could not establish connection|message port closed|content bridge unavailable/i.test(
+    text,
+  )
+}
+
+function waitComplete(
+  tabId,
+  expectedUrl,
+  deadline = Date.now() + 30000,
+  maxWaitMs = null,
+) {
+  const effectiveDeadline =
+    maxWaitMs && maxWaitMs > 0
+      ? Math.min(deadline, Date.now() + maxWaitMs)
+      : deadline
   return new Promise((resolve, reject) => {
     let settled = false
     const finish = (fn, value) => {
@@ -200,7 +237,7 @@ function waitComplete(tabId, expectedUrl, deadline = Date.now() + 30000) {
     const check = async () => {
       try {
         const tab = await chrome.tabs.get(tabId)
-        if (Date.now() > deadline) {
+        if (Date.now() > effectiveDeadline) {
           finish(reject, timeoutError('tab_load_timeout'))
           return
         }
@@ -477,22 +514,40 @@ async function _runBrowserJob(tool, args = {}) {
     if (tool === 'search') {
       const url = adapter.buildSearchUrl(args.query || '', args)
       const siteKey = scopeKey(site, args)
-      const tabId = await ensureTab(
-        site,
-        url,
-        log,
-        deadline,
-        siteKey,
-      )
-      const siteRefused = await waitForListingReady(
-        tabId,
-        args,
-        deadline,
-        log,
-      )
-      if (siteRefused) return withLogs(siteRefused, log, jobId)
-      const refused = await guardTab(tabId, args, deadline)
-      if (refused) return withLogs(refused, log, jobId)
+
+      async function openSearchTab(forceNew) {
+        const id = await ensureTab(site, url, log, deadline, siteKey, {
+          forceNew,
+          maxWaitMs: 15000,
+        })
+        const siteRefused = await waitForListingReady(
+          id,
+          args,
+          deadline,
+          log,
+        )
+        if (siteRefused) return { refused: siteRefused }
+        const refused = await guardTab(id, args, deadline)
+        return { tabId: id, refused }
+      }
+
+      let opened
+      try {
+        opened = await openSearchTab(false)
+      } catch (error) {
+        if (!isTransientTabError(error)) throw error
+        await discardTab(
+          siteKey,
+          SITE_TABS.get(siteKey),
+          log,
+          String(error?.code || error?.message || error),
+        )
+        opened = await openSearchTab(true)
+      }
+      if (opened.refused) {
+        return withLogs(opened.refused, log, jobId)
+      }
+      const tabId = opened.tabId
       const probe = await sendToTab(
         tabId,
         { type: 'detect_block' },
@@ -821,17 +876,36 @@ async function _runBrowserJob(tool, args = {}) {
       // Parallel fetch_detail must not share one tab — otherwise jobs race and
       // parse whichever page last navigated (often empty / mid-load).
       const detailKey = `${site}-detail:${args.source_product_id || args.product_id || url}`
-      const tabId = await ensureTab(
-        site,
-        url,
-        log,
-        deadline,
-        scopeKey(detailKey, args),
-      )
-      const refused = await guardTab(tabId, args, deadline, {
-        skipCurrency: true,
-      })
-      if (refused) return withLogs(refused, log, jobId)
+      const detailTabKey = scopeKey(detailKey, args)
+
+      async function openDetailTab(forceNew) {
+        const id = await ensureTab(site, url, log, deadline, detailTabKey, {
+          forceNew,
+          maxWaitMs: 12000,
+        })
+        const refused = await guardTab(id, args, deadline, {
+          skipCurrency: true,
+        })
+        return { tabId: id, refused }
+      }
+
+      let opened
+      try {
+        opened = await openDetailTab(false)
+      } catch (error) {
+        if (!isTransientTabError(error)) throw error
+        await discardTab(
+          detailTabKey,
+          SITE_TABS.get(detailTabKey),
+          log,
+          String(error?.code || error?.message || error),
+        )
+        opened = await openDetailTab(true)
+      }
+      if (opened.refused) {
+        return withLogs(opened.refused, log, jobId)
+      }
+      const tabId = opened.tabId
       // The content bridge waits for detail hydration before parsing; retry
       // only when eBay still reports a transient "not found" state.
       const response = await parseDetailWithRetry(tabId, deadline)
@@ -882,10 +956,19 @@ async function _runBrowserJob(tool, args = {}) {
     )
   } catch (error) {
     const code = String(error?.code || error?.message || error)
-    const errorCode =
-      code === 'tab_load_timeout' || code === 'job_deadline_exceeded'
-        ? code
-        : String(error?.message || error)
+    const message = String(error?.message || error)
+    let errorCode = message
+    if (code === 'tab_load_timeout' || code === 'job_deadline_exceeded') {
+      errorCode = code
+    } else if (
+      /Receiving end does not exist|Could not establish connection|message port closed/i.test(
+        message,
+      )
+    ) {
+      errorCode = 'content_script_unavailable'
+    } else if (/No tab with id/i.test(message)) {
+      errorCode = 'tab_closed'
+    }
     log.error('extension.job', `任务异常 ${tool}`, { error: code })
     return withLogs(
       {
