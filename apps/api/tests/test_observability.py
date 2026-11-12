@@ -241,3 +241,20 @@ def test_prune_logs_removes_old_events_and_artifacts():
     assert pruned["run_events"] >= 1
     assert pruned["artifacts"] >= 1
     assert store.get_artifact("old-artifact") is None
+
+
+def test_redaction_does_not_rewrite_product_urls(monkeypatch):
+    session = store.create("测试", "jd")
+    monkeypatch.setattr(settings, "log_redaction_enabled", True)
+    log_event(
+        session,
+        "URL 与电话",
+        stage="test.redaction",
+        data={
+            "url": "https://www.ebay.com/itm/18712345678",
+            "text": "call 13800138000",
+        },
+    )
+    data = session.execution_logs[-1]["data"]
+    assert data["url"] == "https://www.ebay.com/itm/18712345678"
+    assert data["text"] == "call [phone]"

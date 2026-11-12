@@ -81,15 +81,20 @@ def classify_error(
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _PHONE_RE = re.compile(
-    r"(?<!\d)(?:\+?\d{1,3}[\s-]?)?"
-    r"(?:1[3-9]\d{9}|\d{3}[- ]\d{3}[- ]\d{4})(?!\d)"
+    r"(?<![\w/.-])(?:\+?\d{1,3}[\s-]?)?"
+    r"(?:1[3-9]\d{9}|\d{3}[- ]\d{3}[- ]\d{4})(?![\w/])"
 )
 
 
 def redact_text(text: str) -> str:
     if not settings.log_redaction_enabled:
         return text
-    return _PHONE_RE.sub("[phone]", _EMAIL_RE.sub("[email]", text))
+    text = _EMAIL_RE.sub("[email]", text)
+    # Never rewrite phone-like digits inside URLs: eBay item ids can match
+    # the mobile-number pattern and a broken product URL is worse than PII.
+    if "://" in text:
+        return text
+    return _PHONE_RE.sub("[phone]", text)
 
 
 def _trim(value: Any, limit: int = MAX_DATA_CHARS) -> Any:
