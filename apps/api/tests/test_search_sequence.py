@@ -42,6 +42,28 @@ def test_search_requires_scrape_before_the_next_search():
     ]
 
 
+def test_next_page_also_consumes_the_pending_search():
+    session = store.create("generic requirement", "ebay")
+    box = ToolBox(session)
+
+    async def fake_browse(tool, _args):
+        if tool == "search":
+            return {"status": "ok", "page": 1, "site": "ebay"}
+        return {
+            "status": "ok",
+            "items": [],
+            "page": 2,
+            "site": "ebay",
+        }
+
+    box._browse = fake_browse
+
+    asyncio.run(box.search("ebay", "query"))
+    asyncio.run(box.next_page("ebay"))
+
+    assert box.search_pending_scrape is False
+
+
 def test_zero_result_scrape_also_releases_the_pending_search():
     session = store.create("generic requirement", "ebay")
     box = ToolBox(session)

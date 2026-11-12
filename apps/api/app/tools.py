@@ -652,13 +652,21 @@ class ToolBox:
         self._bump_quota(site, "next_page")
         if result.get("status") != "ok":
             return result
+        # next_page returns parsed items and upserts them, so it consumes the
+        # active search page just like scrape_listing does.
+        self.scraped_search_seq = self.search_seq
         self.page_by_site[site] = int(result.get("page") or next_page)
         accepted = 0
         for item in result.get("items") or []:
             if self._upsert_listing(site, item):
                 accepted += 1
         store.touch(self.session)
-        return {**result, "accepted": accepted}
+        return {
+            **result,
+            "accepted": accepted,
+            "query": self.active_query if self.active_site == site else None,
+            "search_seq": self.search_seq,
+        }
 
     async def fetch_detail(
         self, product_id: str, *, force: bool = False
