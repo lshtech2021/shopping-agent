@@ -131,7 +131,11 @@ class ToolBox:
         products = list(self.session.products.values())
         return {
             "session_id": self.session.id,
-            "status": self.session.status,
+            # Tool execution status, not the session lifecycle status. Keeping
+            # these separate prevents audit logs from recording get_session
+            # as "running" while the tool itself succeeded.
+            "status": "ok",
+            "session_status": self.session.status,
             "sites": self.session.sites,
             "settings": dict(self.session.settings),
             "requirement": self.session.requirement,

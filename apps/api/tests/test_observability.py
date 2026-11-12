@@ -138,6 +138,45 @@ def test_turn_summary_aggregates_llm_tools_and_exclusions():
     assert data["versions"]["llm_model"] == "test-model"
 
 
+def test_get_session_reports_tool_and_session_status_separately():
+    from app.tools import ToolBox
+
+    session = store.create("测试", "jd")
+    session.status = "running"
+
+    info = ToolBox(session).get_session()
+
+    assert info["status"] == "ok"
+    assert info["session_status"] == "running"
+
+
+def test_turn_summary_counts_structured_fallback_calls():
+    session = store.create("测试", "jd")
+    session.turn = 1
+    log_event(
+        session,
+        "商品匹配评估",
+        stage="llm.call",
+        source="llm",
+        data={
+            "component": "fit_judge",
+            "structured": False,
+            "total_tokens": 10,
+        },
+    )
+
+    _turn_summary(
+        session,
+        {"status": "done", "recommendations": []},
+        started=time.perf_counter(),
+        product_count_before=0,
+    )
+
+    data = session.execution_logs[-1]["data"]
+    assert data["llm"]["structured_fallback_calls"] == 1
+    assert data["llm"]["structured_fallbacks"] == 1
+
+
 def test_large_tool_result_is_stored_by_reference(monkeypatch):
     session = store.create("测试", "jd")
     monkeypatch.setattr(settings, "artifact_storage_enabled", True)

@@ -48,12 +48,15 @@ def _turn_summary(
     components: dict[str, int] = {}
     internal_calls = 0
     internal_tokens = 0
+    structured_fallback_calls = 0
     for event in events:
         stage = str(event.get("stage") or "")
         data = event.get("data") if isinstance(event.get("data"), dict) else {}
         if data.get("extension_version"):
             extension_version = data["extension_version"]
         if stage == "llm.call":
+            if data.get("structured") is False:
+                structured_fallback_calls += 1
             model = data.get("model") or model
             component = str(data.get("component") or "main")
             components[component] = components.get(component, 0) + 1
@@ -105,13 +108,20 @@ def _turn_summary(
             "components": components,
             "internal_calls": internal_calls,
             "internal_tokens": internal_tokens,
-            "structured_fallbacks": sum(
-                1
-                for item in warnings
-                if item.get("error_code")
-                == "provider_structured_output_unsupported"
-                or "structured output" in item["message"].lower()
+            # Count actual fallback calls as well as provider warnings. Some
+            # providers/fit-judge calls use cached text fallbacks without
+            # emitting a new warning on every call.
+            "structured_fallbacks": max(
+                sum(
+                    1
+                    for item in warnings
+                    if item.get("error_code")
+                    == "provider_structured_output_unsupported"
+                    or "structured output" in item["message"].lower()
+                ),
+                structured_fallback_calls,
             ),
+            "structured_fallback_calls": structured_fallback_calls,
         },
         "tools": tool_counts,
         "tool_status": tool_status,
