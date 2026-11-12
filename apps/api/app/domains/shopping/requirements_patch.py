@@ -39,17 +39,23 @@ def apply_requirement_patch(
         return conf.get(field, "high") == "high" and field not in patch.ambiguous_fields
 
     if patch.budget_unlimited is True and high("budget_unlimited"):
+        # Unlimited is an upper-bound stance only. A lower bound is a
+        # separate constraint and must survive when the user says "no upper
+        # limit, but keep the minimum".
         req["budget"] = None
-        req["budget_min"] = None
-        req["budget_currency"] = None
         req["budget_unlimited"] = True
+        if patch.budget_min is not None and high("budget_min"):
+            req["budget_min"] = float(patch.budget_min)
+        if patch.budget_currency and high("budget_currency"):
+            code = normalize_currency(patch.budget_currency)
+            if code:
+                req["budget_currency"] = code
     else:
         if patch.budget is not None and high("budget"):
             req["budget"] = float(patch.budget)
             req["budget_unlimited"] = False
         if patch.budget_min is not None and high("budget_min"):
             req["budget_min"] = float(patch.budget_min)
-            req["budget_unlimited"] = False
         if patch.budget_currency and high("budget_currency"):
             code = normalize_currency(patch.budget_currency)
             if code:

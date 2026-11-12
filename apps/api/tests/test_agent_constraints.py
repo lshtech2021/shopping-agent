@@ -193,6 +193,48 @@ def test_shipping_currency_mismatch_skips_caps():
     assert "cost_incomplete" in result.violations
 
 
+def test_unlimited_upper_still_enforces_an_explicit_lower_bound():
+    below = check_eligibility(
+        {
+            "source": "jd",
+            "price": 4000,
+            "currency": "CNY",
+            "availability": "available",
+            "detail_fetched": True,
+        },
+        {
+            "budget": None,
+            "budget_min": 5000,
+            "budget_currency": "CNY",
+            "budget_unlimited": True,
+            "must_have": [],
+        },
+        settings={"site": "jd", "currency": "CNY"},
+        sites=["jd"],
+    )
+    above = check_eligibility(
+        {
+            "source": "jd",
+            "price": 6000,
+            "currency": "CNY",
+            "availability": "available",
+            "detail_fetched": True,
+        },
+        {
+            "budget": None,
+            "budget_min": 5000,
+            "budget_currency": "CNY",
+            "budget_unlimited": True,
+            "must_have": [],
+        },
+        settings={"site": "jd", "currency": "CNY"},
+        sites=["jd"],
+    )
+
+    assert "budget_min" in below.violations
+    assert "budget_min" not in above.violations
+
+
 def test_budget_uses_landed_cost_when_available():
     product = {
         "source": "ebay",

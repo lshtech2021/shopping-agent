@@ -164,11 +164,14 @@ def check_eligibility(
 
     budget = requirements.get("budget")
     budget_min = requirements.get("budget_min")
-    has_budget = (
-        not requirements.get("budget_unlimited")
-        and (budget is not None or budget_min is not None)
+    # Unlimited means "no upper cap"; it must not disable an explicit lower
+    # bound or the currency needed to compare that lower bound.
+    has_upper = (
+        not requirements.get("budget_unlimited") and budget is not None
     )
-    if not requirements.get("budget_unlimited"):
+    has_lower = budget_min is not None
+    has_budget = has_upper or has_lower
+    if has_budget:
         price = product.get("price")
         landed = product.get("landed_cost")
         price_cap = landed
@@ -183,7 +186,7 @@ def check_eligibility(
         budget_currency = normalize_currency(
             requirements.get("budget_currency") or session_currency
         )
-        if has_budget and (
+        if (
             not budget_currency
             or not currency
             or currency != budget_currency
@@ -194,16 +197,16 @@ def check_eligibility(
         ):
             violations.append("currency")
         else:
-            if budget is not None and (
+            if has_upper and (
                 price_cap is None or float(price_cap) > float(budget)
             ):
                 violations.append("budget")
             min_value = landed if landed is not None else price
-            if budget_min is not None and (
+            if has_lower and (
                 min_value is None or float(min_value) < float(budget_min)
             ):
                 violations.append("budget_min")
-            if has_budget and product.get("listing_type") == "auction":
+            if has_upper and product.get("listing_type") == "auction":
                 violations.append("auction")
             if has_budget and product.get("cost_complete") is False:
                 violations.append("cost_incomplete")
