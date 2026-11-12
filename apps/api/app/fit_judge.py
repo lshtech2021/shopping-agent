@@ -32,7 +32,8 @@ Return ONLY JSON matching:
 Rules:
 - category_ok: true only if the product itself matches the requested category. An accessory, part, consumable, or unrelated item is false. Use null when the category is not requested.
 - must_have: one verdict per requested item, using the item text exactly as given. true only if the listing evidence (title, attributes, detail) supports it; false if the evidence contradicts it or says it is absent/unsupported; null if the listing does not say. Interpret each item literally, including its stated unit or qualifier; do not treat a different attribute that shares a number or word as a match.
-Use only the given listing data; never assume specs that are not stated."""
+- requirements.preferences may explicitly allow official-specification inference for attributes the listing omits. If and only if that permission is present, you may use the exact product model name and its published official specifications; mark the verdict reason as inferred. Do not infer from a different model or a vague product family, and use null when the model identity is ambiguous.
+Use only the given listing data, plus official specifications only when the inference preference explicitly allows it; never invent specs."""
 
 
 class _MustHaveVerdict(BaseModel):
@@ -255,6 +256,9 @@ async def judge_products(
     wanted = {
         "category": requirements.get("category"),
         "must_have": [str(item) for item in requirements.get("must_have") or []],
+        "preferences": [
+            str(item) for item in requirements.get("preferences") or []
+        ],
     }
     for start in range(0, len(targets), BATCH_SIZE):
         batch = targets[start : start + BATCH_SIZE]

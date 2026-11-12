@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 from app import fit_judge
 from app.constraints import check_product, needs_judging
@@ -40,6 +41,15 @@ class CountingJudge(FitJudgeDouble):
         return await super().ainvoke(messages)
 
 
+class RecordingJudge(FitJudgeDouble):
+    def __init__(self):
+        self.payloads = []
+
+    async def ainvoke(self, messages):
+        self.payloads.append(json.loads(messages[-1].content))
+        return await super().ainvoke(messages)
+
+
 class BrokenJudge:
     def with_structured_output(self, _schema):
         return self
@@ -65,6 +75,28 @@ def test_no_category_or_must_have_means_no_llm_call():
         settings=session.settings,
         sites=["jd"],
     ).ok
+
+
+def test_judge_receives_preferences_for_inference_policy():
+    session = seed(
+        category="笔记本",
+        must_have=["32G内存"],
+        preferences=["允许按同型号官方规格推断"],
+    )
+    judge = RecordingJudge()
+
+    asyncio.run(
+        fit_judge.judge_products(
+            list(session.products.values()),
+            session.requirements,
+            model=judge,
+        )
+    )
+
+    assert judge.payloads
+    assert judge.payloads[0]["requirements"]["preferences"] == [
+        "允许按同型号官方规格推断"
+    ]
 
 
 def test_verdicts_are_batched_cached_and_gate_eligibility():
