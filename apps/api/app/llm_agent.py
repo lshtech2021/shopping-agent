@@ -60,11 +60,14 @@ async def run_llm_policy(
         planner = ShoppingPlanner(model=base_model)
         context = {
             "requirements": dict(session.requirements or {}),
-            "sites": list(session.sites),
+            "site": str(session.settings.get("site") or ""),
+            "sites": [str(session.settings.get("site") or "")],
             "searched_sites": list(session.searched_sites),
             "product_count": len(session.products),
         }
-        if planning_ready(session.requirements, sites=session.sites):
+        if planning_ready(
+            session.requirements, site=str(session.settings.get("site") or "")
+        ):
             started = time.perf_counter()
             plan = await planner.plan(
                 goal=session.requirement or text,

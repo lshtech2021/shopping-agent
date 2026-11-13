@@ -35,7 +35,7 @@ def main() -> int:
             time.sleep(0.25)
     try:
         print("health:", httpx.get(f"{BASE}/health").json())
-        created = httpx.post(f"{BASE}/api/v1/sessions", json={"requirement": REQ, "sites": ["jd"]}).json()
+        created = httpx.post(f"{BASE}/api/v1/sessions", json={"requirement": REQ, "site": "jd"}).json()
         body = httpx.post(
             f"{BASE}/api/v1/sessions/{created['session_id']}/messages",
             json={"content": REQ},

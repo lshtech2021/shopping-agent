@@ -35,7 +35,7 @@ def main() -> int:
         shopper.calls = 0
         created = client.post(
             "/api/v1/sessions",
-            json={"requirement": case["requirement"], "sites": case["sites"]},
+            json={"requirement": case["requirement"], "site": case["site"]},
         )
         if created.status_code != 200:
             print(f"[FAIL] {case['id']}: create {created.status_code}")

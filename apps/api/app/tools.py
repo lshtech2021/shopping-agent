@@ -40,7 +40,8 @@ class ToolBox:
         self._reindex_products()
 
     def _require_site(self, site: str) -> Optional[dict[str, Any]]:
-        if site and site in self.session.sites:
+        active = str(self.session.settings.get("site") or "")
+        if site and site == active:
             return None
         refused = {
             "status": "blocked",
@@ -49,7 +50,7 @@ class ToolBox:
         }
         log_event(
             self.session,
-            f"拒绝 browse：站点 {site or '(空)'} 不在当前会话选择中",
+            f"拒绝 browse：站点 {site or '(空)'} 不是当前会话站点 {active or '(空)'}",
             stage="tool.guard",
             source="tool",
             level="warning",
@@ -136,7 +137,8 @@ class ToolBox:
             # as "running" while the tool itself succeeded.
             "status": "ok",
             "session_status": self.session.status,
-            "sites": self.session.sites,
+            "site": self.session.settings.get("site"),
+            "sites": [str(self.session.settings.get("site") or "")],
             "settings": dict(self.session.settings),
             "requirement": self.session.requirement,
             "requirements": self.session.requirements,
@@ -325,7 +327,6 @@ class ToolBox:
                     product,
                     requirements,
                     settings=self.session.settings,
-                    sites=self.session.sites,
                     include_fit=False,
                 ).ok
             ]
@@ -379,7 +380,6 @@ class ToolBox:
                 product,
                 requirements,
                 settings=self.session.settings,
-                sites=self.session.sites,
                 require_detail=prefer_detail,
             )
             if eligibility.ok:
@@ -404,7 +404,6 @@ class ToolBox:
             eligible,
             requirements,
             settings=self.session.settings,
-            sites=self.session.sites,
             limit=limit,
             require_detail=prefer_detail,
         )
@@ -560,7 +559,11 @@ class ToolBox:
         }
 
     async def scrape_listing(self, site: str | None = None, page: int | None = None) -> dict[str, Any]:
-        site = (site or self.active_site or (self.session.sites[0] if self.session.sites else "")).lower()
+        site = (
+            site
+            or self.active_site
+            or str(self.session.settings.get("site") or "")
+        ).lower()
         refused = self._require_site(site) or self._guard(site, "scrape_listing")
         if refused:
             return refused
@@ -594,7 +597,7 @@ class ToolBox:
         site = (
             site
             or self.active_site
-            or (self.session.sites[0] if self.session.sites else "")
+            or str(self.session.settings.get("site") or "")
         ).lower()
         refused = self._require_site(site)
         if refused:
@@ -894,7 +897,6 @@ class ToolBox:
                 product,
                 requirements,
                 settings=self.session.settings,
-                sites=self.session.sites,
                 # Mock catalog has no detail pages; live mode must verify details.
                 require_detail=not self.mock_mode,
             )

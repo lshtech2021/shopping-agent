@@ -34,7 +34,7 @@ Search query rules:
 
 
 def planning_ready(
-    requirements: dict[str, Any] | None, *, sites: list[Any] | None
+    requirements: dict[str, Any] | None, *, site: str | None = None, sites: list[Any] | None = None
 ) -> bool:
     """Whether a planning call has enough user input to be useful.
 
@@ -43,7 +43,8 @@ def planning_ready(
     LLM and the user's request.
     """
     req = requirements or {}
-    if not sites:
+    active = site or (sites[0] if sites else None)
+    if not active:
         return False
     if not req.get("category"):
         return False

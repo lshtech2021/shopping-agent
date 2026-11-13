@@ -239,8 +239,8 @@ def create_session(
         session_id=session.id,
         status=session.status,
         requirement=session.requirement,
-        sites=session.sites,
         settings=session.settings,
+        sites=[str(session.settings.get("site") or "")],
     )
 
 
@@ -267,8 +267,8 @@ async def get_session(
         session_id=session.id,
         status=session.status,
         requirement=session.requirement,
-        sites=session.sites,
         settings=session.settings,
+        sites=[str(session.settings.get("site") or "")],
         requirements=session.requirements,
         plan=session.plan,
         messages=session.messages,
@@ -371,8 +371,8 @@ def patch_session_settings(
     return PatchSessionSettingsResponse(
         session_id=session.id,
         status=session.status,
-        sites=session.sites,
         settings=session.settings,
+        sites=[str(session.settings.get("site") or "")],
         budget_cleared=budget_cleared,
         recommendations_cleared=recommendations_cleared,
     )

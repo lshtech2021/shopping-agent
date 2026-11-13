@@ -2,7 +2,7 @@
   {
     "id": "laptop-budget-32g",
     "requirement": "帮我挑一台 5000 元内用于开发的笔记本，内存至少 32G",
-    "sites": ["jd"],
+    "site": "jd",
     "message": "帮我挑一台 5000 元内用于开发的笔记本，内存至少 32G",
     "expect": {
       "interrupted": false,
@@ -11,20 +11,20 @@
     }
   },
   {
-    "id": "dual-site",
+    "id": "ebay-site",
     "requirement": "开发笔记本 预算5000 内存32G",
-    "sites": ["jd", "ebay"],
+    "site": "ebay",
     "message": "开发笔记本 预算5000 内存至少32G",
     "expect": {
       "interrupted": false,
       "min_recommendations": 1,
-      "sources_include": ["jd", "ebay"]
+      "sources_include": ["ebay"]
     }
   },
   {
     "id": "spec-numbers-are-not-budget",
     "requirement": "开发笔记本 内存至少 32G 512G SSD 预算5000",
-    "sites": ["jd"],
+    "site": "jd",
     "message": "开发笔记本 内存至少 32G 512G SSD 预算5000",
     "expect": {
       "interrupted": false,
@@ -34,7 +34,7 @@
   {
     "id": "clarify-when-budget-missing",
     "requirement": "帮我挑一台笔记本",
-    "sites": ["jd"],
+    "site": "jd",
     "message": "帮我挑一台笔记本",
     "expect": {
       "interrupted": true,
@@ -44,7 +44,7 @@
   {
     "id": "rate-limit-interrupt",
     "requirement": "笔记本",
-    "sites": ["jd"],
+    "site": "jd",
     "message": "rate_limit_me",
     "expect": {
       "interrupted": true,

@@ -121,7 +121,6 @@ def test_unavailable_product_is_ineligible():
         },
         {},
         settings={"site": "ebay", "currency": "USD"},
-        sites=["ebay"],
     )
     assert result.ok is False
     assert "availability" in result.violations

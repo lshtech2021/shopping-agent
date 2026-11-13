@@ -73,7 +73,6 @@ def test_no_category_or_must_have_means_no_llm_call():
         session.products["ok"],
         session.requirements,
         settings=session.settings,
-        sites=["jd"],
     ).ok
 
 
@@ -114,11 +113,9 @@ def test_verdicts_are_batched_cached_and_gate_eligibility():
     assert first["judged"] == 2 and again["judged"] == 0
     assert judge.calls == 1  # one batched call, then cache hit
     ok = check_product(
-        session.products["ok"], session.requirements, settings=session.settings, sites=["jd"]
-    )
+        session.products["ok"], session.requirements, settings=session.settings)
     acc = check_product(
-        session.products["acc"], session.requirements, settings=session.settings, sites=["jd"]
-    )
+        session.products["acc"], session.requirements, settings=session.settings)
     assert ok.ok
     assert "category" in acc.violations
 
@@ -149,8 +146,7 @@ def test_judge_failure_leaves_products_unjudged_and_ineligible():
 
     assert outcome["judged"] == 0 and "boom" in outcome["error"]
     result = check_product(
-        session.products["ok"], session.requirements, settings=session.settings, sites=["jd"]
-    )
+        session.products["ok"], session.requirements, settings=session.settings)
     assert result.violations == ["unjudged"]
 
 
@@ -212,7 +208,6 @@ def test_structured_output_unavailable_falls_back_to_json_text():
         session.products["ok"],
         session.requirements,
         settings=session.settings,
-        sites=["jd"],
     ).ok
 
 

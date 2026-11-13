@@ -48,7 +48,6 @@ def test_budget_requires_matching_currency():
         product,
         requirements,
         settings={"site": "ebay", "currency": "USD"},
-        sites=["ebay"],
     )
     assert "budget" not in matching.violations
 
@@ -56,7 +55,6 @@ def test_budget_requires_matching_currency():
         product,
         requirements,
         settings={"site": "ebay", "currency": "CNY"},
-        sites=["ebay"],
     )
     assert "currency" in mismatch.violations
 
@@ -71,7 +69,6 @@ def test_budget_rejects_missing_session_currency():
         },
         {"budget": 600, "must_have": []},
         settings={"site": "ebay", "currency": None},
-        sites=["ebay"],
     )
 
     assert "currency" in result.violations
@@ -107,7 +104,6 @@ def test_shipping_absolute_cap_excludes_even_when_ratio_passes():
         _shipping_product(shipping_cost=80),
         {"must_have": []},
         settings=_shipping_settings(max_shipping_cost=50),
-        sites=["ebay"],
     )
     assert "shipping" in result.violations
 
@@ -120,7 +116,6 @@ def test_shipping_ratio_cap_excludes_even_when_absolute_passes():
             max_shipping_ratio=0.05,
             max_shipping_cost=100,
         ),
-        sites=["ebay"],
     )
     assert "shipping" in result.violations
 
@@ -130,13 +125,11 @@ def test_shipping_caps_pass_and_free_shipping_is_kept():
         _shipping_product(shipping_cost=40),
         {"must_have": []},
         settings=_shipping_settings(max_shipping_cost=50),
-        sites=["ebay"],
     )
     free = check_eligibility(
         _shipping_product(shipping_cost=0),
         {"must_have": []},
         settings=_shipping_settings(max_shipping_cost=0),
-        sites=["ebay"],
     )
     assert "shipping" not in both_pass.violations
     assert "shipping" not in free.violations
@@ -148,7 +141,6 @@ def test_shipping_unknown_is_incomplete_when_caps_are_configured():
         product,
         {"must_have": []},
         settings=_shipping_settings(),
-        sites=["ebay"],
     )
     assert "shipping" not in result.violations
     assert "cost_incomplete" in result.violations
@@ -171,7 +163,6 @@ def test_shipping_caps_do_not_apply_to_jd():
             "max_shipping_ratio": 0.10,
             "max_shipping_cost": None,
         },
-        sites=["jd"],
     )
     assert "shipping" not in result.violations
     assert "cost_incomplete" not in result.violations
@@ -187,7 +178,6 @@ def test_shipping_currency_mismatch_skips_caps():
         product,
         {"must_have": []},
         settings=_shipping_settings(max_shipping_cost=10),
-        sites=["ebay"],
     )
     assert "shipping" not in result.violations
     assert "cost_incomplete" in result.violations
@@ -209,7 +199,6 @@ def test_unlimited_upper_still_enforces_an_explicit_lower_bound():
             "must_have": [],
         },
         settings={"site": "jd", "currency": "CNY"},
-        sites=["jd"],
     )
     above = check_eligibility(
         {
@@ -226,7 +215,6 @@ def test_unlimited_upper_still_enforces_an_explicit_lower_bound():
             "must_have": [],
         },
         settings={"site": "jd", "currency": "CNY"},
-        sites=["jd"],
     )
 
     assert "budget_min" in below.violations
@@ -247,7 +235,6 @@ def test_budget_uses_landed_cost_when_available():
         product,
         {"budget": 620, "must_have": []},
         settings={"site": "ebay", "currency": "CNY"},
-        sites=["ebay"],
         require_detail=True,
     )
     assert "budget" in too_tight.violations
@@ -256,7 +243,6 @@ def test_budget_uses_landed_cost_when_available():
         product,
         {"budget": 700, "must_have": []},
         settings={"site": "ebay", "currency": "CNY"},
-        sites=["ebay"],
         require_detail=True,
     )
     assert "budget" not in roomy.violations
@@ -276,7 +262,6 @@ def test_auction_and_incomplete_cost_are_ineligible_for_hard_budget():
         product,
         {"budget": 1000, "must_have": []},
         settings={"site": "ebay", "currency": "CNY"},
-        sites=["ebay"],
         require_detail=True,
     )
 
@@ -295,7 +280,6 @@ def test_parts_condition_is_ineligible():
         },
         {"must_have": []},
         settings={"site": "ebay", "currency": "CNY"},
-        sites=["ebay"],
     )
     assert "parts" in result.violations
 

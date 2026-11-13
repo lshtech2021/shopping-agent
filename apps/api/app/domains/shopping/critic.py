@@ -73,7 +73,6 @@ class ShoppingCritic:
                 product,
                 requirements,
                 settings=self.session.settings,
-                sites=self.session.sites,
                 require_detail=not self.toolbox.mock_mode,
             )
             if not eligibility.ok:

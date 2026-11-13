@@ -141,14 +141,14 @@ def check_eligibility(
     requirements: dict[str, Any],
     *,
     settings: dict[str, Any],
-    sites: list[str],
     require_detail: bool = False,
     include_fit: bool = True,
 ) -> EligibilityResult:
     requirements = requirements or {}
     violations: list[str] = []
 
-    if product.get("source") not in sites:
+    active_site = str(settings.get("site") or "")
+    if not active_site or product.get("source") != active_site:
         violations.append("site")
 
     if product.get("availability") == "unavailable":
@@ -237,7 +237,6 @@ def check_product(
     requirements: dict[str, Any],
     *,
     settings: dict[str, Any],
-    sites: list[str],
     require_detail: bool = False,
     include_fit: bool = True,
 ) -> EligibilityResult:
@@ -245,7 +244,6 @@ def check_product(
         product,
         requirements,
         settings=settings,
-        sites=sites,
         require_detail=require_detail,
         include_fit=include_fit,
     )

@@ -18,8 +18,11 @@ class CreateSessionResponse(BaseModel):
     session_id: str
     status: str
     requirement: str
-    sites: list[str]
     settings: dict[str, Any] = Field(default_factory=dict)
+    sites: list[str] = Field(
+        default_factory=list,
+        description="Deprecated mirror of [settings.site]; prefer settings.site",
+    )
 
 
 class PatchSessionSettingsRequest(BaseModel):
@@ -34,8 +37,11 @@ class PatchSessionSettingsRequest(BaseModel):
 class PatchSessionSettingsResponse(BaseModel):
     session_id: str
     status: str
-    sites: list[str]
     settings: dict[str, Any] = Field(default_factory=dict)
+    sites: list[str] = Field(
+        default_factory=list,
+        description="Deprecated mirror of [settings.site]; prefer settings.site",
+    )
     budget_cleared: bool = False
     recommendations_cleared: bool = False
 
@@ -91,8 +97,11 @@ class MessageResponse(BaseModel):
 class SessionSummary(BaseModel):
     session_id: str
     requirement: str
-    sites: list[str]
     settings: dict[str, Any] = Field(default_factory=dict)
+    sites: list[str] = Field(
+        default_factory=list,
+        description="Deprecated mirror of [settings.site]; prefer settings.site",
+    )
     status: str
     product_count: int = 0
     recommendation_count: int = 0
@@ -104,8 +113,11 @@ class SessionDetail(BaseModel):
     session_id: str
     status: str
     requirement: str
-    sites: list[str]
     settings: dict[str, Any] = Field(default_factory=dict)
+    sites: list[str] = Field(
+        default_factory=list,
+        description="Deprecated mirror of [settings.site]; prefer settings.site",
+    )
     requirements: dict[str, Any] = Field(default_factory=dict)
     plan: Optional[dict[str, Any]] = None
     messages: list[dict[str, Any]] = Field(default_factory=list)

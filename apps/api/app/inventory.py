@@ -13,7 +13,6 @@ def select_diverse_products(
     requirements: dict[str, Any],
     *,
     settings: dict[str, Any],
-    sites: list[str],
     limit: int,
     require_detail: bool = False,
 ) -> list[dict[str, Any]]:
@@ -26,7 +25,6 @@ def select_diverse_products(
             product,
             requirements,
             settings=settings,
-            sites=sites,
             require_detail=require_detail,
         ).ok
     ]

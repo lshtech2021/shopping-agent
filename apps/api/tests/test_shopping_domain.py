@@ -38,9 +38,9 @@ def seed_session():
 
 
 def test_shopping_state_and_output_are_domain_models():
-    state = ShoppingState(requirements={"budget": 5000}, sites=["jd"])
+    state = ShoppingState(requirements={"budget": 5000}, site="jd")
     output = ShoppingOutput(reply="推荐", recommendations=[{"product_id": "p1"}])
-    assert state.sites == ["jd"]
+    assert state.site == "jd"
     assert output.recommendations[0]["product_id"] == "p1"
 
 

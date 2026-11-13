@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 class ShoppingState(BaseModel):
     requirements: dict[str, Any] = Field(default_factory=dict)
-    sites: list[str] = Field(default_factory=list)
+    site: str | None = None
     products: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 

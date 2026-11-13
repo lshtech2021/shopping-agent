@@ -31,30 +31,30 @@ class FailingModel:
 def test_planning_ready_is_a_structural_check_only():
     assert planning_ready(
         {"category": "widget", "budget": 1000},
-        sites=["ebay"],
+        site="ebay",
     )
     assert planning_ready(
         {"category": "widget", "budget_unlimited": True},
-        sites=["ebay"],
+        site="ebay",
     )
     assert not planning_ready(
         {"category": "widget", "budget": None},
-        sites=["ebay"],
+        site="ebay",
     )
     assert not planning_ready(
         {"category": None, "budget": 1000},
-        sites=["ebay"],
+        site="ebay",
     )
     assert not planning_ready(
         {"category": "widget", "budget": 1000},
-        sites=[],
+        site=None,
     )
 
 
 def test_fallback_plan_needs_no_model_call():
     result = ShoppingPlanner(model=FailingModel()).fallback(
         goal="budget 1000 widget",
-        context={"requirements": {}, "sites": ["ebay"]},
+        context={"requirements": {}, "site": "ebay"},
     )
 
     assert result.metadata["search_queries"] == {}
@@ -83,7 +83,7 @@ def test_planner_uses_model_even_when_requirements_are_complete():
                     "budget": 1000,
                     "budget_unlimited": False,
                 },
-                "sites": ["jd"],
+                "site": "jd",
             },
         )
     )
@@ -102,7 +102,7 @@ def test_planner_fallback_does_not_generate_a_hardcoded_category_query():
                     "use_case": "some use case",
                     "budget": 1000,
                 },
-                "sites": ["ebay"],
+                "site": "ebay",
             },
         )
     )

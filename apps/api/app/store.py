@@ -463,8 +463,8 @@ class SessionStore:
             {
                 "session_id": s.id,
                 "requirement": s.requirement,
-                "sites": s.sites,
                 "settings": dict(s.settings),
+                "sites": [str(s.settings.get("site") or "")],
                 "status": s.status,
                 "product_count": len(s.products),
                 "recommendation_count": len(s.recommendations),
