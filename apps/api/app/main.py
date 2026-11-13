@@ -322,7 +322,7 @@ def patch_session_settings(
             ):
                 requirements["budget"] = None
                 requirements["budget_min"] = None
-                requirements["budget_currency"] = None
+                requirements.pop("budget_currency", None)
                 session.requirements = requirements
                 budget_cleared = True
             session.plan = None

@@ -47,14 +47,13 @@ class _NoArgs(BaseModel):
 
 
 class _UpdateReq(BaseModel):
-    budget: Optional[float] = Field(None, description="预算上限")
-    budget_min: Optional[float] = Field(None, description="预算下限")
-    budget_currency: Optional[str] = Field(
+    budget: Optional[float] = Field(
         None,
-        description=(
-            "预算币种 ISO 代码，如 CNY、USD。用户说“人民币/元”时填 CNY；"
-            "不要自行换算金额。"
-        ),
+        description="预算上限（金额单位始终是会话 settings.currency）",
+    )
+    budget_min: Optional[float] = Field(
+        None,
+        description="预算下限（金额单位始终是会话 settings.currency）",
     )
     budget_unlimited: Optional[bool] = Field(None, description="是否不限预算")
     category: Optional[str] = Field(

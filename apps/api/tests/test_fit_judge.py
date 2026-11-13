@@ -273,7 +273,6 @@ def test_ensure_fit_skips_products_rejected_by_deterministic_constraints():
         "category": "widget",
         "must_have": ["waterproof"],
         "budget": 1000,
-        "budget_currency": "CNY",
     }
     for index in range(60):
         shipping = 5 if index < 7 else 50

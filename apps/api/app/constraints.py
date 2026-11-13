@@ -183,17 +183,10 @@ def check_eligibility(
             )
         currency = normalize_currency(product.get("currency"))
         session_currency = normalize_currency(settings.get("currency"))
-        budget_currency = normalize_currency(
-            requirements.get("budget_currency") or session_currency
-        )
         if (
-            not budget_currency
+            not session_currency
             or not currency
-            or currency != budget_currency
-            or (
-                session_currency is not None
-                and session_currency != budget_currency
-            )
+            or currency != session_currency
         ):
             violations.append("currency")
         else:

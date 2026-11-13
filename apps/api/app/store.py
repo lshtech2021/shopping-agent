@@ -54,12 +54,7 @@ def normalize_session_dict(data: dict) -> dict:
         legacy_min = req.pop("budget_min_cny")
         if req.get("budget_min") is None and legacy_min is not None:
             req["budget_min"] = legacy_min
-    budget_currency = normalize_currency(req.get("budget_currency"))
-    if (
-        req.get("budget") is not None or req.get("budget_min") is not None
-    ) and not budget_currency:
-        budget_currency = normalize_currency(settings.get("currency"))
-    req["budget_currency"] = budget_currency
+    req.pop("budget_currency", None)
     data["requirements"] = req
 
     products = dict(data.get("products") or {})
@@ -85,17 +80,7 @@ def normalize_session_dict(data: dict) -> dict:
                     if plan_req.get("budget") is None:
                         plan_req["budget"] = legacy
                 plan_req.pop("price_cny", None)
-                plan_currency = normalize_currency(
-                    plan_req.get("budget_currency")
-                )
-                if (
-                    plan_req.get("budget") is not None
-                    or plan_req.get("budget_min") is not None
-                ) and not plan_currency:
-                    plan_currency = normalize_currency(
-                        settings.get("currency")
-                    )
-                plan_req["budget_currency"] = plan_currency
+                plan_req.pop("budget_currency", None)
                 metadata["requirements"] = plan_req
 
     recommendations = []
@@ -295,7 +280,6 @@ class SessionStore:
                 "raw": requirement.strip(),
                 "budget": None,
                 "budget_min": None,
-                "budget_currency": None,
                 "budget_unlimited": False,
                 "must_have": [],
                 "preferences": [],

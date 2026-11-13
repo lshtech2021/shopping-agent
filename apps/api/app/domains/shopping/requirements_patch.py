@@ -5,8 +5,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app.currency import normalize_currency
-
 Confidence = Literal["high", "low"]
 
 
@@ -14,7 +12,6 @@ class RequirementPatch(BaseModel):
     budget: float | None = None
     budget_min: float | None = None
     budget_unlimited: bool | None = None
-    budget_currency: str | None = None
     category: str | None = None
     use_case: str | None = None
     must_have: list[str] = Field(default_factory=list)
@@ -46,20 +43,13 @@ def apply_requirement_patch(
         req["budget_unlimited"] = True
         if patch.budget_min is not None and high("budget_min"):
             req["budget_min"] = float(patch.budget_min)
-        if patch.budget_currency and high("budget_currency"):
-            code = normalize_currency(patch.budget_currency)
-            if code:
-                req["budget_currency"] = code
     else:
         if patch.budget is not None and high("budget"):
             req["budget"] = float(patch.budget)
             req["budget_unlimited"] = False
         if patch.budget_min is not None and high("budget_min"):
             req["budget_min"] = float(patch.budget_min)
-        if patch.budget_currency and high("budget_currency"):
-            code = normalize_currency(patch.budget_currency)
-            if code:
-                req["budget_currency"] = code
+    req.pop("budget_currency", None)
     if patch.category and high("category"):
         req["category"] = patch.category
     if patch.use_case and high("use_case"):

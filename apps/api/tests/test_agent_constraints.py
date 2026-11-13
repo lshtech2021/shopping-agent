@@ -205,7 +205,6 @@ def test_unlimited_upper_still_enforces_an_explicit_lower_bound():
         {
             "budget": None,
             "budget_min": 5000,
-            "budget_currency": "CNY",
             "budget_unlimited": True,
             "must_have": [],
         },
@@ -223,7 +222,6 @@ def test_unlimited_upper_still_enforces_an_explicit_lower_bound():
         {
             "budget": None,
             "budget_min": 5000,
-            "budget_currency": "CNY",
             "budget_unlimited": True,
             "must_have": [],
         },
@@ -247,7 +245,7 @@ def test_budget_uses_landed_cost_when_available():
 
     too_tight = check_eligibility(
         product,
-        {"budget": 620, "budget_currency": "CNY", "must_have": []},
+        {"budget": 620, "must_have": []},
         settings={"site": "ebay", "currency": "CNY"},
         sites=["ebay"],
         require_detail=True,
@@ -256,7 +254,7 @@ def test_budget_uses_landed_cost_when_available():
 
     roomy = check_eligibility(
         product,
-        {"budget": 700, "budget_currency": "CNY", "must_have": []},
+        {"budget": 700, "must_have": []},
         settings={"site": "ebay", "currency": "CNY"},
         sites=["ebay"],
         require_detail=True,
@@ -276,7 +274,7 @@ def test_auction_and_incomplete_cost_are_ineligible_for_hard_budget():
 
     result = check_eligibility(
         product,
-        {"budget": 1000, "budget_currency": "CNY", "must_have": []},
+        {"budget": 1000, "must_have": []},
         settings={"site": "ebay", "currency": "CNY"},
         sites=["ebay"],
         require_detail=True,

@@ -46,17 +46,15 @@ def test_apply_preserves_must_have_when_the_patch_omits_it():
     assert out["must_have"] == ["waterproof"]
 
 
-def test_unlimited_upper_preserves_explicit_lower_bound_and_currency():
+def test_unlimited_upper_preserves_explicit_lower_bound():
     req = {
         "budget": 8000.0,
         "budget_min": 5000.0,
-        "budget_currency": "CNY",
         "budget_unlimited": False,
     }
     patch = RequirementPatch(
         budget=None,
         budget_min=5000.0,
-        budget_currency="CNY",
         budget_unlimited=True,
     )
 
@@ -65,4 +63,11 @@ def test_unlimited_upper_preserves_explicit_lower_bound_and_currency():
     assert out["budget"] is None
     assert out["budget_unlimited"] is True
     assert out["budget_min"] == 5000.0
-    assert out["budget_currency"] == "CNY"
+    assert "budget_currency" not in out
+
+
+def test_apply_strips_legacy_budget_currency():
+    req = {"budget": None, "budget_currency": "CNY"}
+    out = apply_requirement_patch(req, RequirementPatch(budget=100))
+    assert out["budget"] == 100
+    assert "budget_currency" not in out
