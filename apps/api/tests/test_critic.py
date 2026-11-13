@@ -99,6 +99,16 @@ def test_valid_candidate_passes_with_scores():
     assert critique.scores["evidence"] == 1.0
 
 
+def test_risk_score_tracks_sponsored_concentration():
+    session = seed_session()
+    session.products["p1"]["sponsored"] = True
+    critic = ShoppingCritic(session, ToolBox(session))
+
+    critique = asyncio.run(critic.evaluate(state=state(), output=output_for("p1")))
+
+    assert critique.scores["risk"] == 1.0
+
+
 def test_empty_reply_is_rejected():
     session = seed_session()
     critic = ShoppingCritic(session, ToolBox(session))

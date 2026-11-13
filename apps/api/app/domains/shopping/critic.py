@@ -133,7 +133,9 @@ class ShoppingCritic:
             "hard_constraints": 0.0 if hard_violations else 1.0,
             "evidence": round(detail_count / len(recommendations), 3),
             "diversity": round(len(seen) / len(recommendations), 3),
-            "risk": round(1.0 - sponsored_count / len(recommendations), 3),
+            # Risk rises with paid-placement concentration. An all-sponsored
+            # recommendation set must not score as zero risk.
+            "risk": round(sponsored_count / len(recommendations), 3),
         }
         if violations:
             reasons.append("；".join(dict.fromkeys(violations)))
