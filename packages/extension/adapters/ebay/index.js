@@ -61,6 +61,7 @@
     'certified refurbished',
     'open box',
     'new other',
+    'new (other)',
     'for parts',
     'for parts or not working',
     'parts only',
@@ -356,18 +357,37 @@
       '[data-testid="seller-info"]',
     ])
     if (direct) return direct
-    const row = node.querySelector(
-      '.su-card-container__attributes__secondary .s-card__attribute-row',
-    )
-    const names = [
-      ...(row?.querySelectorAll('.su-styled-text, span') || []),
+    const rows = [
+      ...node.querySelectorAll(
+        '.su-card-container__attributes__secondary .s-card__attribute-row',
+      ),
     ]
-      .map((element) => clean(element.textContent))
-      .filter(Boolean)
-    const name = names.find(
-      (value) => !/guaranteed by|positive|feedback/i.test(value),
-    )
-    return name || null
+    const nameInRow = (row) => {
+      const names = [...row.querySelectorAll('.su-styled-text, span')]
+        .map((element) => clean(element.textContent))
+        .filter(Boolean)
+      return (
+        names.find(
+          (value) =>
+            !/guaranteed by|positive|feedback|free returns|delivery/i.test(
+              value,
+            ),
+        ) || null
+      )
+    }
+    // A delivery-promise row ("Guaranteed by Sun, Dec. 20") can precede the
+    // seller row. Prefer the row that carries feedback, so the date is not
+    // mistaken for the seller name.
+    for (const row of rows) {
+      if (!/positive|feedback/i.test(clean(row.textContent))) continue
+      const name = nameInRow(row)
+      if (name) return name
+    }
+    for (const row of rows) {
+      const name = nameInRow(row)
+      if (name) return name
+    }
+    return null
   }
 
   function locationOf(node, rows = []) {
@@ -399,6 +419,30 @@
     ].join(' · ')
   }
 
+  /**
+   * eBay paints the sponsored label into an SVG data URI and obfuscates the
+   * text with invisible format characters plus Cyrillic homoglyphs (for
+   * example "S⁧ponsоred"). Decode the UTF-8 payload, drop the SVG
+   * markup and keep only ASCII so the real-world label still matches.
+   */
+  function labelFromSvgDataUri(encoded) {
+    try {
+      const binary = atob(encoded)
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+      const decoded =
+        typeof TextDecoder !== 'undefined'
+          ? new TextDecoder().decode(bytes)
+          : binary
+      return decoded
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/[^\x20-\x7E]/g, '')
+        .trim()
+        .toLowerCase()
+    } catch (_) {
+      return ''
+    }
+  }
+
   function sponsoredOf(node) {
     const badge = node.querySelector(
       '.s-item__ad-badge, .s-card__ad-badge, [data-testid="s-card__ad-badge"]',
@@ -417,12 +461,8 @@
       const encoded = style.match(
         /data:image\/svg\+xml;base64,([^"')]+)/i,
       )
-      if (encoded) {
-        try {
-          if (/ponsor/i.test(atob(encoded[1]))) return true
-        } catch (_) {
-          /* ignore malformed inline images */
-        }
+      if (encoded && labelFromSvgDataUri(encoded[1]).startsWith('spons')) {
+        return true
       }
     }
     // Fallback only for elements explicitly labelled as sponsorship. Do not
@@ -501,8 +541,25 @@
     } catch (_) {
       /* ignore malformed document URLs */
     }
+    // eBay inserts a "Results matching fewer words" notice before expanded
+    // fallback cards. Everything after that notice is a loose match, so it
+    // must not be ingested as an exact result even when the heading count is
+    // larger than the number of exact cards rendered above the notice.
+    const fallbackNotice = [
+      ...root.querySelectorAll('.srp-river-answer--REWRITE_START'),
+    ].find((notice) => /fewer words/i.test(clean(notice.textContent)))
+    const DOCUMENT_POSITION_FOLLOWING = 4
+    let skippedFallbackCards = 0
     const items = []
     for (const node of root.querySelectorAll(ITEM_SELECTORS)) {
+      if (
+        fallbackNotice &&
+        (fallbackNotice.compareDocumentPosition(node) &
+          DOCUMENT_POSITION_FOLLOWING)
+      ) {
+        skippedFallbackCards += 1
+        continue
+      }
       const link = itemLink(node)
       const href = link?.getAttribute('href') || ''
       const sourceProductId = extractItemId(href)
@@ -566,7 +623,7 @@
         page,
         result_count: 0,
         page_item_count: 0,
-        fallback_item_count: items.length,
+        fallback_item_count: items.length + skippedFallbackCards,
         has_next: false,
         next_url: null,
         no_results: true,
@@ -578,7 +635,7 @@
     // results; report them as fallback instead.
     const boundedCount =
       resultCount !== null ? Math.min(items.length, resultCount) : items.length
-    const fallbackCount = items.length - boundedCount
+    const fallbackCount = items.length - boundedCount + skippedFallbackCards
     const boundedItems = items.slice(0, boundedCount)
     return {
       status: 'ok',

@@ -637,3 +637,102 @@ test('sponsored footer requires the sponsored label, not any background image', 
     true,
   )
 })
+
+test('sponsored footer recognises eBay obfuscated SVG labels', () => {
+  // Captured from live eBay SRP cards. The label text contains invisible
+  // format characters and Cyrillic homoglyphs. The fixture omits the reversed
+  // "derosnopS" span so only the SVG fallback can detect the label.
+  const variants = [
+    'PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZlcnNpb249JzEuMSc+PHRleHQgeT0nMzUuMDcwOTY1ODk0ODg3NTUnIGR4PSctMzguMDUyNDQ4NzgzMTI0NjI1JyB0cmFuc2Zvcm09J3RyYW5zbGF0ZSgzMi41MTQ5MDk4NDk1NTIwOCAzMy45OTE4MTQ1NDQxMjc1MzYpJyBmaWxsPScjNzA3MDcwJyB4PSctMzIuMTU2MjY1MTM4MTIwOTg2JyBmb250LWZhbWlseT0nTWFya2V0IFNhbnMsQXJpYWwsc2Fucy1zZXJpZicgZm9udC1zaXplPScxMicgZHk9Jy0zMS42ODI4MjcxNzAwODcyODMnPlPigadwb25z0L5yZWQ8L3RleHQ+PC9zdmc+',
+    'PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZlcnNpb249JzEuMSc+PHRleHQgZHk9Jy0zMC4wMDkwNDI3MzQ0Nzg2ODcnIGZvbnQtc2l6ZT0nMTInIHk9JzMxLjY5NTg3MTE0NTI5OTI5MycgdHJhbnNmb3JtPSd0cmFuc2xhdGUoMy43MTg3OTQ0OTQwNTU0NTYgOS45MDIyNTk1NTc0MDQyMDUpJyBkeD0nLTM1LjI0MjIxNDMxNTU2MjI5JyBmaWxsPScjNzA3MDcwJyB4PSczMS41Mjc3NjIyNTIzNzk5MzMnIGZvbnQtZmFtaWx5PSdNYXJrZXQgU2FucyxBcmlhbCxzYW5zLXNlcmlmJz5TcG/YnG5zb3LQtWQ8L3RleHQ+PC9zdmc+',
+  ]
+  for (const encoded of variants) {
+    const dom = new JSDOM(
+      `<html><body><ul><li class="s-card">
+        <a class="s-card__link" href="/itm/123"></a>
+        <div class="s-card__title">Laptop</div>
+        <span class="s-card__price">US $500.00</span>
+        <div class="s-card__footer"><div class="s-card__footer--row"><div class="s-card__sep">
+          <b style="background-image: url('data:image/svg+xml;base64,${encoded}')"></b>
+        </div></div></div>
+      </li></ul></body></html>`,
+      { url: 'https://www.ebay.com/sch/i.html?_nkw=laptop' },
+    )
+    assert.equal(
+      ebay.parseListing(dom.window.document, dom.window.location.href).items[0]
+        .sponsored,
+      true,
+    )
+  }
+})
+
+test('shop name skips a separate Guaranteed by row', () => {
+  const dom = new JSDOM(
+    `<html><body><ul><li class="s-card">
+      <a class="s-card__link" href="/itm/123"></a>
+      <div class="s-card__title">Laptop</div>
+      <span class="s-card__price">US $500.00</span>
+      <div class="su-card-container__attributes__secondary">
+        <div class="s-card__attribute-row">
+          <span class="su-styled-text secondary large">Guaranteed by </span>
+          <span class="su-styled-text positive bold large">Sun, Dec. 20</span>
+        </div>
+        <div class="s-card__attribute-row">
+          <span class="su-styled-text primary large">turbotradejp </span>
+          <span class="su-styled-text primary large">99.6% positive (1.4K)</span>
+        </div>
+      </div>
+    </li></ul></body></html>`,
+    { url: 'https://www.ebay.com/sch/i.html?_nkw=laptop' },
+  )
+  const result = ebay.parseListing(dom.window.document, dom.window.location.href)
+  assert.equal(result.items[0].shop_name, 'turbotradejp')
+})
+
+test('condition recognises New (Other)', () => {
+  const dom = new JSDOM(
+    `<html><body><ul><li class="s-card">
+      <a class="s-card__link" href="/itm/123"></a>
+      <div class="s-card__title">Laptop</div>
+      <span class="s-card__price">US $500.00</span>
+      <div class="s-card__subtitle">
+        <span class="su-styled-text secondary default">New (Other)</span>
+      </div>
+    </li></ul></body></html>`,
+    { url: 'https://www.ebay.com/sch/i.html?_nkw=laptop' },
+  )
+  const result = ebay.parseListing(dom.window.document, dom.window.location.href)
+  assert.equal(result.items[0].condition, 'New (Other)')
+})
+
+test('fallback cards after the fewer-words notice are not ingested', () => {
+  const card = (id) => `<li class="s-card">
+      <a class="s-card__link" href="/itm/${id}"></a>
+      <div class="s-card__title">Laptop ${id}</div>
+      <span class="s-card__price">US $500.00</span>
+    </li>`
+  const dom = new JSDOM(
+    `<html><body>
+      <div class="srp-controls__count-heading">9 results for laptop</div>
+      <ul class="srp-results">
+        ${card(1)}
+        ${card(2)}
+        <li class="srp-river-answer srp-river-answer--REWRITE_START">
+          <section class="su-notice"><p><span class="BOLD">Results matching fewer words</span></p></section>
+        </li>
+        ${card(3)}
+        ${card(4)}
+      </ul>
+    </body></html>`,
+    { url: 'https://www.ebay.com/sch/i.html?_nkw=laptop' },
+  )
+  const result = ebay.parseListing(dom.window.document, dom.window.location.href)
+  assert.deepEqual(
+    result.items.map((item) => item.source_product_id),
+    ['1', '2'],
+  )
+  assert.equal(result.result_count, 9)
+  assert.equal(result.page_item_count, 2)
+  assert.equal(result.fallback_item_count, 2)
+  assert.equal(result.fallback_truncated, true)
+})

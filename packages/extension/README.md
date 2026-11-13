@@ -93,8 +93,10 @@ Quality rules:
 - `listing_type` falls back to `buy_it_now` when the search URL has `LH_BIN=1`
   and the card has no purchase-option row; an explicit bid row still wins.
 - `sponsored` requires an explicit `Sponsored` badge/label, including eBay's
-  footer separator whose DOM text is reversed (`derosnopS`) or painted as a
-  background image. An ordinary footer is not treated as sponsored.
+  footer separator whose DOM text is reversed (`derosnopS`) or painted as an
+  SVG background image. eBay obfuscates the SVG label with invisible format
+  characters and Cyrillic homoglyphs; the parser decodes the UTF-8 payload
+  before matching. An ordinary footer is not treated as sponsored.
 - `import_charges` is parsed when the detail page shows an import-charge row;
   `customs_may_apply` records a customs/duties warning without inventing an
   amount.
@@ -117,8 +119,9 @@ Quality rules:
 - `result_count` comes from the results heading when available. If the next
   anchor is missing, pagination falls back to `_pgn + 1` only when the total
   proves another page exists.
-- A zero result count or a "no exact matches" marker discards eBay's
-  "results matching fewer words" fallback cards instead of ingesting them.
+- A zero result count, a "no exact matches" marker, or a "results matching
+  fewer words" notice discards eBay's fallback cards instead of ingesting
+  them; cards after that notice are never treated as exact results.
 - Parsing waits until the card count is stable for a few polls, not just
   until the first card appears.
 - Exclusion terms are normalized to `-term`, because eBay treats every
