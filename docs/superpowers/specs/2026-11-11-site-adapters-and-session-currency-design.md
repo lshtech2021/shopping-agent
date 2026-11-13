@@ -1,8 +1,17 @@
 # Site Adapters + Session Currency Design
 
 **Date:** 2026-11-11  
-**Status:** Approved  
+**Status:** Approved (partially superseded)  
 **Context:** One active site per session; one session currency (no `_cny` suffixes); paired extension/backend site adapters; host-owned search filters; no FX in LLM prompts.
+
+## Superseded (2026-11-13)
+
+Authoritative follow-up: `2026-11-13-session-invariants-hardening-design.md` (plan: `docs/superpowers/plans/2026-11-13-session-invariants-hardening.md`).
+
+- §4 “keep products” on same-currency site switch → **hard reset** (clear products + plan + searched + recommendations + checkpoint).
+- Dual `sites[]` mirror → **`settings.site` only**.
+- Dual `budget_currency` (added in implementation) → **removed**; budget ∈ `settings.currency`.
+- Fail-open when listing page currency is unknown → fail-closed **`currency_unknown`**.
 
 ## Problem
 
