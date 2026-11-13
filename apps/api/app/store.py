@@ -38,6 +38,8 @@ def normalize_session_dict(data: dict) -> dict:
         settings["max_shipping_ratio"] = app_settings.max_shipping_ratio
     if "max_shipping_cost" not in settings:
         settings["max_shipping_cost"] = app_settings.max_shipping_cost
+    if "search_price_buffer" not in settings:
+        settings["search_price_buffer"] = 0.85
     # JD always prices in CNY; eBay currency is detected before money is used.
     if site == "jd" and not settings["currency"]:
         settings["currency"] = "CNY"
@@ -275,6 +277,7 @@ class SessionStore:
                 ),
                 "max_shipping_ratio": app_settings.max_shipping_ratio,
                 "max_shipping_cost": app_settings.max_shipping_cost,
+                "search_price_buffer": 0.85,
             },
             requirements={
                 "raw": requirement.strip(),

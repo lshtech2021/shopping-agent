@@ -123,11 +123,32 @@ def context_block(box: Any) -> str:
     info = box.get_session()
     site = str(box.session.settings.get("site") or "")
     currency = str(box.session.settings.get("currency") or "")
+    requirements = info.get("requirements") or {}
+    search_cap = None
+    budget = requirements.get("budget")
+    if (
+        not requirements.get("budget_unlimited")
+        and budget is not None
+        and currency
+    ):
+        try:
+            buffer = float(
+                box.session.settings.get("search_price_buffer") or 0.85
+            )
+            search_cap = round(float(budget) * buffer, 2)
+        except (TypeError, ValueError):
+            search_cap = None
+    cap_line = (
+        f"- 搜索价上限：{search_cap} {currency}（预算缓冲）\n"
+        if search_cap is not None
+        else ""
+    )
     return (
         "Current Status:\n"
         f"- 站点：{site}（已搜索：{'是' if site in box.session.searched_sites else '否'}）\n"
         f"- 币种：{currency or '未设置'}\n"
-        f"- 需求：{json.dumps(info['requirements'], ensure_ascii=False)}\n"
+        f"{cap_line}"
+        f"- 需求：{json.dumps(requirements, ensure_ascii=False)}\n"
         f"- {info['inventory_summary']}\n"
         f"- 配额使用：{json.dumps(info['quotas'], ensure_ascii=False)}\n"
         f"- 运行模式：{'mock 数据' if box.mock_mode else '真实浏览器'}"

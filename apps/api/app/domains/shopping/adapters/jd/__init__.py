@@ -30,4 +30,13 @@ class JDAdapter:
     ) -> dict[str, Any]:
         return {}
 
+    def eligibility_extra(
+        self,
+        product: dict[str, Any],
+        settings: dict[str, Any],
+        requirements: dict[str, Any],
+    ) -> list[str]:
+        return []
+
+
 adapter = JDAdapter()

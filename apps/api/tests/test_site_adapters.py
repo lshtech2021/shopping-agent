@@ -55,11 +55,41 @@ def test_explicit_max_price_is_capped_by_budget_buffer():
     assert filters["maxPrice"] == 4250.0
 
 
-def test_adapter_surface_has_no_duplicate_budget_rules():
+def test_adapter_surface_exposes_eligibility_extra_not_duplicate_budget():
     for site in ("jd", "ebay"):
         adapter = get_adapter(site)
         assert not hasattr(adapter, "eligible_for_budget")
         assert not hasattr(adapter, "prefilter")
+        assert callable(adapter.eligibility_extra)
+
+
+def test_ebay_eligibility_extra_flags_auction_under_budget():
+    violations = get_adapter("ebay").eligibility_extra(
+        {
+            "source": "ebay",
+            "price": 100,
+            "currency": "USD",
+            "listing_type": "auction",
+            "cost_complete": True,
+        },
+        {"site": "ebay", "currency": "USD"},
+        {"budget": 500, "must_have": []},
+    )
+    assert "auction" in violations
+
+
+def test_ebay_search_buffer_respects_settings():
+    filters = get_adapter("ebay").build_search_filters(
+        query="laptop",
+        requirements={"budget": 1000},
+        settings={
+            "site": "ebay",
+            "currency": "USD",
+            "search_price_buffer": 0.9,
+        },
+        max_price=None,
+    )
+    assert filters["maxPrice"] == 900.0
 
 
 def test_ebay_prompt_extra_has_no_fx_instruction():
