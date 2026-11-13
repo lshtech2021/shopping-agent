@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.config import settings as app_settings
 from app.domains.shopping.adapters import get_adapter
 
 SYSTEM_PROMPT = """You are a shopping product selection assistant. Workflow: clarify requirements → (reuse cache | search) → compare → recommend.
@@ -133,7 +134,9 @@ def context_block(box: Any) -> str:
     ):
         try:
             buffer = float(
-                box.session.settings.get("search_price_buffer") or 0.85
+                box.session.settings.get("search_price_buffer")
+                if box.session.settings.get("search_price_buffer") is not None
+                else app_settings.search_price_buffer
             )
             search_cap = round(float(budget) * buffer, 2)
         except (TypeError, ValueError):

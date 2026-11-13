@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Any, Literal, Protocol
 
+from app.config import settings as app_settings
+
 
 class SiteAdapter(Protocol):
     id: Literal["jd", "ebay"]
@@ -29,11 +31,6 @@ class SiteAdapter(Protocol):
     ) -> list[str]: ...
 
 
-# The item price cap leaves room for shipping and import costs. The exact
-# landed cost is checked again after fetch_detail.
-SEARCH_PRICE_BUFFER_RATIO = 0.85
-
-
 def budget_search_filters(
     requirements: dict[str, Any],
     max_price: float | None,
@@ -41,15 +38,20 @@ def budget_search_filters(
     buy_it_now_only: bool | None = None,
     buffer_ratio: float | None = None,
 ) -> dict[str, Any]:
+    """Build search price filters; buffer leaves room for shipping/tax.
+
+    The exact landed cost is checked again after fetch_detail.
+    """
     budget = None
     if not requirements.get("budget_unlimited"):
         budget = requirements.get("budget")
-    ratio = SEARCH_PRICE_BUFFER_RATIO
+    default_ratio = float(app_settings.search_price_buffer)
+    ratio = default_ratio
     if buffer_ratio is not None:
         try:
             ratio = float(buffer_ratio)
         except (TypeError, ValueError):
-            ratio = SEARCH_PRICE_BUFFER_RATIO
+            ratio = default_ratio
     caps: list[float] = []
     if max_price is not None:
         caps.append(float(max_price))

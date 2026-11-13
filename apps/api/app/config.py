@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     max_shipping_ratio: float = 0.10
     max_shipping_cost: float | None = None
 
+    # Search item-price cap as a fraction of budget (0.85 leaves room for
+    # shipping/tax). Sessions may override via settings.search_price_buffer.
+    search_price_buffer: float = 0.85
+
     # Optional audit/observability features.
     artifact_storage_enabled: bool = False
     artifact_threshold_chars: int = 20000
