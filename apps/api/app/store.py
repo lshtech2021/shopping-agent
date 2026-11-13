@@ -178,7 +178,7 @@ class SessionStore:
 
         self._sessions: dict[str, Session] = {}
         self._dirty: set[str] = set()
-        raw = database_url if database_url is not None else settings.database_url
+        raw = database_url if database_url is not None else app_settings.database_url
         self._database_url = raw
         self._pg_url = _normalize_database_url(raw)
         self._repo = RunRepository(raw)
