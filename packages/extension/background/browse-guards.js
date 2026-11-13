@@ -40,7 +40,23 @@
 
     const expected = normalizeCurrency(sessionCurrency)
     const detected = normalizeCurrency(pageCurrency)
-    if (!expected || !detected || expected !== detected) {
+    if (!expected) {
+      return {
+        ok: false,
+        error: 'currency_mismatch',
+        page_currency: detected,
+        session_currency: null,
+      }
+    }
+    if (!detected) {
+      return {
+        ok: false,
+        error: 'currency_unknown',
+        page_currency: null,
+        session_currency: expected,
+      }
+    }
+    if (expected !== detected) {
       return {
         ok: false,
         error: 'currency_mismatch',

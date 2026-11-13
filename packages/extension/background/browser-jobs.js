@@ -390,24 +390,40 @@ async function waitForListingReady(tabId, args, deadline, log) {
 
 async function guardTab(tabId, args, deadline, { skipCurrency = false } = {}) {
   const settings = sessionSettings(args)
-  // Legacy/local callers without a session cannot provide a meaningful
-  // currency precondition. Production jobs always include session settings.
-  if (!settings) return null
+  if (!settings) {
+    if (args.run_id) {
+      return {
+        status: 'blocked',
+        error: 'settings_missing',
+        session_site: null,
+      }
+    }
+    // Local/unit callers without a run cannot provide session settings.
+    return null
+  }
 
   const tab = await chrome.tabs.get(tabId)
-  const siteCheck = assertBrowseAllowed({
-    sessionSite: settings.site,
-    sessionCurrency: settings.currency || 'SITE_CHECK',
-    tabUrl: tab?.url,
-    pageCurrency: settings.currency || 'SITE_CHECK',
-  })
-  if (!siteCheck.ok && siteCheck.error !== 'currency_mismatch') {
-    return { status: 'blocked', ...siteCheck }
+  let adapter
+  try {
+    adapter = getAdapter(settings.site)
+  } catch (error) {
+    return {
+      status: 'blocked',
+      error: error.code || 'adapter_missing',
+      session_site: settings.site || null,
+    }
+  }
+  if (!adapter.matchUrl(tab?.url || '')) {
+    return {
+      status: 'blocked',
+      error: 'site_mismatch',
+      session_site: adapter.id,
+      tab_url: tab?.url || null,
+    }
   }
   if (skipCurrency) {
-    // Detail pages are evidence pages. eBay may show a different display
-    // currency there; the backend keeps the listing price/currency and flags
-    // the detail currency instead of blocking specification extraction.
+    // Detail pages are evidence pages. Listing currency was already gated;
+    // keep extracting specs even if the detail chrome shows another display.
     return null
   }
 
@@ -431,8 +447,8 @@ async function guardTab(tabId, args, deadline, { skipCurrency = false } = {}) {
     { deadline },
   )
   const pageCurrency = detected?.ok ? detected.currency : null
-  if (!pageCurrency) {
-    if (!settings.currency) {
+  if (!settings.currency) {
+    if (!pageCurrency) {
       return {
         status: 'blocked',
         error: 'currency_unknown',
@@ -440,12 +456,6 @@ async function guardTab(tabId, args, deadline, { skipCurrency = false } = {}) {
         session_currency: null,
       }
     }
-    // No currency signal on this page (for example a zero-result page). The
-    // product parser still records each item's currency and backend
-    // eligibility rejects cross-currency items, so do not deadlock here.
-    return null
-  }
-  if (!settings.currency) {
     if (!args.run_id) {
       return {
         status: 'blocked',

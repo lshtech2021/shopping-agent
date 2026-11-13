@@ -43,6 +43,22 @@ test('allows when site and currencies match', () => {
   assert.deepEqual(result, { ok: true })
 })
 
+test('blocks when page currency unknown and session currency set', () => {
+  const result = assertBrowseAllowed({
+    sessionSite: 'ebay',
+    sessionCurrency: 'USD',
+    tabUrl: 'https://www.ebay.com/sch/i.html',
+    pageCurrency: null,
+  })
+
+  assert.deepEqual(result, {
+    ok: false,
+    error: 'currency_unknown',
+    page_currency: null,
+    session_currency: 'USD',
+  })
+})
+
 test('ebay price samples win over the geo control', () => {
   const dom = new JSDOM(`
     <div id="gh-eb-Geo">Ship to Canada · CAD</div>
