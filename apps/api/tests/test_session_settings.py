@@ -157,7 +157,7 @@ def test_patch_settings_changes_site():
     assert body["settings"]["currency_source"] == "manual"
 
 
-def test_patch_site_clears_site_keyed_state_without_resuming_done_session():
+def test_patch_site_hard_resets_products_plan_and_checkpoint():
     created = client.post(
         "/api/v1/sessions",
         json={"requirement": "笔记本", "site": "jd"},
@@ -178,7 +178,14 @@ def test_patch_site_clears_site_keyed_state_without_resuming_done_session():
     session.recommendations = [
         {"product_id": "jd:1", "title": "Laptop", "reason": "fit"}
     ]
+    session.requirements["category"] = "笔记本"
     store.touch(session, durable=True)
+    store._repo.save_checkpoint(
+        sid,
+        {"run_id": sid, "plan": session.plan, "messages": [], "step": 1},
+        updated_at=session.updated_at,
+    )
+    assert store._repo.load_checkpoint(sid) is not None
 
     response = client.patch(
         f"/api/v1/sessions/{sid}/settings",
@@ -191,8 +198,10 @@ def test_patch_site_clears_site_keyed_state_without_resuming_done_session():
     assert detail["settings"]["site"] == "ebay"
     assert detail["plan"] is None
     assert detail["searched_sites"] == []
-    assert [item["product_id"] for item in detail["products"]] == ["jd:1"]
+    assert detail["products"] == []
     assert detail["recommendations"] == []
+    assert detail["requirements"]["category"] == "笔记本"
+    assert store._repo.load_checkpoint(sid) is None
 
 
 def test_patch_clear_products_adopts_detected_currency():

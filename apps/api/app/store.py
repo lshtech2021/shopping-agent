@@ -474,6 +474,9 @@ class SessionStore:
             for s in self._sorted()[: max(1, limit)]
         ]
 
+    def delete_checkpoint(self, session_id: str) -> None:
+        self._repo.delete_checkpoint(session_id)
+
 
 # Import-safe default; FastAPI lifespan binds the configured PostgreSQL URL.
 store = SessionStore("memory")

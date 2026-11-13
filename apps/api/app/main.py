@@ -306,9 +306,13 @@ def patch_session_settings(
         session.settings["site"] = payload.site
         session.sites = [payload.site]
         if site_changed:
+            # Hard reset: new site is a new shopping context.
+            session.products.clear()
             session.plan = None
             session.searched_sites.clear()
             session.recommendations.clear()
+            recommendations_cleared = True
+            store.delete_checkpoint(session.id)
     if payload.currency is not None:
         currency = normalize_currency(payload.currency)
         if not currency or not is_supported_currency(currency):
@@ -328,6 +332,14 @@ def patch_session_settings(
             session.plan = None
             session.searched_sites.clear()
             session.recommendations.clear()
+            recommendations_cleared = True
+            mismatched = any(
+                normalize_currency(product.get("currency")) not in {None, currency}
+                for product in session.products.values()
+            )
+            if mismatched:
+                session.products.clear()
+            store.delete_checkpoint(session.id)
         session.settings["currency"] = currency
         session.settings["currency_source"] = payload.currency_source or "manual"
     shipping_changed = False
@@ -341,6 +353,7 @@ def patch_session_settings(
     if payload.clear_products:
         session.products.clear()
         session.recommendations.clear()
+        recommendations_cleared = True
     settings_changes = {
         key: {
             "before": settings_before.get(key),
